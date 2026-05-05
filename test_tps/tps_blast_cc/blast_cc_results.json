@@ -1,0 +1,23 @@
+{
+  "amount": "1000000000000000000",
+  "destinationId": 2,
+  "recipient": "0xbF2b4B9b9dFB6d23F7F0FC46981c2eC89f94A9F2",
+  "roundTPS": [
+    928.960130080756
+  ],
+  "rounds": 1,
+  "summaries": [
+    {
+      "round": 1,
+      "startBlock": 11,
+      "endBlock": 106,
+      "blockCount": 95,
+      "txCount": 20000,
+      "maxTxInBlock": 1200,
+      "tps": 928.960130080756,
+      "processingSec": 21.529449276
+    }
+  ],
+  "txCount": 20000,
+  "type": "Native parallel"
+}

@@ -1,0 +1,66 @@
+==================================================
+🛑 ERROR REPORT: Test TCP (Bước 3)
+⏰ Time: Tue May  5 03:36:32 AM UTC 2026
+==================================================
+
+[1] COMMAND OUTPUT (Last 100 lines):
+--------------------------------------------------
+stat main-no-none.go: no such file or directory
+
+[2] RPC PROXY LATEST LOG (Last 50 lines):
+--------------------------------------------------
+[32m[INFO][May  5 03:36:31]  startIO: sendChan đã được expose cho 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: started[0m
+[32m[INFO][May  5 03:36:31]  Connection manager: Connected to 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  writeLoop 127.0.0.1:4201: started[0m
+[32m[INFO][May  5 03:36:31]  SendMessage called for command 'InitConnection' to connection 0x2874ccCb4879F14C00f4730944333ADf7A18298c[0m
+[32m[INFO][May  5 03:36:31]  Connect: InitConnection sent to 0.0.0.0:4201, server gate unblocked[0m
+[32m[INFO][May  5 03:36:31]  Connected to cluster chain_pool_7 at 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  Running connection with graceful shutdown logic...[0m
+[32m[INFO][May  5 03:36:31]  writeLoop 127.0.0.1:4201: sending command InitConnection (121 bytes, remaining queue=0/65536)[0m
+[32m[INFO][May  5 03:36:31]  startIO: sendChan đã được expose cho 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  Connection manager: Connected to 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  SendMessage called for command 'InitConnection' to connection 0xa9A8243AB7d514Ff15F553357457BDbcEe4954a2[0m
+[32m[INFO][May  5 03:36:31]  Connect: InitConnection sent to 0.0.0.0:4201, server gate unblocked[0m
+[32m[INFO][May  5 03:36:31]  writeLoop 127.0.0.1:4201: started[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: started[0m
+[32m[INFO][May  5 03:36:31]  writeLoop 127.0.0.1:4201: sending command InitConnection (121 bytes, remaining queue=0/65536)[0m
+[32m[INFO][May  5 03:36:31]  Connected to cluster chain_pool_8 at 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  Running connection with graceful shutdown logic...[0m
+[32m[INFO][May  5 03:36:31]  startIO: sendChan đã được expose cho 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  Connection manager: Connected to 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  SendMessage called for command 'InitConnection' to connection 0x5a199C921488D6DaF78bbA628Cc28CA839F9B08a[0m
+[32m[INFO][May  5 03:36:31]  Connect: InitConnection sent to 0.0.0.0:4201, server gate unblocked[0m
+[32m[INFO][May  5 03:36:31]  writeLoop 127.0.0.1:4201: started[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: started[0m
+[32m[INFO][May  5 03:36:31]  Connected to cluster chain_pool_9 at 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  ✅ ChainConnectionPool created: 10/10 connections to 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  ✅ ChainConnectionPool initialized: 10 connections to 0.0.0.0:4201[0m
+[32m[INFO][May  5 03:36:31]  RPC Reverse Proxy initialized successfully[0m
+[32m[INFO][May  5 03:36:31]  writeLoop 127.0.0.1:4201: sending command InitConnection (121 bytes, remaining queue=0/65536)[0m
+[32m[INFO][May  5 03:36:31]  ✅ SubscriptionInterceptor: TcpBroadcaster đã được gắn[0m
+[32m[INFO][May  5 03:36:31]  🔌 TCP RPC Server initialized (with subscription support)[0m
+[32m[INFO][May  5 03:36:31]  TLS enabled using cert: certificate.pem, key: private.key[0m
+[32m[INFO][May  5 03:36:31]  RPC Reverse Proxy started successfully.[0m
+[32m[INFO][May  5 03:36:31]  Starting TCP RPC server on port :9545[0m
+[32m[INFO][May  5 03:36:31]  Starting Worker Pool with 64 workers...[0m
+[32m[INFO][May  5 03:36:31]  Worker Pool Config - RequestChanSize: 640, NumCPU: 104[0m
+[32m[INFO][May  5 03:36:31]  Starting HTTPS server on port :8666[0m
+[32m[INFO][May  5 03:36:31]  Starting HTTP server on port :8545[0m
+[32m[INFO][May  5 03:36:31]  Server listening on :9545[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:31]  readLoop 127.0.0.1:4201: received command InitConnection (33 bytes body)[0m
+[32m[INFO][May  5 03:36:32]  Đỉnh mới bộ nhớ request đang giữ: 0.02 MB[0m
+
+[3] METANODE 0 LATEST LOG (Last 100 lines):
+--------------------------------------------------
+No Node 0 log found.
+==================================================
