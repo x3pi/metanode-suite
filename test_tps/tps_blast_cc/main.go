@@ -26,14 +26,14 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/meta-node-blockchain/meta-node/cmd/rpc-client/client-tcp/command"
-	c_config "github.com/meta-node-blockchain/meta-node/cmd/rpc-client/client-tcp/config"
-	"github.com/meta-node-blockchain/meta-node/cmd/tool/tps_blast/rpc"
-	"github.com/meta-node-blockchain/meta-node/pkg/bls"
-	p_common "github.com/meta-node-blockchain/meta-node/pkg/common"
-	"github.com/meta-node-blockchain/meta-node/pkg/logger"
-	pb "github.com/meta-node-blockchain/meta-node/pkg/proto"
-	"github.com/meta-node-blockchain/meta-node/pkg/transaction"
+	"tool-test/pkg/bls"
+	"tool-test/pkg/client-tcp/command"
+	c_config "tool-test/pkg/client-tcp/config"
+	p_common "tool-test/pkg/common"
+	"tool-test/pkg/logger"
+	pb "tool-test/pkg/proto"
+	"tool-test/pkg/transaction"
+	"tool-test/test_tps/tps_blast_cc/rpc"
 )
 
 // AccountInfo from generated_keys.json
@@ -50,7 +50,7 @@ type rawWriter struct {
 	addr         string
 	version      string
 	toAddrHex    string
-	rpcPool      []*rpc.RPCClient // injected for nonce divergence check
+	rpcPool      []*rpc.RPCClient     // injected for nonce divergence check
 	nonceChecker func(addrHex string) // callback khi invalid nonce xảy ra
 }
 

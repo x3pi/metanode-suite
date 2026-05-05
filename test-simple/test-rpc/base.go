@@ -68,15 +68,16 @@ func main() {
 		"get_logs":                runGetLogs,
 		"account_state":           runAccountState,
 		"get_chain_id":            runGetChainID,
-		"get_transaction_by_hash": runGetTransactionByHash,
-		"get_block_transactions":  runGetBlockTransactions,
+		"get_transaction_by_hash":                 runGetTransactionByHash,
+		"get_block_transactions":                  runGetBlockTransactions,
+		"get_system_transactions_by_block_number": runGetSystemTransactionsByBlockNumber,
 	}
 
 	runType := strings.ToLower(strings.TrimSpace(cfg.Type))
 	handler, ok := handlers[runType]
 	if !ok {
 		fmt.Printf("Unsupported type: %q\n", cfg.Type)
-		fmt.Println("Supported types: get_logs, account_state, get_chain_id")
+		fmt.Println("Supported types: get_logs, account_state, get_chain_id, get_transaction_by_hash, get_block_transactions, get_system_transactions_by_block_number")
 		os.Exit(1)
 	}
 
@@ -271,12 +272,12 @@ func runGetBlockTransactions(url string, cfg Config) (string, error) {
 
 	txsRaw, ok := blockData["transactions"].([]interface{})
 	if !ok {
-		return "0 transactions nil", nil
+		return "0 transactions", nil
 	}
 
 	txCount := len(txsRaw)
 	if txCount == 0 {
-		return "0 transactions count = 0", nil
+		return "0 transactions", nil
 	}
 
 	var txHashes []string
@@ -287,6 +288,39 @@ func runGetBlockTransactions(url string, cfg Config) (string, error) {
 	}
 
 	return fmt.Sprintf("%d transactions: %v", txCount, txHashes), nil
+}
+
+func runGetSystemTransactionsByBlockNumber(url string, cfg Config) (string, error) {
+	blockRaw, ok := readParam(cfg.Params, "block")
+	if !ok {
+		return "", fmt.Errorf("params.block is required")
+	}
+	block, err := normalizeBlockParam(blockRaw)
+	if err != nil {
+		return "", fmt.Errorf("params.block: %w", err)
+	}
+
+	result, err := callRPC(url, cfg.TimeoutSeconds, "eth_getSystemTransactionsByBlockNumber", []interface{}{block})
+	if err != nil {
+		return "", err
+	}
+
+	if string(result) == "null" {
+		return "null (không có system transactions hoặc block không tồn tại)", nil
+	}
+
+	var txHashes []string
+	if err := json.Unmarshal(result, &txHashes); err != nil {
+		return "", fmt.Errorf("failed to parse result: %w", err)
+	}
+
+	txCount := len(txHashes)
+	if txCount == 0 {
+		return "0 system transactions", nil
+	}
+
+	prettyJSON, _ := json.MarshalIndent(txHashes, "", "  ")
+	return fmt.Sprintf("\n%d system transactions:\n%s", txCount, string(prettyJSON)), nil
 }
 
 func callRPC(url string, timeoutSeconds int, method string, params interface{}) (json.RawMessage, error) {

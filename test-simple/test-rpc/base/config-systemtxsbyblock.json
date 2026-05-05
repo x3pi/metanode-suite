@@ -1,5 +1,5 @@
 {
-    "type": "get_block_transactions",
+    "type": "get_system_transactions_by_block_number",
     "rpc_urls": [
         "http://localhost:8757",
         "http://localhost:10747",
@@ -7,6 +7,6 @@
         "http://localhost:10750"
     ],
     "params": {
-        "block": 889
+        "block": "latest"
     }
 }

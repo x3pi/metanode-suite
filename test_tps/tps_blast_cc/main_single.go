@@ -20,20 +20,21 @@ import (
 
 	"bufio"
 
+	"tool-test/test_tps/tps_blast_cc/rpc"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/meta-node-blockchain/meta-node/cmd/rpc-client/client-tcp/command"
-	c_config "github.com/meta-node-blockchain/meta-node/cmd/rpc-client/client-tcp/config"
-	"github.com/meta-node-blockchain/meta-node/cmd/tool/tps_blast/rpc"
-	"github.com/meta-node-blockchain/meta-node/pkg/bls"
-	p_common "github.com/meta-node-blockchain/meta-node/pkg/common"
-	"github.com/meta-node-blockchain/meta-node/pkg/logger"
-	pb "github.com/meta-node-blockchain/meta-node/pkg/proto"
-	"github.com/meta-node-blockchain/meta-node/pkg/transaction"
+	"tool-test/pkg/bls"
+	"tool-test/pkg/client-tcp/command"
+	c_config "tool-test/pkg/client-tcp/config"
+	p_common "tool-test/pkg/common"
+	"tool-test/pkg/logger"
+	pb "tool-test/pkg/proto"
+	"tool-test/pkg/transaction"
 )
 
 // AccountInfo from generated_keys.json
