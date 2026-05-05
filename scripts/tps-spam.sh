@@ -180,7 +180,7 @@ case "$ACTION" in
 
             # Window 2: block_hash_checker
             tmux new-window -t "$SESSION" -n "hash-check" \
-                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL --check-last $CHECKER_LAST --nodes \"$CHECKER_NODES\" 2>> \"$ERR_LOG\" || { echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] ❌ LỖI: Block Hash Checker đã dừng do phát hiện lệch hash (hoặc bị crash). Kiểm tra hash_mismatch_alert.log để biết chi tiết!\" >> \"$ERR_LOG\"; touch \"$FLAG_STOP\"; pkill -f \"tps_blast_cc/main.go\" 2>/dev/null || true; }; exec bash"
+                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL --check-last $CHECKER_LAST --nodes \"$CHECKER_NODES\" 2>> \"$ERR_LOG\" || { echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] ❌ LỖI: Block Hash Checker đã dừng do phát hiện lệch hash (hoặc bị crash). Kiểm tra hash_mismatch_alert.log để biết chi tiết!\" >> \"$ERR_LOG\"; touch \"$FLAG_STOP\"; tmux send-keys -t \"${SESSION}:tps\" C-c; }; exec bash"
 
             # Quay lại window TPS (window đầu)
             tmux select-window -t "${SESSION}:tps"
