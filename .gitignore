@@ -2,3 +2,5 @@ scripts/error_report.txt
 *.log
 *.csv
 *.txt
+test_tps/gen_spam_keys/generated_keys.json
+test_tps/tps_blast_cc/blast_cc_results.json

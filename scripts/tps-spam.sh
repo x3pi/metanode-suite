@@ -156,6 +156,10 @@ case "$ACTION" in
         ;;
 
     start|*)
+        # Xóa log cũ mỗi lần khởi động lại
+        > "$ERR_LOG"
+        > "$TPS_LOG"
+
         if tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "🔗 Session '$SESSION' đang chạy — attach vào window TPS..."
             tmux attach-session -t "${SESSION}:tps"
@@ -168,7 +172,7 @@ case "$ACTION" in
 
             # Window 2: block_hash_checker
             tmux new-window -t "$SESSION" -n "hash-check" \
-                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL --check-last $CHECKER_LAST --nodes \"$CHECKER_NODES\" 2>&1 | tee -a \"$ERR_LOG\"; exec bash"
+                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL --check-last $CHECKER_LAST --nodes \"$CHECKER_NODES\" 2>> \"$ERR_LOG\"; exec bash"
 
             # Quay lại window TPS (window đầu)
             tmux select-window -t "${SESSION}:tps"
