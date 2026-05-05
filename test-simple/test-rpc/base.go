@@ -309,17 +309,17 @@ func runGetSystemTransactionsByBlockNumber(url string, cfg Config) (string, erro
 		return "null (không có system transactions hoặc block không tồn tại)", nil
 	}
 
-	var txHashes []string
-	if err := json.Unmarshal(result, &txHashes); err != nil {
+	var txs []interface{}
+	if err := json.Unmarshal(result, &txs); err != nil {
 		return "", fmt.Errorf("failed to parse result: %w", err)
 	}
 
-	txCount := len(txHashes)
+	txCount := len(txs)
 	if txCount == 0 {
 		return "0 system transactions", nil
 	}
 
-	prettyJSON, _ := json.MarshalIndent(txHashes, "", "  ")
+	prettyJSON, _ := json.MarshalIndent(txs, "", "  ")
 	return fmt.Sprintf("\n%d system transactions:\n%s", txCount, string(prettyJSON)), nil
 }
 

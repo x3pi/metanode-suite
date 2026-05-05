@@ -1,1 +1,4 @@
 scripts/error_report.txt
+*.log
+*.csv
+*.txt

@@ -961,11 +961,22 @@ func main() {
 
 			if newTxs == 0 && seenAnyTx {
 				emptyBlockStreak++
-				// With 10ms poll, need 6000 streaks = 60 seconds of no new blocks
-				if emptyBlockStreak >= 6000 {
+				// With 20ms poll, need 3000 streaks = 60 seconds of no new blocks
+				if emptyBlockStreak >= 3000 {
 					processingDuration = time.Since(processStart)
-					fmt.Printf("\n  ✅ Chain idle — %d/%d TXs in blocks (timeout after 60s)\n", totalTxsInBlocks, len(allTxs))
+					fmt.Printf("\n  ⚠️  TIMEOUT: Không có giao dịch mới trong 60s. Chain đã ngừng xử lý TXs.\n")
+					fmt.Printf("  ⚠️  Đã nhận vào block: %d/%d TXs (còn thiếu %d TXs)\n", totalTxsInBlocks, len(allTxs), int(uint64(len(allTxs))-totalTxsInBlocks))
 					break
+				}
+			} else if newTxs == 0 && !seenAnyTx {
+				// Chưa thấy bất kỳ TX nào vào block — có thể chain bị tắc
+				if time.Since(processStart) > 30*time.Second {
+					noTxWarnedKey := time.Since(processStart).Round(10 * time.Second)
+					_ = noTxWarnedKey // tránh redeclare, dùng để rate-limit log
+					if int(time.Since(processStart).Seconds())%30 == 0 {
+						fmt.Printf("\n  ⚠️  [CẢNH BÁO] Chờ %s mà chưa có TX nào vào block! Chain có thể đang bị tắc hoặc TX chưa được mempool chấp nhận.\n",
+							time.Since(processStart).Round(time.Second))
+					}
 				}
 			} else {
 				emptyBlockStreak = 0
@@ -974,6 +985,12 @@ func main() {
 
 		if processingDuration == 0 {
 			processingDuration = time.Since(processStart)
+			if !seenAnyTx {
+				fmt.Printf("\n  ❌ TIMEOUT: Hết %s chờ mà KHÔNG có TX nào vào block!\n", maxWait)
+				fmt.Printf("  ❌ Kiểm tra: (1) Node có đang chạy? (2) TX có bị reject ở mempool? (3) Chain có bị kẹt không?\n")
+			} else {
+				fmt.Printf("\n  ❌ TIMEOUT: Hết %s chờ, chỉ %d/%d TXs vào block.\n", maxWait, totalTxsInBlocks, len(allTxs))
+			}
 		}
 
 		if totalTxsInBlocks < uint64(len(allTxs)) {
