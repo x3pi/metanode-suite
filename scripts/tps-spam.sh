@@ -33,6 +33,7 @@ CHECKER_NODES="${CHECKER_NODES:-m0=http://127.0.0.1:8757,m1=http://127.0.0.1:107
 LOG_DIR="$SCRIPT_DIR/logs"
 TPS_LOG="$LOG_DIR/tps_rounds.log"
 ERR_LOG="$LOG_DIR/tps_errors.log"
+FLAG_STOP="$LOG_DIR/stop_tps.flag"
 
 # ── Hàm extract TPS từ output ────────────────────────────────────
 extract_tps()    { grep -oP 'End-to-End TPS:\s+~?\K[0-9]+' <<< "$1" | tail -1; }
@@ -65,6 +66,12 @@ _run_loop() {
     cd "$TPS_DIR" || { echo "❌ Không tìm thấy thư mục TPS: $TPS_DIR"; exit 1; }
 
     while true; do
+        if [ -f "$FLAG_STOP" ]; then
+            echo ""
+            echo "🛑 Đã nhận tín hiệu dừng (có thể do lệch hash). Dừng toàn bộ TPS test!" | tee -a "$TPS_LOG"
+            break
+        fi
+
         ROUND=$((ROUND + 1))
         TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
@@ -159,6 +166,7 @@ case "$ACTION" in
         # Xóa log cũ mỗi lần khởi động lại
         > "$ERR_LOG"
         > "$TPS_LOG"
+        rm -f "$FLAG_STOP"
 
         if tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "🔗 Session '$SESSION' đang chạy — attach vào window TPS..."
@@ -172,7 +180,7 @@ case "$ACTION" in
 
             # Window 2: block_hash_checker
             tmux new-window -t "$SESSION" -n "hash-check" \
-                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL --check-last $CHECKER_LAST --nodes \"$CHECKER_NODES\" 2>> \"$ERR_LOG\"; exec bash"
+                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL --check-last $CHECKER_LAST --nodes \"$CHECKER_NODES\" 2>> \"$ERR_LOG\" || { echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] ❌ LỖI: Block Hash Checker đã dừng do phát hiện lệch hash (hoặc bị crash). Kiểm tra hash_mismatch_alert.log để biết chi tiết!\" >> \"$ERR_LOG\"; touch \"$FLAG_STOP\"; pkill -f \"tps_blast_cc/main.go\" 2>/dev/null || true; }; exec bash"
 
             # Quay lại window TPS (window đầu)
             tmux select-window -t "${SESSION}:tps"
