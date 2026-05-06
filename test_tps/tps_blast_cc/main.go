@@ -404,6 +404,12 @@ func main() {
 	var nonceFetched int64
 	var nonceErrors int64
 
+	// Collect sample errors for summary
+	var nonceErrMu sync.Mutex
+	nonceErrSamples := make(map[string]int) // error string -> count
+	const maxLoggedErrors = 10
+	var loggedErrors int64
+
 	for w := 0; w < nonceWorkers; w++ {
 		nonceWg.Add(1)
 		go func() {
@@ -417,7 +423,15 @@ func main() {
 					nonceMu.Unlock()
 					atomic.AddInt64(&nonceFetched, 1)
 				} else {
-					logger.Info("Error fetching nonce for account %s: %v", acc.Address, err)
+					errStr := err.Error()
+					// Log first N errors immediately to stdout (clear of progress line)
+					if atomic.AddInt64(&loggedErrors, 1) <= maxLoggedErrors {
+						fmt.Printf("\n    ❌ [NONCE ERROR] addr=%s err=%v\n", acc.Address, err)
+					}
+					// Collect unique error types for summary
+					nonceErrMu.Lock()
+					nonceErrSamples[errStr]++
+					nonceErrMu.Unlock()
 					atomic.AddInt64(&nonceErrors, 1)
 				}
 				done := atomic.LoadInt64(&nonceFetched) + atomic.LoadInt64(&nonceErrors)
@@ -433,6 +447,12 @@ func main() {
 	close(nonceCh)
 	nonceWg.Wait()
 	fmt.Printf("\n  ✅ Nonces fetched: %d ok, %d errors\n", nonceFetched, nonceErrors)
+	if nonceErrors > 0 {
+		fmt.Printf("  ⚠️  [NONCE ERRORS SUMMARY] %d lỗi xảy ra khi fetch nonce:\n", nonceErrors)
+		for errMsg, cnt := range nonceErrSamples {
+			fmt.Printf("      × %dx → %s\n", cnt, errMsg)
+		}
+	}
 
 	// Build lockAndBridge ABI
 	addressType, _ := abi.NewType("address", "", nil)
@@ -517,6 +537,12 @@ func main() {
 		// Get nonce for this account
 		nonce, ok := nonceMap[acc.Address]
 		if !ok {
+			// This happens when fetchNonce failed for this address earlier
+			if buildErrors < 5 {
+				fmt.Printf("  ⚠️  [BUILD SKIP] addr=%s — nonce not found (fetch failed earlier), skipping TX build\n", acc.Address)
+			} else if buildErrors == 5 {
+				fmt.Printf("  ⚠️  [BUILD SKIP] ... (further skipped addresses suppressed)\n")
+			}
 			buildErrors++
 			continue
 		}
