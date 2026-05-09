@@ -5,6 +5,7 @@ go run -tags tool base.go -config=./base/config-blocktransactions.json
 go run -tags tool base.go -config=./base/config-getblocknumber.json
 go run -tags tool base.go -config=./base/config-transactionbyhash.json
 go run -tags tool base.go -config=./base/config-systemtxsbyblock.json
+go run -tags tool base.go -config=./base/config-transactionreceipt.json
 ```
 
 # Tool check state all RPC (base.go)

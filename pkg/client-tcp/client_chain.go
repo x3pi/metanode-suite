@@ -12,29 +12,50 @@ import (
 	"tool-test/pkg/logger"
 	p_network "tool-test/pkg/network"
 	pb "tool-test/pkg/proto"
+	"tool-test/pkg/state"
+	mt_transaction "tool-test/pkg/transaction"
+	"tool-test/pkg/types"
+	t_network "tool-test/pkg/types/network"
 
 	"google.golang.org/protobuf/proto"
 )
 
-// GetNonce lấy nonce cho address.
-// Nếu directClient được set → dùng ChainGetNonce (TCP direct, ID-matching, không tranh channel).
-// Fallback → dùng RpcGetPendingNonce (RPC proxy).
-func (c *Client) GetNonce(address common.Address) (uint64, error) {
-	return c.ChainGetNonce(address)
+// GetAccountState lấy account state, chờ phản hồi AccountState hoặc TransactionError qua ID-matching
+func (client *Client) GetAccountState(address common.Address, timeout time.Duration) (types.AccountState, error) {
+	respMsg, err := client.sendChainRequest(command.GetAccountState, address.Bytes(), timeout)
+	if err != nil {
+		return nil, fmt.Errorf("send error: %w", err)
+	}
+
+	cmd := respMsg.Command()
+	if cmd == command.TransactionError {
+		txErr := &mt_transaction.TransactionHashWithError{}
+		if err := txErr.Unmarshal(respMsg.Body()); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal transaction error: %w", err)
+		}
+		return nil, fmt.Errorf("transaction error: %s", txErr.Proto().Description)
+	}
+
+	if cmd == command.AccountState {
+		accountState := &state.AccountState{}
+		if err := accountState.Unmarshal(respMsg.Body()); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal account state: %w", err)
+		}
+		return accountState, nil
+	}
+
+	return nil, fmt.Errorf("unexpected command: %s", cmd)
 }
 
-// ===================== Chain-Direct Methods =====================
-// G\u1eedi th\u1eb3ng l\u00ean chain, d\u00f9ng header ID matching, kh\u00f4ng qua RPC proxy
-
 // sendChainRequest gửi command trực tiếp lên chain và đợi response theo header ID
-func (client *Client) sendChainRequest(cmd string, body []byte, timeout time.Duration) ([]byte, error) {
+func (client *Client) sendChainRequest(cmd string, body []byte, timeout time.Duration) (t_network.Message, error) {
 	parentConn := client.clientContext.ConnectionsManager.ParentConnection()
 	if parentConn == nil || !parentConn.IsConnect() {
 		return nil, fmt.Errorf("parent connection not available")
 	}
 
 	id := uuid.New().String()
-	respCh := make(chan []byte, 1)
+	respCh := make(chan t_network.Message, 1)
 
 	client.pendingChainRequests.Store(id, respCh)
 
@@ -50,7 +71,6 @@ func (client *Client) sendChainRequest(cmd string, body []byte, timeout time.Dur
 		client.pendingChainRequests.Delete(id)
 		return nil, fmt.Errorf("failed to send %s: %w", cmd, err)
 	}
-
 	select {
 	case resp := <-respCh:
 		return resp, nil
@@ -62,10 +82,11 @@ func (client *Client) sendChainRequest(cmd string, body []byte, timeout time.Dur
 
 // ChainGetChainId lấy chain ID trực tiếp từ chain (raw uint64)
 func (client *Client) ChainGetChainId() (uint64, error) {
-	resp, err := client.sendChainRequest(command.GetChainId, nil, 60*time.Second)
+	respMsg, err := client.sendChainRequest(command.GetChainId, nil, 60*time.Second)
 	if err != nil {
 		return 0, err
 	}
+	resp := respMsg.Body()
 	if len(resp) < 8 {
 		return 0, fmt.Errorf("invalid chain id response: %d bytes", len(resp))
 	}
@@ -74,47 +95,60 @@ func (client *Client) ChainGetChainId() (uint64, error) {
 	return chainId, nil
 }
 
-// ChainGetBlockNumber lấy block number trực tiếp từ chain (raw uint64)
-func (client *Client) ChainGetBlockNumber() (uint64, error) {
-	resp, err := client.sendChainRequest(command.GetBlockNumber, nil, 60*time.Second)
+// ChainGetNonce lấy nonce trực tiếp từ chain (dùng lệnh GetNonce)
+func (client *Client) ChainGetNonce(address common.Address) (uint64, error) {
+	respMsg, err := client.sendChainRequest(command.GetNonce, address.Bytes(), 10*time.Second)
 	if err != nil {
 		return 0, err
 	}
+	resp := respMsg.Body()
+	var nonce uint64
+	if len(resp) >= 8 {
+		nonce = binary.BigEndian.Uint64(resp)
+	}
+	return nonce, nil
+}
+
+// ChainGetBlockNumber lấy block number trực tiếp từ chain (raw uint64)
+func (client *Client) ChainGetBlockNumber() (uint64, error) {
+	respMsg, err := client.sendChainRequest(command.GetBlockNumber, nil, 60*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	resp := respMsg.Body()
 	if len(resp) < 8 {
 		return 0, fmt.Errorf("invalid block number response: %d bytes", len(resp))
 	}
 	bn := binary.BigEndian.Uint64(resp)
-	logger.Info("✅ ChainGetBlockNumber: %d", bn)
 	return bn, nil
 }
 
-// ChainGetNonce lấy nonce của address trực tiếp từ chain (không qua RPC, dùng ID-matching).
-// Khác RpcGetPendingNonce (RPC proxy): method này gửi thẳng đến chain node  → nhanh hơn,
-// không tranh chấp channel nonce shared.
-func (client *Client) ChainGetNonce(address common.Address) (uint64, error) {
-	resp, err := client.sendChainRequest(command.GetNonce, address.Bytes(), 10*time.Second)
-	if err != nil {
-		return 0, fmt.Errorf("ChainGetNonce: %w", err)
-	}
-	if len(resp) < 8 {
-		return 0, fmt.Errorf("ChainGetNonce: invalid response length %d", len(resp))
-	}
-	nonce := binary.BigEndian.Uint64(resp)
-	return nonce, nil
-}
-
 // ChainGetTransactionReceipt lấy receipt trực tiếp từ chain theo txHash
-// Trả về raw response bytes — caller tự unmarshal nếu cần
-func (client *Client) ChainGetTransactionReceipt(txHash common.Hash) ([]byte, error) {
-	resp, err := client.sendChainRequest(command.GetTransactionReceipt, txHash.Bytes(), 60*time.Second)
+func (client *Client) ChainGetTransactionReceipt(txHash common.Hash) (*pb.GetTransactionReceiptResponse, error) {
+	req := &pb.GetTransactionReceiptRequest{
+		TransactionHash: txHash.Bytes(),
+	}
+	requestBytes, err := proto.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal GetTransactionReceiptRequest: %w", err)
+	}
+
+	respMsg, err := client.sendChainRequest(command.GetTransactionReceipt, requestBytes, 60*time.Second)
 	if err != nil {
 		return nil, err
+	}
+
+	resp := &pb.GetTransactionReceiptResponse{}
+	if err := proto.Unmarshal(respMsg.Body(), resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GetTransactionReceiptResponse: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("server error: %s", resp.Error)
 	}
 	return resp, nil
 }
 
 // ChainGetLogs lấy logs từ chain theo filter criteria
-// Trả về *pb.GetLogsResponse đã parsed
 func (client *Client) ChainGetLogs(
 	blockHash []byte,
 	fromBlock string,
@@ -122,7 +156,6 @@ func (client *Client) ChainGetLogs(
 	addresses []common.Address,
 	topics [][]common.Hash,
 ) (*pb.GetLogsResponse, error) {
-	// Build GetLogsRequest proto
 	request := &pb.GetLogsRequest{}
 	if len(blockHash) > 0 {
 		request.BlockHash = blockHash
@@ -147,9 +180,7 @@ func (client *Client) ChainGetLogs(
 				for j, hash := range topicList {
 					hashes[j] = hash.Bytes()
 				}
-				request.Topics[i] = &pb.TopicFilter{
-					Hashes: hashes,
-				}
+				request.Topics[i] = &pb.TopicFilter{Hashes: hashes}
 			}
 		}
 	}
@@ -159,21 +190,16 @@ func (client *Client) ChainGetLogs(
 		return nil, fmt.Errorf("failed to marshal GetLogsRequest: %w", err)
 	}
 
-	resp, err := client.sendChainRequest(command.GetLogs, requestBytes, 60*time.Second)
+	respMsg, err := client.sendChainRequest(command.GetLogs, requestBytes, 60*time.Second)
 	if err != nil {
 		return nil, err
 	}
-
-	// Parse response
 	response := &pb.GetLogsResponse{}
-	if err := proto.Unmarshal(resp, response); err != nil {
+	if err := proto.Unmarshal(respMsg.Body(), response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal GetLogsResponse: %w", err)
 	}
-
 	if response.Error != "" {
 		return nil, fmt.Errorf("server error: %s", response.Error)
 	}
-
-	logger.Info("✅ ChainGetLogs: %d logs found", len(response.Logs))
 	return response, nil
 }

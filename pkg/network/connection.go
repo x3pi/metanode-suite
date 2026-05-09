@@ -777,14 +777,14 @@ func (c *Connection) writeLoop(tcpConn net.Conn, sendChan chan network.Message, 
 		}
 		cmd := message.Command()
 		if cmd != "Ping" && cmd != "Pong" && cmd != "KeepAlive" && cmd != "GetTransactionReceipt" && cmd != "TransactionReceipt" {
-			logger.Info(
-				"writeLoop %s: sending command %s (%d bytes, remaining queue=%d/%d)",
-				remoteAddr,
-				cmd,
-				len(b),
-				len(sendChan),
-				c.config.SendChanSize,
-			)
+			// logger.Info(
+			// 	"writeLoop %s: sending command %s (%d bytes, remaining queue=%d/%d)",
+			// 	remoteAddr,
+			// 	cmd,
+			// 	len(b),
+			// 	len(sendChan),
+			// 	c.config.SendChanSize,
+			// )
 		}
 		_ = tcpConn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
 		length := make([]byte, 8)

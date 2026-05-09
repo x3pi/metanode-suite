@@ -11,22 +11,6 @@ private key:
 992d48ebc2dbeb5fa65b53f5727a1c3f7c9d4730bab45d0fc6166c5481671d0f
 ```
 
-> **Tool path:** `execution/cmd/tool/register_validator/main.go`
->
-## Mục đích
-
-Đăng ký một địa chỉ Ethereum trở thành **Validator** tham gia mạng lưới đồng thuận MetaNode.  
-Quá trình gồm 2 bước bắt buộc:
-
-```
-Bước 1: registerValidator() → Lưu thông tin validator vào StakeDB (contract 0x...1001)
-Bước 2: delegate()         → Stake token để có trọng số vote trong committee
-```
-
-Nếu thiếu **một trong hai bước**, validator sẽ không được đưa vào committee khi epoch transition.
-
----
-
 ## Tham số dòng lệnh
 
 | Flag | Mô tả | Ví dụ |
@@ -47,18 +31,6 @@ Nếu thiếu **một trong hai bước**, validator sẽ không được đưa 
 | `-stake` | Lượng token stake (wei) | `1000000000000000000000` |
 | `-dry-run` | Chỉ encode calldata, không gửi tx | (flag) |
 | `-delegate-only` | Chỉ stake, bỏ qua đăng ký | (flag) |
-
-> **RPC endpoint** được hard-code tại dòng 30-32 trong `main.go`:
->
-> ```go
-> RPC_HTTP_URL = "http://localhost:8545"
-> CHAIN_ID     = 991
-> ```
->
-> Node 0 chạy tại port **`:8757`** (xem `config-master-node0.json`).  
-> Nếu cần đổi endpoint, hãy sửa constants hoặc thêm flag `-rpc`.
-
----
 
 ## Yêu cầu: Tạo BLS & Ed25519 keys
 
@@ -88,23 +60,7 @@ cat config/node_0_network_key.json
 
 ---
 
-## Đăng ký validator `0x781E6EC6EBDCA11Be4B53865a34C0c7f10b6da6e` với Node 0
-
-### Bước 0: Lấy private key của `0x781E...6da6e`
-
-Private key của địa chỉ đăng ký validator phải được cung cấp. Địa chỉ `0x781E6EC6EBDCA11Be4B53865a34C0c7f10b6da6e` cần:
-
-- Balance > 0 (để trả gas và stake)
-- Private key tương ứng
-
-### Bước 1: Sửa RPC endpoint trong main.go
-
-```bash
-# Option 1: Sửa main.go trực tiếp (xem bên dưới)
-# Option 2: Relay qua port 8545 nếu có proxy
-```
-
-### Bước 2: Chuẩn bị keys cho validator mới
+### Bước 1: Chuẩn bị keys cho validator mới
 
 Cần có 3 keys hợp lệ từ Rust:
 
@@ -128,12 +84,9 @@ network_key:  jZ/kDNNPBsZXUD28FcxMLLZ+vCZCbEJoUvdB8zgRvug=
 
 > ⚠️ Mỗi validator **phải có key độc lập**. Dùng chung key sẽ gây lỗi khi build committee.
 
-### Bước 3: Chạy tool đăng ký
+### Bước 2: Chạy tool đăng ký
 
 ```bash
-
-info!("Consensus committee: {:?}", committee);
-
 
 
 cd /home/abc/nhat/con-chain-v2/metanode/execution/cmd/tool/register_validator
@@ -178,10 +131,18 @@ go run main.go \
    -key "7311d37235c053eb7d6c16ac4052c916f394f59534565d1194d13ed2d6b96cb0"
 
 
+# Bước 1.1: Rút hết stake (vd: rút 1000 ETH)
+go run main.go -mode undelegate \
+  -key "992d48ebc2dbeb5fa65b53f5727a1c3f7c9d4730bab45d0fc6166c5481671d0f" \
+  -stake "1000000000000000000000"
 
+# Bước 1.2: Hủy đăng ký (gỡ validator khỏi danh sách)
+go run main.go -mode deregister \
+  -key "992d48ebc2dbeb5fa65b53f5727a1c3f7c9d4730bab45d0fc6166c5481671d0f"
+  
 ```
 
-### Bước 4 (nếu stake đã đủ): Chỉ delegate thêm
+### Bước 3 (nếu stake đã đủ): Chỉ delegate thêm
 
 ```bash
 go run main.go \
@@ -241,12 +202,12 @@ Khi test kịch bản 1 validator rời khỏi mạng lưới (node dừng đồ
 ```bash
 # Bước 1.1: Rút hết stake (vd: rút 1000 ETH)
 go run main.go -mode undelegate \
-  -key "PRIVATE_KEY_CU" \
+  -key "992d48ebc2dbeb5fa65b53f5727a1c3f7c9d4730bab45d0fc6166c5481671d0f" \
   -stake "1000000000000000000000"
 
 # Bước 1.2: Hủy đăng ký (gỡ validator khỏi danh sách)
 go run main.go -mode deregister \
-  -key "PRIVATE_KEY_CU"
+  -key "992d48ebc2dbeb5fa65b53f5727a1c3f7c9d4730bab45d0fc6166c5481671d0f"
 ```
 
 *(Ghi chú: Node vật lý của validator cũ có thể stop sau khi epoch transition tiếp theo diễn ra, vì khi đó validator cũ đã hoàn toàn bị xóa khỏi Rust committee).*

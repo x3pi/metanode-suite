@@ -65,10 +65,11 @@ func main() {
 	}
 
 	handlers := map[string]func(string, Config) (string, error){
-		"get_logs":                runGetLogs,
-		"account_state":           runAccountState,
-		"get_chain_id":            runGetChainID,
+		"get_logs":                                runGetLogs,
+		"account_state":                           runAccountState,
+		"get_chain_id":                            runGetChainID,
 		"get_transaction_by_hash":                 runGetTransactionByHash,
+		"get_transaction_receipt":                 runGetTransactionReceipt,
 		"get_block_transactions":                  runGetBlockTransactions,
 		"get_system_transactions_by_block_number": runGetSystemTransactionsByBlockNumber,
 	}
@@ -77,7 +78,7 @@ func main() {
 	handler, ok := handlers[runType]
 	if !ok {
 		fmt.Printf("Unsupported type: %q\n", cfg.Type)
-		fmt.Println("Supported types: get_logs, account_state, get_chain_id, get_transaction_by_hash, get_block_transactions, get_system_transactions_by_block_number")
+		fmt.Println("Supported types: get_logs, account_state, get_chain_id, get_transaction_by_hash, get_transaction_receipt, get_block_transactions, get_system_transactions_by_block_number")
 		os.Exit(1)
 	}
 
@@ -244,6 +245,34 @@ func runGetTransactionByHash(url string, cfg Config) (string, error) {
 	txIndex, _ := tx["transactionIndex"].(string)
 
 	return fmt.Sprintf("blockNumber=%s | blockHash=%s | txIndex=%s", blockNumber, blockHash, txIndex), nil
+}
+
+func runGetTransactionReceipt(url string, cfg Config) (string, error) {
+	hash, ok := readStringParam(cfg.Params, "hash")
+	if !ok {
+		return "", fmt.Errorf("params.hash is required")
+	}
+
+	result, err := callRPC(url, cfg.TimeoutSeconds, "eth_getTransactionReceipt", []interface{}{hash})
+	if err != nil {
+		return "", err
+	}
+
+	if string(result) == "null" {
+		return "null (không tìm thấy receipt)", nil
+	}
+
+	var receipt map[string]interface{}
+	if err := json.Unmarshal(result, &receipt); err != nil {
+		return "", fmt.Errorf("failed to parse result: %w", err)
+	}
+
+	blockHash, _ := receipt["blockHash"].(string)
+	blockNumber, _ := receipt["blockNumber"].(string)
+	txIndex, _ := receipt["transactionIndex"].(string)
+	status, _ := receipt["status"].(string)
+
+	return fmt.Sprintf("blockNumber=%s | blockHash=%s | txIndex=%s | status=%s", blockNumber, blockHash, txIndex, status), nil
 }
 
 func runGetBlockTransactions(url string, cfg Config) (string, error) {

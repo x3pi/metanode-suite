@@ -139,8 +139,18 @@ handleAccountState will receive account state from connection
 then push it to account state chan
 */
 func (h *Handler) handleAccountState(request network.Request) (err error) {
+	msg := request.Message()
+	id := msg.ID()
+	if id != "" && h.pendingChainRequests != nil {
+		if val, ok := h.pendingChainRequests.LoadAndDelete(id); ok {
+			ch := val.(chan network.Message)
+			ch <- msg
+			return nil
+		}
+	}
+
 	accountState := &state.AccountState{}
-	err = accountState.Unmarshal(request.Message().Body())
+	err = accountState.Unmarshal(msg.Body())
 	if err != nil {
 		return err
 	}
@@ -149,12 +159,25 @@ func (h *Handler) handleAccountState(request network.Request) (err error) {
 	return nil
 }
 func (h *Handler) handleTransactionError(request network.Request) (err error) {
+	msg := request.Message()
+	id := msg.ID()
+	// Nếu có header ID → dispatch vào pendingChainRequests (match với sendChainRequest caller)
+	// Để SendTransactionFromWallet nhận error qua ID, không lẫn với channel cũ
+	if id != "" && h.pendingChainRequests != nil {
+		if val, ok := h.pendingChainRequests.LoadAndDelete(id); ok {
+			ch := val.(chan network.Message)
+			ch <- msg
+			return nil
+		}
+	}
+
+	// Fallback: không có ID hoặc không match → đẩy vào transactionErrorChan cũ
+	// (dùng bởi SendTransactionWithDeviceKey)
 	transactionError := &transaction.TransactionHashWithError{}
-	err = transactionError.Unmarshal(request.Message().Body())
+	err = transactionError.Unmarshal(msg.Body())
 	if err != nil {
 		return err
 	}
-	// logger.Debug(fmt.Sprintf("Receive Account state: \n%v", accountState))
 	h.transactionErrorChan <- transactionError
 	return nil
 }
@@ -349,7 +372,6 @@ func (h *Handler) AddEventCallback(cb func([]byte)) {
 func (h *Handler) handleChainResponse(request network.Request) error {
 	msg := request.Message()
 	id := msg.ID()
-	body := msg.Body()
 
 	if h.pendingChainRequests == nil {
 		logger.Warn("handleChainResponse: pendingChainRequests not set, dropping")
@@ -358,8 +380,8 @@ func (h *Handler) handleChainResponse(request network.Request) error {
 
 	val, ok := h.pendingChainRequests.LoadAndDelete(id)
 	if ok {
-		ch := val.(chan []byte)
-		ch <- body
+		ch := val.(chan network.Message)
+		ch <- msg
 	} else {
 		logger.Warn("handleChainResponse: no pending request for id=%s cmd=%s", id, msg.Command())
 	}

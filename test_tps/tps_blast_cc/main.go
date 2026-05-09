@@ -587,6 +587,13 @@ func main() {
 		len(allTxs), buildDuration.Round(time.Millisecond),
 		float64(len(allTxs))/buildDuration.Seconds(), buildErrors)
 
+	if buildErrors > 0 {
+		log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Quá trình build giao dịch gặp %d lỗi! Vui lòng kiểm tra log để debug.", buildErrors)
+	}
+	if len(allTxs) == 0 {
+		log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Không có giao dịch nào được build thành công!")
+	}
+
 	targetAddresses := []string{config.ParentConnectionAddress}
 	if !loadBalance {
 		fmt.Printf("\n  📡 Chế độ Single Node IP (TCP): %s\n", config.ParentConnectionAddress)
@@ -748,6 +755,9 @@ func main() {
 							atomic.AddInt64(&refetchOk, 1)
 						} else {
 							atomic.AddInt64(&refetchErr, 1)
+							if atomic.AddInt64(&loggedErrors, 1) <= maxLoggedErrors {
+								fmt.Printf("\n    ❌ [RE-FETCH NONCE ERROR] addr=%s err=%v\n", acc.Address, err)
+							}
 						}
 						done := atomic.LoadInt64(&refetchOk) + atomic.LoadInt64(&refetchErr)
 						if done%2000 == 0 || done == int64(len(toSend)) {
@@ -809,6 +819,11 @@ func main() {
 
 				nonce, ok := nonceMap[acc.Address]
 				if !ok {
+					if rebuildErrors < 5 {
+						fmt.Printf("  ⚠️  [REBUILD SKIP] addr=%s — nonce not found (fetch failed earlier)\n", acc.Address)
+					} else if rebuildErrors == 5 {
+						fmt.Printf("  ⚠️  [REBUILD SKIP] ... (further skipped addresses suppressed)\n")
+					}
 					rebuildErrors++
 					continue
 				}
@@ -840,6 +855,13 @@ func main() {
 			fmt.Printf("  ✅ Re-built %d TXs in %s (%.0f tx/s), %d errors\n",
 				len(allTxs), rebuildDuration.Round(time.Millisecond),
 				float64(len(allTxs))/rebuildDuration.Seconds(), rebuildErrors)
+
+			if rebuildErrors > 0 {
+				log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Quá trình re-build giao dịch gặp %d lỗi! Vui lòng kiểm tra log để debug.", rebuildErrors)
+			}
+			if len(allTxs) == 0 {
+				log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Không có giao dịch nào được re-build thành công!")
+			}
 		}
 
 		startBlock, _ := rpcClient.GetBlockNumber()

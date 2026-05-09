@@ -3,19 +3,19 @@
   "destinationId": 2,
   "recipient": "0xbF2b4B9b9dFB6d23F7F0FC46981c2eC89f94A9F2",
   "roundTPS": [
-    959.2794066381566
+    958.1678056569143
   ],
   "rounds": 1,
   "summaries": [
     {
       "round": 1,
       "startBlock": 12,
-      "endBlock": 226,
-      "blockCount": 214,
+      "endBlock": 237,
+      "blockCount": 225,
       "txCount": 20000,
-      "maxTxInBlock": 430,
-      "tps": 959.2794066381566,
-      "processingSec": 20.848982957
+      "maxTxInBlock": 310,
+      "tps": 958.1678056569143,
+      "processingSec": 20.873170526
     }
   ],
   "txCount": 20000,

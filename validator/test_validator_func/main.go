@@ -288,6 +288,13 @@ func main() {
 		fmt.Println("═══════════════════════════════════════════════════════════")
 		fmt.Printf("   Validator: %s\n", fromAddress.Hex())
 
+		balanceBefore, errBalanceBefore := getBalance(fromAddress)
+		if errBalanceBefore != nil {
+			fmt.Printf("❌ Lỗi lấy balance trước khi deregister: %v\n", errBalanceBefore)
+		} else {
+			fmt.Printf("💰 Balance trước: %s wei\n", balanceBefore.String())
+		}
+
 		txHash, err := sendDeregisterTransaction(*privateKey)
 		if err != nil {
 			fmt.Printf("❌ Lỗi deregister: %v\n", err)
@@ -297,8 +304,21 @@ func main() {
 			fmt.Printf("❌ %v\n", err)
 			return
 		}
-		fmt.Println("✅ Deregister thành công! Validator đã bị xóa khỏi danh sách.")
-		fmt.Println("   Rust sẽ cập nhật committee vào epoch tiếp theo.")
+		fmt.Println("✅ Deregister thành công! Validator đã rời khỏi mạng.")
+		fmt.Println("   Tiền self-stake đã được hoàn trả về ví tự động.")
+
+		balanceAfter, errBalanceAfter := getBalance(fromAddress)
+		if errBalanceAfter != nil {
+			fmt.Printf("❌ Lỗi lấy balance sau khi deregister: %v\n", errBalanceAfter)
+		} else {
+			fmt.Printf("💰 Balance sau:   %s wei\n", balanceAfter.String())
+			if balanceBefore != nil {
+				diff := new(big.Int).Sub(balanceAfter, balanceBefore)
+				fmt.Printf("📈 Số tiền thay đổi: %s wei\n", diff.String())
+			}
+		}
+
+		fmt.Println("   Rust consensus sẽ cập nhật committee vào epoch tiếp theo.")
 		return
 	}
 
@@ -591,6 +611,28 @@ func sendRPC(req RPCRequest) (*RPCResponse, error) {
 		return nil, fmt.Errorf("RPC Error: %s (code %d)", res.Error.Message, res.Error.Code)
 	}
 	return &res, nil
+}
+
+func getBalance(address common.Address) (*big.Int, error) {
+	req := RPCRequest{
+		Jsonrpc: "2.0",
+		Method:  "eth_getBalance",
+		Params:  []interface{}{address.Hex(), "latest"},
+		Id:      1,
+	}
+	res, err := sendRPC(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resultStr string
+	if err := json.Unmarshal(res.Result, &resultStr); err != nil {
+		return nil, fmt.Errorf("không thể đọc kết quả từ eth_getBalance")
+	}
+
+	balance := new(big.Int)
+	balance.SetString(strings.TrimPrefix(resultStr, "0x"), 16)
+	return balance, nil
 }
 
 func parseRevertReason(returnData string) string {
@@ -899,7 +941,7 @@ func sendDeregisterTransaction(privateKeyHex string) (string, error) {
 	}
 	fmt.Printf("   Nonce: %d\n", nonce)
 
-	gasLimit := uint64(300000)
+	gasLimit := uint64(400000) // tăng vì deregister giờ tự undelegate + hoàn trả tiền
 	gasPrice := big.NewInt(20000000000)
 	tx := types.NewTransaction(nonce, mt_common.VALIDATOR_CONTRACT_ADDRESS, big.NewInt(0), gasLimit, gasPrice, inputData)
 

@@ -54,6 +54,7 @@ func main() {
 	connAddrFlag := flag.String("conn", "", "Ghi đè Parent Connection Address (Override)")
 	pkFlag := flag.String("pk", "", "Ghi đè Private Key (Override)")
 	chainFlag := flag.Int("chain", 0, "Ghi đè Chain ID (Override, ví dụ: 991)")
+	loopFlag := flag.Bool("loop", false, "Gửi giao dịch liên tục (lặp lại) cho đến khi thoát")
 	flag.Parse()
 
 	fmt.Println("==================================================")
@@ -96,8 +97,9 @@ func main() {
 	var lastDeployedAddress *common.Address
 
 	// Lặp qua từng task cấu hình
-	for idx, d := range dataList {
-		fmt.Printf("\n--- THỰC THI TASK %d: %s ---\n", idx+1, d.Method)
+	for {
+		for idx, d := range dataList {
+			fmt.Printf("\n--- THỰC THI TASK %d: %s ---\n", idx+1, d.Method)
 
 		var contractAddress common.Address
 		action := strings.ToLower(d.Action)
@@ -196,6 +198,13 @@ func main() {
 		} else {
 			log.Fatalf("❌ Action không hợp lệ: %s", d.Action)
 		}
+		}
+
+		if !*loopFlag {
+			break
+		}
+		fmt.Println("\n🔄 Chế độ Loop bật: Đang lặp lại danh sách giao dịch...")
+		time.Sleep(1 * time.Second)
 	}
 
 	fmt.Println("==================================================")

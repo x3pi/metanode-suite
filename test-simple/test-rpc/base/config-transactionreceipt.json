@@ -1,5 +1,5 @@
 {
-    "type": "get_block_transactions",
+    "type": "get_transaction_receipt",
     "rpc_urls": [
         "http://localhost:8757",
         "http://localhost:10747",
@@ -7,6 +7,6 @@
         "http://localhost:10750"
     ],
     "params": {
-        "block": "0xe1"
+        "hash": "0x0f34ae7e8e11b9f0c7afa43e0f02b9df8f326bcd3a63fcb03a484eab44b7cf98"
     }
 }
