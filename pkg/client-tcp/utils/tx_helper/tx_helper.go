@@ -92,7 +92,7 @@ func SendReadTransactionWithoutNonce(
 	}
 	status := receipt.Status()
 	if status != pb.RECEIPT_STATUS_RETURNED && status != pb.RECEIPT_STATUS_HALTED {
-		return nil, fmt.Errorf("%s read transaction failed with status %s returned %s \n receipt %v", action, status.String(), receipt.Return(), receipt)
+		return nil, fmt.Errorf("%s read transaction failed with status %s returned %s \n receipt %v", action, status.String(), string(receipt.Return()), receipt)
 	}
 	logger.Info("✅ %s completed (status=%s)", action, status.String())
 	return receipt, nil
@@ -157,7 +157,7 @@ func SendEstimateGas(
 	}
 	status := receipt.Status()
 	if status != pb.RECEIPT_STATUS_RETURNED && status != pb.RECEIPT_STATUS_HALTED {
-		return nil, fmt.Errorf("%s estimate gas transaction failed with status %s returned %s", action, status.String(), receipt.Return())
+		return nil, fmt.Errorf("%s estimate gas transaction failed with status %s returned %s", action, status.String(), string(receipt.Return()))
 	}
 	logger.Info("✅ %s completed (status=%s)", action, status.String())
 	return receipt, nil
@@ -222,7 +222,7 @@ func SendReadTransaction(
 	}
 	status := receipt.Status()
 	if status != pb.RECEIPT_STATUS_RETURNED && status != pb.RECEIPT_STATUS_HALTED {
-		return nil, fmt.Errorf("%s read transaction failed with status %s returned %s", action, status.String(), receipt.Return())
+		return nil, fmt.Errorf("%s read transaction failed with status %s returned %s", action, status.String(), string(receipt.Return()))
 	}
 	logger.Info("✅ %s completed (status=%s)", action, status.String())
 	return receipt, nil
@@ -287,7 +287,7 @@ func SendTransaction(
 	}
 	status := receipt.Status()
 	if status != pb.RECEIPT_STATUS_RETURNED && status != pb.RECEIPT_STATUS_HALTED {
-		return nil, fmt.Errorf("%s transaction failed with status %s", action, status.String())
+		return nil, fmt.Errorf("%s transaction failed with status %s (Return: %s)", action, status.String(), string(receipt.Return()))
 	}
 	logger.Info("✅ %s completed (status=%s)", action, status.String())
 	return receipt, nil

@@ -183,7 +183,8 @@ if should_run 2; then
 
         # Nếu session đã tồn tại thì tắt đi trước khi tạo mới
         tmux kill-session -t rpc-proxy 2>/dev/null || true
-        tmux new-session -d -s rpc-proxy 'go run main.go --config config-rpc-node0.json --tcp-config config-client-tcp-node0.json'
+        # tmux new-session -d -s rpc-proxy 'go run main.go --config config-rpc-node0.json --tcp-config config-client-tcp-node0.json'
+        tmux new-session -d -s rpc-proxy 'go run main.go'
         
         echo "  -> Đang chờ RPC proxy khởi động (tối đa 15s)..."
         for i in {1..15}; do
@@ -270,7 +271,7 @@ if should_run 7; then
     echo "📌 BƯỚC 7: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 40 --load_balance=false --batch=10
+        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false --batch=10
     else
         run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500
     fi

@@ -131,21 +131,21 @@ else
     echo "  -> Phân vùng BTRFS đã được mount sẵn."
 fi
 
-# ----------------------------------------------------
-# BƯỚC 1: Xóa genesis cũ và tạo file genesis mới
-# ----------------------------------------------------
-# if should_run 1; then
-#     echo ""
-#     echo "📌 BƯỚC 1: Prepare Genesis & Gen Spam Keys..."
-#     cd "$METANODE_DIR/execution/cmd/simple_chain"
-#     echo "  -> Xóa genesis.json và copy từ genesis-main.json..."
-#     rm -f genesis.json
-#     cp genesis-main.json genesis.json
+----------------------------------------------------
+BƯỚC 1: Xóa genesis cũ và tạo file genesis mới
+----------------------------------------------------
+if should_run 1; then
+    echo ""
+    echo "📌 BƯỚC 1: Prepare Genesis & Gen Spam Keys..."
+    cd "$METANODE_DIR/execution/cmd/simple_chain"
+    echo "  -> Xóa genesis.json và copy từ genesis-main.json..."
+    rm -f genesis.json
+    cp genesis-main.json genesis.json
 
-#     cd "$TOOL_TEST_DIR/test_tps/gen_spam_keys"
-#     echo "  -> Chạy Gen Spam Keys (count 50000)..."
-#     run_and_capture "Gen Spam Keys (Bước 1)" go run main.go --count 50000 --genesis-in "$METANODE_DIR/execution/cmd/simple_chain/genesis-main.json" --genesis-out "$METANODE_DIR/execution/cmd/simple_chain/genesis.json"
-# fi
+    cd "$TOOL_TEST_DIR/test_tps/gen_spam_keys"
+    echo "  -> Chạy Gen Spam Keys (count 50000)..."
+    run_and_capture "Gen Spam Keys (Bước 1)" go run main.go --count 50000 --genesis-in "$METANODE_DIR/execution/cmd/simple_chain/genesis-main.json" --genesis-out "$METANODE_DIR/execution/cmd/simple_chain/genesis.json"
+fi
 
 # ----------------------------------------------------
 # BƯỚC 2: Triển khai Cụm
@@ -183,8 +183,8 @@ if should_run 2; then
 
         # Nếu session đã tồn tại thì tắt đi trước khi tạo mới
         tmux kill-session -t rpc-proxy 2>/dev/null || true
-        tmux new-session -d -s rpc-proxy 'go run main.go --config config-rpc-node0.json --tcp-config config-client-tcp-node0.json'
-        
+        # tmux new-session -d -s rpc-proxy 'go run main.go --config config-rpc-node0.json --tcp-config config-client-tcp-node0.json'
+         tmux new-session -d -s rpc-proxy 'go run main.go'
         echo "  -> Đang chờ RPC proxy khởi động (tối đa 15s)..."
         for i in {1..15}; do
             if curl -s http://127.0.0.1:8545 -m 1 > /dev/null; then

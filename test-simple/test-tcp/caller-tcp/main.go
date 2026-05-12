@@ -267,6 +267,10 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, from
 		status := pb.RECEIPT_STATUS_TRANSACTION_ERROR
 		if receipt != nil {
 			status = receipt.Status()
+			if len(receipt.Return()) > 0 {
+				errMsg := string(receipt.Return())
+				fmt.Printf("   🔍 Chi tiết lỗi (Return Data): %s\n", errMsg)
+			}
 		}
 		log.Fatalf("❌ DEPLOY THẤT BẠI (Status: %s)!", status.String())
 	}
@@ -364,6 +368,10 @@ func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 			fmt.Printf("   ✅ Tx THÀNH CÔNG (Gas used: %d, Status: %s)\n", receipt.GasUsed(), status.String())
 		} else {
 			fmt.Printf("   ❌ Tx THẤT BẠI (Status: %s)\n", status.String())
+			if len(receipt.Return()) > 0 {
+				errMsg := string(receipt.Return())
+				fmt.Printf("   🔍 Chi tiết lỗi (Return Data): %s\n", errMsg)
+			}
 		}
 	} else {
 		fmt.Printf("   ⚠️ Tx gửi thành công nhưng không có Receipt\n")

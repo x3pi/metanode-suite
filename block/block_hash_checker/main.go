@@ -18,6 +18,80 @@ import (
 
 // ===== JSON-RPC types =====
 
+var ghostMutex sync.Mutex
+var loggedBlocks = make(map[uint64]bool)
+
+func clearLoggedBlocks() {
+	ghostMutex.Lock()
+	defer ghostMutex.Unlock()
+	loggedBlocks = make(map[uint64]bool)
+	os.Truncate("ghost_blocks.log", 0)
+}
+
+func init() {
+	loadLoggedBlocks()
+}
+
+func loadLoggedBlocks() {
+	ghostMutex.Lock()
+	defer ghostMutex.Unlock()
+
+	data, err := os.ReadFile("ghost_blocks.log")
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "blockNumber=") {
+			parts := strings.Split(line, "blockNumber=")
+			if len(parts) > 1 {
+				numStr := strings.Split(parts[1], " ")[0]
+				var num uint64
+				fmt.Sscanf(numStr, "%d", &num)
+				if num > 0 {
+					loggedBlocks[num] = true
+				}
+			}
+		} else if strings.Contains(line, "Ghost block detected: ") {
+			parts := strings.Split(line, "Ghost block detected: ")
+			if len(parts) > 1 {
+				numStr := strings.TrimSpace(parts[1])
+				var num uint64
+				fmt.Sscanf(numStr, "%d", &num)
+				if num > 0 {
+					loggedBlocks[num] = true
+				}
+			}
+		}
+	}
+}
+
+func logBlockEvent(eventType string, blockNum uint64, gei string) {
+	ghostMutex.Lock()
+	defer ghostMutex.Unlock()
+
+	if loggedBlocks[blockNum] {
+		return // Avoid duplicates
+	}
+	loggedBlocks[blockNum] = true
+
+
+
+	geiStr := "unknown"
+	if gei != "" {
+		geiStr = fmt.Sprintf("%d", parseHexStr(gei))
+	}
+
+	// Ghi vào file
+	f, err := os.OpenFile("ghost_blocks.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	now := time.Now().Format("2006-01-02 15:04:05")
+	f.WriteString(fmt.Sprintf("[%s] %s DETECTED: blockNumber=%d gei=%s\n", now, eventType, blockNum, geiStr))
+}
+
 type rpcRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Method  string        `json:"method"`
@@ -44,8 +118,11 @@ type blockResult struct {
 	StateRoot        string `json:"stateRoot"`
 	TransactionsRoot string `json:"transactionsRoot"`
 	ReceiptsRoot     string `json:"receiptsRoot"`
-	GlobalExecIndex  string `json:"globalExecIndex"`
-	Epoch            string `json:"epoch"`
+	Timestamp        string `json:"timestamp"`
+	Miner            string `json:"miner"`
+	GlobalExecIndex  string          `json:"globalExecIndex"`
+	Epoch            string          `json:"epoch"`
+	Transactions     []interface{}   `json:"transactions"`
 }
 
 // ===== Block info (parsed from blockResult) =====
@@ -56,8 +133,12 @@ type blockInfo struct {
 	StateRoot        string
 	TransactionsRoot string
 	ReceiptsRoot     string
+	Timestamp        string
+	Miner            string
 	GlobalExecIndex  string
 	Epoch            string
+	TxCount          int
+	SysTxCount       int
 	Error            string // non-empty if fetch failed
 }
 
@@ -150,7 +231,7 @@ func main() {
 			batchEnd = *toBlock
 		}
 
-		batchMismatches, batchMatches, batchErrors, batchSkips, _ := checkBatch(client, nodes, batchStart, batchEnd)
+		batchMismatches, batchMatches, batchErrors, batchSkips, _, _ := checkBatch(client, nodes, batchStart, batchEnd)
 		allMismatches = append(allMismatches, batchMismatches...)
 		matchCount += batchMatches
 		errorCount += batchErrors
@@ -224,7 +305,7 @@ func parseNodes(s string) []nodeInfo {
 
 // ===== Check a batch of blocks =====
 
-func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatches []mismatch, matchCount, errorCount, skipCount uint64, emptyBlocks []uint64) {
+func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatches []mismatch, matchCount, errorCount, skipCount uint64, nilBlocks []uint64, emptyBlocks []uint64) {
 	type result struct {
 		blockNum uint64
 		blocks   map[string]blockInfo
@@ -291,7 +372,8 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			// Nếu tất cả các node phản hồi đều báo block không tồn tại, thì coi là ghost block và bỏ qua.
 			// (Không cần đợi các node đang lỗi/sập phản hồi)
 			if len(validBlocks) == 0 && missingResponseCount > 0 {
-				emptyBlocks = append(emptyBlocks, r.blockNum)
+				nilBlocks = append(nilBlocks, r.blockNum)
+				logBlockEvent("NIL_BLOCK", r.blockNum, "")
 				continue
 			}
 
@@ -309,11 +391,18 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 		// Compare hash, parentHash, stateRoot, txRoot, receiptsRoot across all valid nodes
 		hasMismatch := false
 		ref := validBlocks[0]
+
+		if ref.TxCount == 0 && ref.SysTxCount == 0 {
+			emptyBlocks = append(emptyBlocks, r.blockNum)
+			logBlockEvent("EMPTY_BLOCK", r.blockNum, ref.GlobalExecIndex)
+		}
+
 		for i := 1; i < len(validBlocks); i++ {
 			b := validBlocks[i]
 			if b.Hash != ref.Hash || b.ParentHash != ref.ParentHash ||
 				b.StateRoot != ref.StateRoot || b.TransactionsRoot != ref.TransactionsRoot ||
-				b.ReceiptsRoot != ref.ReceiptsRoot {
+				b.ReceiptsRoot != ref.ReceiptsRoot || b.Timestamp != ref.Timestamp ||
+				b.Miner != ref.Miner {
 				hasMismatch = true
 				break
 			}
@@ -376,6 +465,51 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 // ===== JSON-RPC calls =====
 
+func getSystemTxsCount(client *http.Client, url string, hexBlock string) (int, error) {
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_getSystemTransactionsByBlockNumber",
+		Params:  []interface{}{hexBlock},
+		ID:      1,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	var rpcResp rpcResponse
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return 0, fmt.Errorf("invalid JSON response: %v", err)
+	}
+
+	if rpcResp.Error != nil {
+		return 0, fmt.Errorf("RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
+	}
+
+	if string(rpcResp.Result) == "null" {
+		return 0, nil
+	}
+
+	var txs []interface{}
+	if err := json.Unmarshal(rpcResp.Result, &txs); err != nil {
+		return 0, fmt.Errorf("cannot parse system txs: %v", err)
+	}
+
+	return len(txs), nil
+}
+
 func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, error) {
 	hexBlock := fmt.Sprintf("0x%x", blockNum)
 	req := rpcRequest{
@@ -419,14 +553,28 @@ func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, 
 		return blockInfo{}, fmt.Errorf("cannot parse block result: %v", err)
 	}
 
+	txCount := len(block.Transactions)
+	sysTxCount := 0
+
+	if txCount == 0 {
+		count, err := getSystemTxsCount(client, url, hexBlock)
+		if err == nil {
+			sysTxCount = count
+		}
+	}
+
 	return blockInfo{
 		Hash:             block.Hash,
 		ParentHash:       block.ParentHash,
 		StateRoot:        block.StateRoot,
 		TransactionsRoot: block.TransactionsRoot,
 		ReceiptsRoot:     block.ReceiptsRoot,
+		Timestamp:        block.Timestamp,
+		Miner:            block.Miner,
 		GlobalExecIndex:  block.GlobalExecIndex,
 		Epoch:            block.Epoch,
+		TxCount:          txCount,
+		SysTxCount:       sysTxCount,
 	}, nil
 }
 
@@ -532,45 +680,29 @@ func printMismatchDetail(m mismatch, nodes []nodeInfo) {
 	}
 
 	// Determine which fields differ
-	hashDiff, parentDiff, stateDiff, txDiff, rcpDiff := false, false, false, false, false
+	hashDiff, parentDiff, stateDiff, txDiff, rcpDiff, timeDiff, minerDiff := false, false, false, false, false, false, false
 	if len(validBlocks) >= 2 {
 		ref := validBlocks[0]
 		for _, b := range validBlocks[1:] {
-			if b.Hash != ref.Hash {
-				hashDiff = true
-			}
-			if b.ParentHash != ref.ParentHash {
-				parentDiff = true
-			}
-			if b.StateRoot != ref.StateRoot {
-				stateDiff = true
-			}
-			if b.TransactionsRoot != ref.TransactionsRoot {
-				txDiff = true
-			}
-			if b.ReceiptsRoot != ref.ReceiptsRoot {
-				rcpDiff = true
-			}
+			if b.Hash != ref.Hash { hashDiff = true }
+			if b.ParentHash != ref.ParentHash { parentDiff = true }
+			if b.StateRoot != ref.StateRoot { stateDiff = true }
+			if b.TransactionsRoot != ref.TransactionsRoot { txDiff = true }
+			if b.ReceiptsRoot != ref.ReceiptsRoot { rcpDiff = true }
+			if b.Timestamp != ref.Timestamp { timeDiff = true }
+			if b.Miner != ref.Miner { minerDiff = true }
 		}
 	}
 
 	// Print diff summary
 	var diffs []string
-	if hashDiff {
-		diffs = append(diffs, "hash")
-	}
-	if parentDiff {
-		diffs = append(diffs, "parentHash")
-	}
-	if stateDiff {
-		diffs = append(diffs, "stateRoot")
-	}
-	if txDiff {
-		diffs = append(diffs, "txRoot")
-	}
-	if rcpDiff {
-		diffs = append(diffs, "receiptsRoot")
-	}
+	if hashDiff { diffs = append(diffs, "hash") }
+	if parentDiff { diffs = append(diffs, "parentHash") }
+	if stateDiff { diffs = append(diffs, "stateRoot") }
+	if txDiff { diffs = append(diffs, "txRoot") }
+	if rcpDiff { diffs = append(diffs, "receiptsRoot") }
+	if timeDiff { diffs = append(diffs, "timestamp") }
+	if minerDiff { diffs = append(diffs, "miner") }
 	if len(diffs) > 0 {
 		fmt.Printf("   ⚠\ufe0f  Fields differ: %s\n", strings.Join(diffs, ", "))
 	}
@@ -585,19 +717,14 @@ func printMismatchDetail(m mismatch, nodes []nodeInfo) {
 			fmt.Printf("   %-12s %s\n", n.Name+":", bi.Error)
 			continue
 		}
-		fmt.Printf("   %-12s hash=%s gei=%d epoch=%d\n", n.Name+":", bi.Hash, parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch))
-		if parentDiff {
-			fmt.Printf("   %-12s parentHash=%s\n", "", bi.ParentHash)
-		}
-		if stateDiff {
-			fmt.Printf("   %-12s stateRoot=%s\n", "", bi.StateRoot)
-		}
-		if txDiff {
-			fmt.Printf("   %-12s txRoot=%s\n", "", bi.TransactionsRoot)
-		}
-		if rcpDiff {
-			fmt.Printf("   %-12s receiptsRoot=%s\n", "", bi.ReceiptsRoot)
-		}
+		line := fmt.Sprintf("   %-12s hash=%s gei=%d epoch=%d", n.Name+":", bi.Hash, parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch))
+		if parentDiff { line += fmt.Sprintf("  parent=%s", bi.ParentHash) }
+		if stateDiff { line += fmt.Sprintf("  stateRoot=%s", bi.StateRoot) }
+		if txDiff { line += fmt.Sprintf("  txRoot=%s", bi.TransactionsRoot) }
+		if rcpDiff { line += fmt.Sprintf("  rcpRoot=%s", bi.ReceiptsRoot) }
+		if timeDiff { line += fmt.Sprintf("  time=%s", bi.Timestamp) }
+		if minerDiff { line += fmt.Sprintf("  miner=%s", bi.Miner) }
+		fmt.Println(line)
 	}
 	fmt.Println()
 }
@@ -718,6 +845,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 	var minBlock, maxBlock uint64
 	minBlock = ^uint64(0)
 
+	var hasNodeError bool
 	for _, n := range nodes {
 		num, err := getLatestBlockNumber(client, n.URL)
 		
@@ -729,6 +857,8 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 				gei = parseHexStr(bi.GlobalExecIndex)
 				epoch = parseHexStr(bi.Epoch)
 			}
+		} else {
+			hasNodeError = true
 		}
 
 		results = append(results, nodeBlock{name: n.Name, block: num, gei: gei, epoch: epoch, err: err})
@@ -739,6 +869,13 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 			if num > maxBlock {
 				maxBlock = num
 			}
+		}
+	}
+
+	if hasNodeError {
+		clearLoggedBlocks()
+		for k := range trackedGhosts {
+			delete(trackedGhosts, k)
 		}
 	}
 
@@ -788,7 +925,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		from = 1
 	}
 
-	mismatches, matched, _, skipped, emptyBlocks := checkBatch(client, nodes, from, minBlock)
+	mismatches, matched, _, skipped, nilBlocks, emptyBlocks := checkBatch(client, nodes, from, minBlock)
 
 	if len(mismatches) == 0 {
 		if skipped > 0 {
@@ -797,27 +934,24 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 			fmt.Printf(" ✅ hash khớp %d blocks (block %d→%d)\n", matched, from, minBlock)
 		}
 		
-		if len(emptyBlocks) > 0 {
-			show := len(emptyBlocks)
-			if show > 10 { show = 10 }
-			fmt.Printf("   👻 Có %d block rỗng/nhảy cóc: %v", len(emptyBlocks), emptyBlocks[:show])
-			if len(emptyBlocks) > 10 { fmt.Printf("...") }
-			fmt.Println()
+		if len(nilBlocks) > 0 || len(emptyBlocks) > 0 {
+			showN := len(nilBlocks)
+			if showN > 5 { showN = 5 }
+			showE := len(emptyBlocks)
+			if showE > 5 { showE = 5 }
 			
-			// Lưu vào file (tránh trùng lặp)
-			if trackedGhosts != nil {
-				f, err := os.OpenFile("ghost_blocks.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-				if err == nil {
-					nowStr := time.Now().Format("2006-01-02 15:04:05")
-					for _, b := range emptyBlocks {
-						if !trackedGhosts[b] {
-							fmt.Fprintf(f, "[%s] Ghost block detected: %d\n", nowStr, b)
-							trackedGhosts[b] = true
-						}
-					}
-					f.Close()
-				}
+			var parts []string
+			if len(nilBlocks) > 0 {
+				s := fmt.Sprintf("⚠️ Get bị nil: %d blocks %v", len(nilBlocks), nilBlocks[:showN])
+				if len(nilBlocks) > 5 { s += "..." }
+				parts = append(parts, s)
 			}
+			if len(emptyBlocks) > 0 {
+				s := fmt.Sprintf("👻 Rỗng (tx=0, sys_txs=0): %d blocks %v", len(emptyBlocks), emptyBlocks[:showE])
+				if len(emptyBlocks) > 5 { s += "..." }
+				parts = append(parts, s)
+			}
+			fmt.Printf("   %s\n", strings.Join(parts, "  |  "))
 		}
 		
 		// In hash của block mới nhất (minBlock) từ mỗi node
@@ -858,6 +992,31 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 
 	for _, m := range mismatches {
 		alertBuf.WriteString(fmt.Sprintf("\n⚠️  Block %d:\n", m.BlockNumber))
+
+		// Find which fields differ
+		var diffParent, diffState, diffTx, diffRcp, diffTime, diffMiner, diffGei, diffEpoch bool
+		var ref blockInfo
+		var refSet bool
+		for _, n := range nodes {
+			bi, ok := m.Blocks[n.Name]
+			if !ok || bi.IsError() || bi.Error != "" {
+				continue
+			}
+			if !refSet {
+				ref = bi
+				refSet = true
+				continue
+			}
+			if bi.ParentHash != ref.ParentHash { diffParent = true }
+			if bi.StateRoot != ref.StateRoot { diffState = true }
+			if bi.TransactionsRoot != ref.TransactionsRoot { diffTx = true }
+			if bi.ReceiptsRoot != ref.ReceiptsRoot { diffRcp = true }
+			if bi.Timestamp != ref.Timestamp { diffTime = true }
+			if bi.Miner != ref.Miner { diffMiner = true }
+			if bi.GlobalExecIndex != ref.GlobalExecIndex { diffGei = true }
+			if bi.Epoch != ref.Epoch { diffEpoch = true }
+		}
+
 		for _, n := range nodes {
 			bi, ok := m.Blocks[n.Name]
 			if !ok {
@@ -868,8 +1027,21 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 				alertBuf.WriteString(fmt.Sprintf("   %-12s %s\n", n.Name+":", bi.Error))
 				continue
 			}
-			alertBuf.WriteString(fmt.Sprintf("   %-12s hash=%s  parentHash=%s  stateRoot=%s  gei=%d  epoch=%d\n",
-				n.Name+":", bi.Hash, bi.ParentHash, bi.StateRoot, parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch)))
+			
+			// Always print hash
+			line := fmt.Sprintf("   %-12s hash=%s", n.Name+":", bi.Hash)
+			
+			// Only print differing fields
+			if diffParent { line += fmt.Sprintf("  parent=%s", bi.ParentHash) }
+			if diffState { line += fmt.Sprintf("  stateRoot=%s", bi.StateRoot) }
+			if diffTx { line += fmt.Sprintf("  txRoot=%s", bi.TransactionsRoot) }
+			if diffRcp { line += fmt.Sprintf("  rcpRoot=%s", bi.ReceiptsRoot) }
+			if diffTime { line += fmt.Sprintf("  time=%s", bi.Timestamp) }
+			if diffMiner { line += fmt.Sprintf("  miner=%s", bi.Miner) }
+			if diffGei { line += fmt.Sprintf("  gei=%d", parseHexStr(bi.GlobalExecIndex)) }
+			if diffEpoch { line += fmt.Sprintf("  epoch=%d", parseHexStr(bi.Epoch)) }
+			
+			alertBuf.WriteString(line + "\n")
 		}
 	}
 

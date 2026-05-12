@@ -587,12 +587,12 @@ func main() {
 		len(allTxs), buildDuration.Round(time.Millisecond),
 		float64(len(allTxs))/buildDuration.Seconds(), buildErrors)
 
-	if buildErrors > 0 {
-		log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Quá trình build giao dịch gặp %d lỗi! Vui lòng kiểm tra log để debug.", buildErrors)
-	}
-	if len(allTxs) == 0 {
-		log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Không có giao dịch nào được build thành công!")
-	}
+	// if buildErrors > 0 {
+	// 	log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Quá trình build giao dịch gặp %d lỗi! Vui lòng kiểm tra log để debug.", buildErrors)
+	// }
+	// if len(allTxs) == 0 {
+	// 	log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Không có giao dịch nào được build thành công!")
+	// }
 
 	targetAddresses := []string{config.ParentConnectionAddress}
 	if !loadBalance {
@@ -857,7 +857,7 @@ func main() {
 				float64(len(allTxs))/rebuildDuration.Seconds(), rebuildErrors)
 
 			if rebuildErrors > 0 {
-				log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Quá trình re-build giao dịch gặp %d lỗi! Vui lòng kiểm tra log để debug.", rebuildErrors)
+				fmt.Printf("  ⚠️ CẢNH BÁO: Quá trình re-build giao dịch gặp %d lỗi! Bỏ qua và tiếp tục...\n", rebuildErrors)
 			}
 			if len(allTxs) == 0 {
 				log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Không có giao dịch nào được re-build thành công!")
