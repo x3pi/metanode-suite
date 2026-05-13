@@ -6,10 +6,12 @@ NODE_ID=${1:-1}
 GAP_EPOCH=${2:-3}
 LOOP_COUNT=${3:-1}
 
-# Đường dẫn
-ORCH_SCRIPT="/home/abc/nhat/con-chain-v2/metanode/consensus/metanode/scripts/mtn-orchestrator.sh"
-RPC_TCP_SCRIPT="/home/abc/nhat/con-chain-v2/tool-test/scripts/rpc-tcp-simple.sh"
-HASH_CHECKER_DIR="/home/abc/nhat/con-chain-v2/tool-test/block/block_hash_checker"
+# Đường dẫn động để chạy được trên nhiều máy
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+ORCH_SCRIPT="$ROOT_DIR/metanode/consensus/metanode/scripts/mtn-orchestrator.sh"
+RPC_TCP_SCRIPT="$SCRIPT_DIR/rpc-tcp-simple.sh"
+HASH_CHECKER_DIR="$(dirname "$SCRIPT_DIR")/block/block_hash_checker"
 
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
