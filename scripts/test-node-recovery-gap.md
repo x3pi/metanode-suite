@@ -37,7 +37,7 @@ Bạn có thể truyền trực tiếp `Node ID`, số `Gap Epoch` và số `Vò
 ./test-node-recovery-gap.sh 2 5 1
 
 # Ví dụ 2: Tắt Node 1, chờ 3 Epochs, lặp lại test 10 lần liên tục
-./test-node-recovery-gap.sh 1 3 10
+./test-node-recovery-gap.sh 1 3 3
 ```
 
 ---

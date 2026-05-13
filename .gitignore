@@ -5,3 +5,4 @@ scripts/error_report.txt
 test_tps/gen_spam_keys/generated_keys.json
 test_tps/tps_blast_cc/blast_cc_results.json
 scripts/logs/stop_tps.flag
+scripts/error_report.txt

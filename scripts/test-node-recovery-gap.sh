@@ -27,6 +27,8 @@ get_current_epoch() {
     fi
 }
 
+
+
 # Hàm dọn dẹp tiến trình spam
 stop_spam() {
     echo "🛑 Dừng các tiến trình spam giao dịch..."
@@ -73,6 +75,14 @@ analyze_mismatch() {
     echo "💡 KHUYẾN NGHỊ: Hãy kiểm tra logic import_block qua FFI hoặc cơ chế P2P Sync."
     echo "   Block tải về phải được giữ nguyên vẹn Header lịch sử (không tự generate lại Timestamp, GEI, Epoch)."
     echo "--------------------------------------------------------"
+
+    if [ "$mismatches" -ge 100 ]; then
+        echo -e "\n🛑 LỖI NGHIÊM TRỌNG: Phát hiện >= 100 block bị lệch hash! Dừng script ngay lập tức để kiểm tra!"
+        exit 1
+    elif [ "$mismatches" -gt 0 ]; then
+        echo -e "\n🛑 LỖI: Phát hiện $mismatches block bị lệch hash! Dừng script để kiểm tra!"
+        exit 1
+    fi
 }
 
 echo "========================================================="
@@ -131,6 +141,8 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
 echo "⏳ Đợi 10s cho node khởi động và xin Recovery State..."
 sleep 10
 
+
+
 echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Timeout 30s)..."
     cd $HASH_CHECKER_DIR
     rm -f hash_mismatch_alert.log
@@ -148,6 +160,8 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
     analyze_mismatch
 
     stop_spam
+
+
 done
 
 echo -e "\n🎉 HOÀN TẤT TOÀN BỘ CÁC VÒNG LẶP TEST NODE RECOVERY!"
