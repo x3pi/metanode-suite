@@ -276,6 +276,16 @@ if should_run 7; then
     fi
 fi
 
+# ----------------------------------------------------
+# BƯỚC 8: Test History RPC
+# ----------------------------------------------------
+if should_run 8; then
+    echo ""
+    echo "📌 BƯỚC 8: Test History RPC..."
+    cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
+    run_and_capture "Test History RPC (Bước 8)" go run main.go -config=config-local.json -wait 5
+fi
+
 echo ""
 echo "=================================================="
 echo "🎉 AUTO TEST PIPELINE COMPLETED SUCCESSFULLY!"

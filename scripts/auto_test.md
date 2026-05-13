@@ -12,7 +12,8 @@ The `auto_test.sh` script is an end-to-end automation pipeline designed to facil
 5. Testing advanced MVM capabilities including the Xapian V0 precompile.
 6. Testing basic HTTP JSON-RPC capabilities for sending native currency transactions.
 7. Testing advanced MVM capabilities including the Xapian V2 precompile.
-8. Triggering a massive TPS (Transactions Per Second) load test via parallel native transfers.
+15. Triggering a massive TPS (Transactions Per Second) load test via parallel native transfers.
+16. Validating historical state querying by verifying account balances and nonces at older block heights (Test History RPC).
 
 ## Prerequisites
 
@@ -87,6 +88,10 @@ The script supports overriding the starting step and the deployment topology mod
 - **Location:** `cmd/tool/test_tps/tps_blast_cc`
 - **Action:** Triggers the TPS load tester with a 20,000 TX spray across 5 rounds. Uses parallel native transfers (`--parallel_native=true`) and round-robin connection pools (`--load_balance=true`).
 - **Recent Updates for Debugging:** The tool is now equipped to automatically detect `invalid nonce` errors thrown by lagging consensus nodes. If an invalid nonce occurs, it triggers a cross-check array (Mismatch/Divergence Check) scanning all RPC targets in the pool concurrently and cleanly identifies which node represents stale network state. You can inspect the divergence table in your terminal during this step.
+
+### Bước 8: Test History RPC
+- **Location:** `test-simple/test-rpc/test-history`
+- **Action:** Validates the historical state querying mechanism. It creates a transaction, records the exact state (balance and nonce) at the resulting block (Block A), advances the chain to a newer block (Block B), and then strictly verifies that querying the historical state at Block A via `eth_getBalance` and `eth_getTransactionCount` matches the previously recorded snapshot exactly.
 
 ## Troubleshooting
 
