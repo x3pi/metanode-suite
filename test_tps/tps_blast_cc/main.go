@@ -319,10 +319,10 @@ func main() {
 	if raw, err := os.ReadFile(configPath); err == nil {
 		var rawCfg map[string]interface{}
 		if json.Unmarshal(raw, &rawCfg) == nil {
-			// Thêm rpc_1, rpc_2, rpc_3, ... theo thứ tự
-			for i := 1; i <= 10; i++ {
-				// Nếu load_balance = false, chỉ sử dụng rpc_1 (node hiện tại)
-				if !loadBalance && i > 1 {
+			// Thêm rpc_0, rpc_1, rpc_2, rpc_3, ... theo thứ tự
+			for i := 0; i <= 10; i++ {
+				// Nếu load_balance = false, chỉ sử dụng rpc_0 (node hiện tại)
+				if !loadBalance && i > 0 {
 					break
 				}
 

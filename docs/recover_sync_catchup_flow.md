@@ -5,16 +5,47 @@ Tài liệu này mô tả chi tiết quá trình một Node khởi động lại
 ---
 
 ## Giai đoạn 1: Khởi động Go và Tự phục hồi (Self-Healing)
-**Vị trí Code:** `execution/cmd/simple_chain/app_blockchain.go` (Hàm `initBlockchain`)
+**Vị trí Code:** `execution/cmd/simple_chain/app_blockchain.go` (Hàm `initBlockchain`, dòng 511-532)
 
-Khi bạn khởi động lại Node, tiến trình Go (`go-master`) sẽ khởi chạy đầu tiên. Vì bạn KHÔNG copy `metadata.json` mới vào thư mục, biến `metadata` sẽ bằng `nil`. Hệ thống sẽ đi vào cơ chế kiểm tra tính toàn vẹn của dữ liệu:
+Khi bạn khởi động lại Node, tiến trình Go (`go-master`) sẽ khởi chạy đầu tiên. Vì bạn KHÔNG copy `metadata.json` mới vào thư mục, biến `metadata` sẽ bằng `nil`. Hệ thống sẽ đi vào cơ chế kiểm tra tính toàn vẹn của dữ liệu để đối phó với hiện tượng "State Drift" (lệch trạng thái giữa RAM/NOMT và đĩa cứng LevelDB) do sập nguồn đột ngột:
 
-1. **So sánh Root:** Node đọc `startStateRoot` từ LevelDB (chứa block P2P tải về) và `nomtRoot` từ Database NOMT (chứa trạng thái EVM đã thực thi).
-2. **Kích hoạt Fallback (Two-Phase Scan):** Nếu Node trước đó bị tắt nóng/sập nguồn lúc đang ghi dữ liệu, LevelDB sẽ vượt mặt NOMT (`startStateRoot != nomtRoot`). Hệ thống lập tức nhảy vào khối `else if` tại dòng 511.
-3. **Quét lùi (Backward Scan):** 
-   - Node quét ngược chuỗi block từ hiện tại về quá khứ để tìm block cuối cùng có `StateRoot` khớp đúng với `nomtRoot` đang có trong ổ cứng.
-   - Khi tìm thấy (ví dụ: lùi từ block 245 xuống 239), nó ép hệ thống (Go) dùng Block 239 làm điểm xuất phát mới `startLastBlock = current`.
-4. **Kết quả Giai đoạn 1:** Cấu trúc dữ liệu cục bộ được chữa lành. Go mở kết nối Unix Socket (FFI) và sẵn sàng chờ Rust.
+1. **So sánh Root:** Node lấy `startStateRoot` từ LevelDB (chứa block P2P tải về nhưng chưa chắc đã thực thi) và `nomtRoot` từ Database NOMT (chứa trạng thái EVM đã thực sự được thực thi và lưu xuống ổ).
+2. **Kích hoạt Fallback (Quét lùi tìm chốt an toàn):** Nếu Node trước đó bị tắt nóng/sập nguồn, LevelDB thường lưu block nhanh hơn NOMT. Dẫn đến `startStateRoot != nomtRoot`. Hệ thống lập tức kích hoạt luồng cứu hộ:
+
+```go
+} else if startStateRoot != (e_common.Hash{}) && nomtRoot != startStateRoot {
+    logger.Warn("🛡️ [SNAPSHOT FIX] State mismatch! NOMT root=%s, startLastBlock #%d stateRoot=%s. "+
+        "LevelDB has P2P-synced blocks beyond executed state. Searching for correct block...", ...)
+
+    found := false
+    // Quét ngược từ block hiện tại của LevelDB về quá khứ
+    for bn := app.startLastBlock.Header().BlockNumber(); bn > 0; bn-- {
+        blkHash, ok := blockchain.GetBlockChainInstance().GetBlockHashByNumber(bn)
+        if !ok { continue }
+        blk, err := blockDatabase.GetBlockByHash(blkHash)
+        if err != nil || blk == nil { continue }
+        
+        // So sánh: Block nào có StateRoot khớp với NOMT Root hiện tại?
+        if blk.Header().AccountStatesRoot() == nomtRoot {
+            correctedGEI := blk.Header().GlobalExecIndex()
+            logger.Warn("🛡️ [SNAPSHOT FIX] ✅ Found matching fallback block #%d (stateRoot=%s, GEI=%d).",
+                bn, nomtRoot.Hex()[:18]+"...", correctedGEI)
+            // Ghi đè điểm xuất phát của Node về block an toàn này
+            app.startLastBlock = blk
+            found = true
+            break
+        }
+    }
+    if !found {
+        logger.Fatal("❌ [SNAPSHOT FIX] Could not find any block matching NOMT root... ")
+    }
+}
+```
+
+3. **Ý nghĩa của đoạn code trên:**
+   - Hệ thống tự động lùi `app.startLastBlock` về quá khứ (ví dụ lùi từ block 245 xuống 239) cho đến khi tìm thấy block có dữ liệu khớp hoàn toàn với những gì NOMT đang giữ.
+   - Nhờ vậy, Node không bị dính "mớ hỗn độn" của các block đang chạy dở dang. 
+4. **Kết quả Giai đoạn 1:** Cấu trúc dữ liệu cục bộ được chữa lành. Điểm xuất phát (GEI) được xác định lại một cách hoàn hảo, Go mở kết nối Unix Socket (FFI) sẵn sàng đón luồng đồng bộ từ Rust.
 
 ---
 
