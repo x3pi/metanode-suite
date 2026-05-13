@@ -224,6 +224,16 @@ func checkNonceDivergence(rpcPool []*rpc.RPCClient, sampleAddr string, triggerIn
 	fmt.Printf("╚══════════════════════════════════════════════════════════════╝\n")
 }
 
+func logErrorToFile(msg string) {
+	f, err := os.OpenFile("blast_cc_errors.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	ts := time.Now().Format("2006-01-02 15:04:05")
+	f.WriteString(fmt.Sprintf("[%s] %s\n", ts, msg))
+}
+
 func main() {
 	var (
 		configPath     string
@@ -365,29 +375,54 @@ func main() {
 	// Việc dùng round-robin rpcPool (poolSize > 1) sẽ gây ra lỗi "invalid nonce" vì
 	// các sub-node thường bị lag 1 chút (replication lag). Khi lấy state từ sub-node bị lag,
 	// nonce trả về sẽ là nonce cũ.
-	fetchNonce := func(addr string) (uint64, error) {
+	fetchNonce := func(addr string, expectedNonce int64) (uint64, error) {
 		poolSize := len(rpcPool)
 		if !parallelNative {
 			poolSize = 1
 		}
-		idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)
-		rc := rpcPool[idx]
+		
+		var lastErr error
+		for retry := 0; retry <= 10; retry++ {
+			idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)
+			rc := rpcPool[idx]
 
-		as, err := rc.GetAccountState(addr)
-		if err != nil {
-			return 0, err
-		}
-		if as == nil {
-			return 0, fmt.Errorf("node[%d] returned nil state", idx)
-		}
+			as, err := rc.GetAccountState(addr)
+			if err != nil {
+				lastErr = err
+				if retry < 10 {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				return 0, err
+			}
+			if as == nil {
+				lastErr = fmt.Errorf("node[%d] returned nil state", idx)
+				if retry < 10 {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				return 0, lastErr
+			}
 
-		// Log 5 cái đầu để debug
-		count := atomic.LoadInt64(&rpcPoolIdx)
-		if count <= 5 {
-			fmt.Printf("      DEBUG: Account %s => Nonce %d (from %s)\n", addr, as.Nonce, rc.Endpoint)
-		}
+			fetchedNonce := int64(as.Nonce)
+			if expectedNonce >= 0 && fetchedNonce < expectedNonce {
+				lastErr = fmt.Errorf("node[%d] returned stale nonce %d < expected %d", idx, fetchedNonce, expectedNonce)
+				if retry < 10 {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				return 0, lastErr
+			}
 
-		return uint64(as.Nonce), nil
+			// Log 5 cái đầu để debug
+			count := atomic.LoadInt64(&rpcPoolIdx)
+			if count <= 5 {
+				fmt.Printf("      DEBUG: Account %s => Nonce %d (from %s)\n", addr, as.Nonce, rc.Endpoint)
+			}
+
+			return uint64(as.Nonce), nil
+		}
+		return 0, lastErr
 	}
 
 	// Fetch nonce for ALL accounts concurrently (load-balanced conditional)
@@ -416,7 +451,7 @@ func main() {
 			defer nonceWg.Done()
 			for idx := range nonceCh {
 				acc := toSend[idx]
-				nonce, err := fetchNonce(acc.Address)
+				nonce, err := fetchNonce(acc.Address, -1)
 				if err == nil {
 					nonceMu.Lock()
 					nonceMap[acc.Address] = nonce
@@ -428,6 +463,7 @@ func main() {
 					if atomic.AddInt64(&loggedErrors, 1) <= maxLoggedErrors {
 						fmt.Printf("\n    ❌ [NONCE ERROR] addr=%s err=%v\n", acc.Address, err)
 					}
+					logErrorToFile(fmt.Sprintf("[Round 1] [NONCE ERROR] addr=%s err=%v", acc.Address, err))
 					// Collect unique error types for summary
 					nonceErrMu.Lock()
 					nonceErrSamples[errStr]++
@@ -736,6 +772,7 @@ func main() {
 			fmt.Printf("  ⏳ Waiting 3s for chain to finalize previous round...\n")
 			time.Sleep(3 * time.Second)
 			fmt.Printf("  🔍 Re-fetching nonces for %d accounts (pool: %d nodes)...\n", len(toSend), len(rpcPool))
+			oldNonceMap := nonceMap
 			nonceMap = make(map[string]uint64)
 			var refetchOk, refetchErr int64
 			var refetchMu sync.Mutex
@@ -747,7 +784,11 @@ func main() {
 					defer refetchWg.Done()
 					for idx := range refetchCh {
 						acc := toSend[idx]
-						nonce, err := fetchNonce(acc.Address)
+						exp := int64(-1)
+						if oldN, ok := oldNonceMap[acc.Address]; ok {
+							exp = int64(oldN + 1)
+						}
+						nonce, err := fetchNonce(acc.Address, exp)
 						if err == nil {
 							refetchMu.Lock()
 							nonceMap[acc.Address] = nonce
@@ -758,6 +799,7 @@ func main() {
 							if atomic.AddInt64(&loggedErrors, 1) <= maxLoggedErrors {
 								fmt.Printf("\n    ❌ [RE-FETCH NONCE ERROR] addr=%s err=%v\n", acc.Address, err)
 							}
+							logErrorToFile(fmt.Sprintf("[Round %d] [RE-FETCH NONCE ERROR] addr=%s err=%v", round, acc.Address, err))
 						}
 						done := atomic.LoadInt64(&refetchOk) + atomic.LoadInt64(&refetchErr)
 						if done%2000 == 0 || done == int64(len(toSend)) {
@@ -957,6 +999,12 @@ func main() {
 		fmt.Printf("\n⏳ Polling chain for completion (max %s)...\n", maxWait)
 		processStart := time.Now()
 
+		// Build map of expected tx hashes to correctly count only our TXs
+		expectedTxHashes := make(map[string]bool)
+		for _, tx := range allTxs {
+			expectedTxHashes[strings.ToLower(tx.txHash.Hex())] = true
+		}
+
 		var processingDuration time.Duration
 		emptyBlockStreak := 0
 		lastBlockNum := startBlock
@@ -976,7 +1024,13 @@ func main() {
 			for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
 				blk, err := rpcClient.GetBlockByNumber(bn)
 				if err == nil && blk != nil {
-					newTxs += uint64(len(blk.Transactions))
+					newTxsCount := uint64(0)
+					for _, txHash := range blk.Transactions {
+						if expectedTxHashes[strings.ToLower(txHash)] {
+							newTxsCount++
+						}
+					}
+					newTxs += newTxsCount
 					nextLastBlockNum = bn
 				} else {
 					// Stop the loop if fetching a block fails, to avoid skipping it permanently
@@ -1012,8 +1066,9 @@ func main() {
 				// With 20ms poll, need 3000 streaks = 60 seconds of no new blocks
 				if emptyBlockStreak >= 3000 {
 					processingDuration = time.Since(processStart)
-					fmt.Printf("\n  ⚠️  TIMEOUT: Không có giao dịch mới trong 60s. Chain đã ngừng xử lý TXs.\n")
-					fmt.Printf("  ⚠️  Đã nhận vào block: %d/%d TXs (còn thiếu %d TXs)\n", totalTxsInBlocks, len(allTxs), int(uint64(len(allTxs))-totalTxsInBlocks))
+					errMsg := fmt.Sprintf("TIMEOUT: Không có giao dịch mới trong 60s. Chain đã ngừng xử lý TXs. Đã nhận vào block: %d/%d TXs (còn thiếu %d TXs)", totalTxsInBlocks, len(allTxs), int(uint64(len(allTxs))-totalTxsInBlocks))
+					fmt.Printf("\n  ⚠️  %s\n", errMsg)
+					logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 					break
 				}
 			} else if newTxs == 0 && !seenAnyTx {
@@ -1034,15 +1089,20 @@ func main() {
 		if processingDuration == 0 {
 			processingDuration = time.Since(processStart)
 			if !seenAnyTx {
-				fmt.Printf("\n  ❌ TIMEOUT: Hết %s chờ mà KHÔNG có TX nào vào block!\n", maxWait)
-				fmt.Printf("  ❌ Kiểm tra: (1) Node có đang chạy? (2) TX có bị reject ở mempool? (3) Chain có bị kẹt không?\n")
+				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ mà KHÔNG có TX nào vào block! Kiểm tra: (1) Node có đang chạy? (2) TX có bị reject ở mempool? (3) Chain có bị kẹt không?", maxWait)
+				fmt.Printf("\n  ❌ %s\n", errMsg)
+				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 			} else {
-				fmt.Printf("\n  ❌ TIMEOUT: Hết %s chờ, chỉ %d/%d TXs vào block.\n", maxWait, totalTxsInBlocks, len(allTxs))
+				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ, chỉ %d/%d TXs vào block.", maxWait, totalTxsInBlocks, len(allTxs))
+				fmt.Printf("\n  ❌ %s\n", errMsg)
+				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 			}
 		}
 
 		if totalTxsInBlocks < uint64(len(allTxs)) {
-			fmt.Printf("\n❌ ERROR: Not all transactions were processed! (%d/%d)\n", totalTxsInBlocks, len(allTxs))
+			errMsg := fmt.Sprintf("ERROR: Not all transactions were processed! (%d/%d)", totalTxsInBlocks, len(allTxs))
+			fmt.Printf("\n❌ %s\n", errMsg)
+			logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 			os.Exit(1)
 		}
 

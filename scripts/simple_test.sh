@@ -134,18 +134,18 @@ fi
 ----------------------------------------------------
 BƯỚC 1: Xóa genesis cũ và tạo file genesis mới
 ----------------------------------------------------
-if should_run 1; then
-    echo ""
-    echo "📌 BƯỚC 1: Prepare Genesis & Gen Spam Keys..."
-    cd "$METANODE_DIR/execution/cmd/simple_chain"
-    echo "  -> Xóa genesis.json và copy từ genesis-main.json..."
-    rm -f genesis.json
-    cp genesis-main.json genesis.json
+# if should_run 1; then
+#     echo ""
+#     echo "📌 BƯỚC 1: Prepare Genesis & Gen Spam Keys..."
+#     cd "$METANODE_DIR/execution/cmd/simple_chain"
+#     echo "  -> Xóa genesis.json và copy từ genesis-main.json..."
+#     rm -f genesis.json
+#     cp genesis-main.json genesis.json
 
-    cd "$TOOL_TEST_DIR/test_tps/gen_spam_keys"
-    echo "  -> Chạy Gen Spam Keys (count 50000)..."
-    run_and_capture "Gen Spam Keys (Bước 1)" go run main.go --count 50000 --genesis-in "$METANODE_DIR/execution/cmd/simple_chain/genesis-main.json" --genesis-out "$METANODE_DIR/execution/cmd/simple_chain/genesis.json"
-fi
+#     cd "$TOOL_TEST_DIR/test_tps/gen_spam_keys"
+#     echo "  -> Chạy Gen Spam Keys (count 50000)..."
+#     run_and_capture "Gen Spam Keys (Bước 1)" go run main.go --count 50000 --genesis-in "$METANODE_DIR/execution/cmd/simple_chain/genesis-main.json" --genesis-out "$METANODE_DIR/execution/cmd/simple_chain/genesis.json"
+# fi
 
 # ----------------------------------------------------
 # BƯỚC 2: Triển khai Cụm

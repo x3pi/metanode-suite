@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Đường dẫn gốc
-BASE_DIR="$HOME/nhat/con-chain-v2/tool-test/test-simple"
+# Đường dẫn gốc (Tự động nhận diện theo thư mục hiện tại)
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+BASE_DIR="$SCRIPT_DIR/../test-simple"
 
 # Hàm thực thi 2 test
 run_tests() {

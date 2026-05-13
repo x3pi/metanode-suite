@@ -120,12 +120,17 @@ echo "=================================================="
 # ----------------------------------------------------
 echo "📌 Đang kiểm tra mount point BTRFS cho database..."
 if ! mountpoint -q "$METANODE_DIR/execution/cmd/simple_chain/sample" 2>/dev/null; then
-    echo "  -> Phân vùng chưa được mount, đang tiến hành chạy migrate-to-btrfs-lvm.sh (có thể yêu cầu sudo)..."
+    echo "  -> Phân vùng chưa được mount, đang tìm migrate-to-btrfs-lvm.sh..."
     # Dùng lệnh chạy bình thường không đưa vào run_and_capture vì sudo sẽ yêu cầu gõ password trực tiếp trên terminal
-    bash "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh"
-    if [ $? -ne 0 ]; then
-        echo "❌ Lỗi khi chạy migrate-to-btrfs-lvm.sh!"
-        exit 1
+    if [ -f "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh" ]; then
+        echo "  -> Đang chạy migrate-to-btrfs-lvm.sh (có thể yêu cầu sudo)..."
+        bash "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh"
+        if [ $? -ne 0 ]; then
+            echo "❌ Lỗi khi chạy migrate-to-btrfs-lvm.sh!"
+            exit 1
+        fi
+    else
+        echo "  -> File migrate-to-btrfs-lvm.sh không tồn tại. Bỏ qua bước mount BTRFS."
     fi
 else
     echo "  -> Phân vùng BTRFS đã được mount sẵn."
@@ -271,7 +276,7 @@ if should_run 7; then
     echo "📌 BƯỚC 7: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false --batch=10
+        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 20 --load_balance=false --batch=10
     else
         run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500
     fi
