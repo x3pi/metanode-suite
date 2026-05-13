@@ -119,6 +119,17 @@ func main() {
 	blockA = bA
 	fmt.Printf("✅ Giao dịch đã được mine tại Block A: %d\n", blockA)
 
+	// LƯU LẠI STATE NGAY TẠI BLOCK A ĐỂ ĐỐI CHIẾU SAU NÀY
+	blockAHex := hexutil.EncodeUint64(blockA)
+	var savedBalanceAHex string
+	rpcClient.CallContext(ctx, &savedBalanceAHex, "eth_getBalance", fromAddress, blockAHex)
+	savedBalanceA, _ := hexutil.DecodeBig(savedBalanceAHex)
+
+	var savedNonceAHex string
+	rpcClient.CallContext(ctx, &savedNonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
+	savedNonceA, _ := hexutil.DecodeUint64(savedNonceAHex)
+	fmt.Printf("   [Saved] Tiền lúc Block A: %v | Nonce: %d\n", savedBalanceA, savedNonceA)
+
 	if *waitBlocksFlag > 0 {
 		blockB = blockA + *waitBlocksFlag
 		fmt.Printf("\n⏳ Chế độ Test Pruning: Đang đợi mạng lưới chạy tới Block B (%d)...\n", blockB)
@@ -158,10 +169,9 @@ func main() {
 	fmt.Println("BẮT ĐẦU KIỂM TRA LỊCH SỬ BẰNG RPC TẠI 2 MỐC BLOCK KHÁC NHAU")
 	fmt.Println("=====================================================")
 
-	blockAHex := hexutil.EncodeUint64(blockA)
 	blockBHex := hexutil.EncodeUint64(blockB)
 
-	// Lấy Balance ở Block A
+	// Lấy Balance lịch sử ở Block A
 	var balanceAHex string
 	err = rpcClient.CallContext(ctx, &balanceAHex, "eth_getBalance", fromAddress, blockAHex)
 	balanceA, _ := hexutil.DecodeBig(balanceAHex)
@@ -171,13 +181,19 @@ func main() {
 	err = rpcClient.CallContext(ctx, &balanceBHex, "eth_getBalance", fromAddress, blockBHex)
 	balanceB, _ := hexutil.DecodeBig(balanceBHex)
 
-	fmt.Printf("💰 eth_getBalance tại Block A (%d): %v\n", blockA, balanceA)
-	fmt.Printf("💰 eth_getBalance tại Block B (%d): %v\n", blockB, balanceB)
+	fmt.Printf("💰 eth_getBalance tại Block A (Lịch sử: %d): %v\n", blockA, balanceA)
+	fmt.Printf("💰 eth_getBalance tại Block B (Hiện tại: %d): %v\n", blockB, balanceB)
 
 	if balanceA.Cmp(balanceB) == 0 {
-		fmt.Println("⚠️  LỖI: Số dư ở Block A và Block B GIỐNG HỆT NHAU. Chứng tỏ rpc_state.go đang load nhầm state hiện tại thay vì lịch sử!")
+		fmt.Println("⚠️  LỖI: Số dư lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU. Bị lỗi rò rỉ state hiện tại!")
 	} else {
-		fmt.Println("✅ Số dư có sự khác biệt rõ ràng -> Lấy đúng state quá khứ!")
+		fmt.Println("✅ Số dư có sự khác biệt rõ ràng -> State lịch sử và hiện tại đã tách biệt!")
+	}
+
+	if balanceA.Cmp(savedBalanceA) == 0 {
+		fmt.Println("✅ Số dư lịch sử get lại KHỚP HOÀN TOÀN với số dư đã lưu lúc Block A mới sinh ra!")
+	} else {
+		fmt.Printf("⚠️  LỖI NGHIÊM TRỌNG: Số dư lịch sử get lại (%v) KHÁC với số dư thực tế lúc đó (%v)!\n", balanceA, savedBalanceA)
 	}
 
 	// Kiểm tra Nonce (TransactionCount)
@@ -189,12 +205,18 @@ func main() {
 	rpcClient.CallContext(ctx, &nonceBHex, "eth_getTransactionCount", fromAddress, blockBHex)
 	nonceB, _ := hexutil.DecodeUint64(nonceBHex)
 
-	fmt.Printf("\n🔢 eth_getTransactionCount tại Block A (%d): %d\n", blockA, nonceA)
-	fmt.Printf("🔢 eth_getTransactionCount tại Block B (%d): %d\n", blockB, nonceB)
+	fmt.Printf("\n🔢 eth_getTransactionCount tại Block A (Lịch sử: %d): %d\n", blockA, nonceA)
+	fmt.Printf("🔢 eth_getTransactionCount tại Block B (Hiện tại: %d): %d\n", blockB, nonceB)
 
 	if nonceA == nonceB {
-		fmt.Println("⚠️  LỖI: Nonce ở Block A và Block B GIỐNG HỆT NHAU.")
+		fmt.Println("⚠️  LỖI: Nonce lịch sử và hiện tại GIỐNG HỆT NHAU.")
 	} else {
-		fmt.Println("✅ Nonce có sự khác biệt rõ ràng -> State Root historical hoạt động tốt!")
+		fmt.Println("✅ Nonce có sự khác biệt rõ ràng!")
+	}
+
+	if nonceA == savedNonceA {
+		fmt.Println("✅ Nonce lịch sử KHỚP HOÀN TOÀN với Nonce đã lưu lúc Block A mới sinh ra!")
+	} else {
+		fmt.Printf("⚠️  LỖI NGHIÊM TRỌNG: Nonce lịch sử (%d) KHÁC với Nonce thực tế lúc đó (%d)!\n", nonceA, savedNonceA)
 	}
 }
