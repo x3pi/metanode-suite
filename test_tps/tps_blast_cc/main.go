@@ -380,7 +380,7 @@ func main() {
 		if !parallelNative {
 			poolSize = 1
 		}
-		
+
 		var lastErr error
 		for retry := 0; retry <= 10; retry++ {
 			idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)

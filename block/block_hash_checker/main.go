@@ -803,9 +803,10 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	totalChecks := 0
 	totalMismatches := 0
 	trackedGhosts := make(map[uint64]bool)
+	lastVerifiedBlock := uint64(0)
 
 	// Run immediately on start
-	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts) {
+	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock) {
 		fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 		fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 		os.Exit(1)
@@ -814,7 +815,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	for {
 		select {
 		case <-ticker.C:
-			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts) {
+			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock) {
 				fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 				fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 				os.Exit(1)
@@ -828,7 +829,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 }
 
 // watchOnce returns true if mismatch detected (caller should stop)
-func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool) bool {
+func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64) bool {
 	*totalChecks++
 	now := time.Now().Format("15:04:05")
 
@@ -918,11 +919,36 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		return false
 	}
 
-	from := minBlock
-	if from > uint64(checkLast) {
-		from = minBlock - uint64(checkLast) + 1
-	} else {
-		from = 1
+	// Rewind cursor if a node comes back online with a smaller block
+	if *lastVerifiedBlock > minBlock {
+		fmt.Printf(" ⚠️ Phát hiện node tụt lùi hoặc khởi động lại (minBlock %d < lastVerified %d). Lùi mốc kiểm tra để quét lại...\n", minBlock, *lastVerifiedBlock)
+		if minBlock > 0 {
+			*lastVerifiedBlock = minBlock - 1
+		} else {
+			*lastVerifiedBlock = 0
+		}
+	}
+
+	from := uint64(1)
+	if *lastVerifiedBlock > 0 {
+		from = *lastVerifiedBlock + 1
+	}
+
+	if from > minBlock {
+		fmt.Printf(" ✅ Không có block mới (đã check tới %d)\n", *lastVerifiedBlock)
+		// Vẫn in hash của block mới nhất để user theo dõi
+		fmt.Printf("   📦 Block %d hashes:\n", minBlock)
+		for _, n := range nodes {
+			bi, err := getBlockInfo(client, n.URL, minBlock)
+			if err != nil {
+				fmt.Printf("      %-12s ERR: %v\n", n.Name+":", err)
+			} else if bi.IsError() {
+				fmt.Printf("      %-12s %s\n", n.Name+":", bi.Error)
+			} else {
+				fmt.Printf("      %-12s hash=%s  stateRoot=%s  gei=%d  epoch=%d\n", n.Name+":", bi.Hash, bi.StateRoot, parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch))
+			}
+		}
+		return false
 	}
 
 	mismatches, matched, _, skipped, nilBlocks, emptyBlocks := checkBatch(client, nodes, from, minBlock)
@@ -966,12 +992,47 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 				fmt.Printf("      %-12s hash=%s  stateRoot=%s  gei=%d  epoch=%d\n", n.Name+":", bi.Hash, bi.StateRoot, parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch))
 			}
 		}
+		
+		*lastVerifiedBlock = minBlock
 		return false
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
 	// MISMATCH DETECTED — write to file + print to console + signal stop
 	// ═══════════════════════════════════════════════════════════════════
+
+	// --- TRUY VẤN LÙI ĐỂ TÌM BLOCK LỆCH ĐẦU TIÊN ---
+	firstMismatchInBatch := mismatches[0].BlockNumber
+	fmt.Printf("\n🔍 Phát hiện lệch hash tại block %d. Đang truy vấn lùi bằng Binary Search để tìm block lệch đầu tiên...\n", firstMismatchInBatch)
+	
+	realFirstMismatch := firstMismatchInBatch
+	low := uint64(1)
+	high := firstMismatchInBatch - 1
+
+	for low <= high {
+		mid := low + (high-low)/2
+		// Check just this single block
+		m, _, _, _, _, _ := checkBatch(client, nodes, mid, mid)
+		if len(m) > 0 {
+			realFirstMismatch = mid
+			high = mid - 1 // Tiếp tục tìm về trước
+		} else {
+			low = mid + 1 // Mismatch nằm ở phía sau
+		}
+	}
+
+	if realFirstMismatch < firstMismatchInBatch {
+		fmt.Printf("🎯 Đã tìm thấy block lệch đầu tiên thực sự tại: %d\n", realFirstMismatch)
+		// Fetch lại chi tiết block này
+		m, _, _, _, _, _ := checkBatch(client, nodes, realFirstMismatch, realFirstMismatch)
+		if len(m) > 0 {
+			// Push vào đầu slice để in ra báo cáo
+			mismatches = append(m, mismatches...)
+		}
+	} else {
+		fmt.Printf("🎯 Block %d chính là block lệch đầu tiên trên chuỗi.\n", realFirstMismatch)
+	}
+
 	*totalMismatches += len(mismatches)
 
 	// Build alert content for both console and file

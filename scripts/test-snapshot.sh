@@ -47,6 +47,9 @@ TPS_DIR="$TOOL_TEST_DIR/test_tps/tps_blast_cc"
 SCRIPTS_DIR="$TOOL_TEST_DIR/scripts"
 METANODE_SCRIPT_DIR="$(cd "$TOOL_TEST_DIR/../metanode" && pwd)/consensus/metanode/scripts/node"
 
+# Xử lý tín hiệu Ctrl+C (SIGINT) để kill sạch các tiến trình chạy ngầm
+trap 'echo -e "\n🛑 Bị ngắt (Ctrl+C)! Đang dừng tất cả tiến trình ngầm..."; kill -9 $CHECKER_PID $TPS_PID 2>/dev/null; pkill -P $$ 2>/dev/null; exit 1' SIGINT SIGTERM
+
 for ((i=1; i<=LOOPS; i++)); do
     echo ""
     echo "====================================================================="
@@ -73,7 +76,7 @@ for ((i=1; i<=LOOPS; i++)); do
             echo "❌ LỖI NGHIÊM TRỌNG: block_hash_checker đã bị kill (khả năng phát hiện lệch hash)!"
             echo "   Xem log chi tiết tại: $CHECKER_DIR/hash_checker_loop_${i}.log"
             echo "--- LOG TÓM TẮT ---"
-            tail -n 20 "hash_checker_loop_${i}.log"
+            tail -n 20 "$CHECKER_DIR/hash_checker_loop_${i}.log"
             echo "-------------------"
             kill -9 $TPS_PID 2>/dev/null
             exit 1
@@ -163,6 +166,12 @@ for ((i=1; i<=LOOPS; i++)); do
     echo "👉 Bước 5: Chạy rpc-tcp-simple.sh để kiểm tra giao dịch (trigger block mới)..."
     cd "$SCRIPTS_DIR" || exit 1
     ./rpc-tcp-simple.sh
+    RPC_EXIT=$?
+    if [ $RPC_EXIT -ne 0 ]; then
+        echo "❌ LỖI: rpc-tcp-simple.sh thất bại (exit code $RPC_EXIT). Dừng pipeline!"
+        kill -9 $CHECKER_PID 2>/dev/null
+        exit 1
+    fi
 
     # 6. Chờ để kiểm tra hash cuối cùng
     echo "👉 Bước 6: Chờ 10s để block_hash_checker xác minh các node có cùng hash block không..."

@@ -203,6 +203,8 @@ func SendReadTransaction(
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal calldata for %s: %w", action, err)
 	}
+	// payload := input
+
 	// Gửi read transaction
 	receipt, err := cli.ReadTransaction(
 		from,
@@ -268,6 +270,7 @@ func SendTransaction(
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal calldata for %s: %w", action, err)
 	}
+	// payload := input
 	// Gửi write transaction
 	receipt, err := cli.SendTransactionWithDeviceKey(
 		from,
