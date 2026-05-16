@@ -1073,14 +1073,14 @@ func main() {
 				}
 			} else if newTxs == 0 && !seenAnyTx {
 				// Chưa thấy bất kỳ TX nào vào block — có thể chain bị tắc
-				if time.Since(processStart) > 30*time.Second {
-					noTxWarnedKey := time.Since(processStart).Round(10 * time.Second)
-					_ = noTxWarnedKey // tránh redeclare, dùng để rate-limit log
-					if int(time.Since(processStart).Seconds())%30 == 0 {
-						fmt.Printf("\n  ⚠️  [CẢNH BÁO] Chờ %s mà chưa có TX nào vào block! Chain có thể đang bị tắc hoặc TX chưa được mempool chấp nhận.\n",
-							time.Since(processStart).Round(time.Second))
-					}
-				}
+				// if time.Since(processStart) > 30*time.Second {
+				// 	noTxWarnedKey := time.Since(processStart).Round(10 * time.Second)
+				// 	_ = noTxWarnedKey // tránh redeclare, dùng để rate-limit log
+				// 	if int(time.Since(processStart).Seconds())%30 == 0 {
+				// 		fmt.Printf("\n  ⚠️  [CẢNH BÁO] Chờ %s mà chưa có TX nào vào block! Chain có thể đang bị tắc hoặc TX chưa được mempool chấp nhận.\n",
+				// 			time.Since(processStart).Round(time.Second))
+				// 	}
+				// }
 			} else {
 				emptyBlockStreak = 0
 			}
