@@ -88,7 +88,13 @@ func logBlockEvent(eventType string, blockNum uint64, gei string) {
 	}
 	defer f.Close()
 	now := time.Now().Format("2006-01-02 15:04:05")
-	f.WriteString(fmt.Sprintf("[%s] %s DETECTED: blockNumber=%d gei=%s\n", now, eventType, blockNum, geiStr))
+	msg := fmt.Sprintf("[%s] %s DETECTED: blockNumber=%d gei=%s\n", now, eventType, blockNum, geiStr)
+	f.WriteString(msg)
+
+	// In ra terminal hiện tại chỉ khi là NIL_BLOCK
+	if strings.Contains(eventType, "NIL_BLOCK") {
+		logger.Info("\n🚨 " + msg)
+	}
 }
 
 func logSystemError(nodeName string, blockNum uint64, errMsg string) {
