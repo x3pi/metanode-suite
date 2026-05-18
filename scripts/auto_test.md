@@ -93,6 +93,35 @@ The script supports overriding the starting step and the deployment topology mod
 - **Location:** `test-simple/test-rpc/test-history`
 - **Action:** Validates the historical state querying mechanism. It creates a transaction, records the exact state (balance and nonce) at the resulting block (Block A), advances the chain to a newer block (Block B), and then strictly verifies that querying the historical state at Block A via `eth_getBalance` and `eth_getTransactionCount` matches the previously recorded snapshot exactly.
 
+## 24/7 CI/CD Monitoring (`ci_monitor.py`)
+
+To continuously monitor the GitHub repository and run the test pipeline automatically on every new commit, use the `ci_monitor.py` script.
+
+### Features
+1. **GitHub Polling (Network-Light)**: It uses `git ls-remote` every 10 seconds to check for new commits on the `origin/main` branch without downloading data unnecessarily.
+2. **Auto-Pull & Clean Restart**: If a new commit is detected, it terminates the currently running `auto_test.sh` process (via Process Group Kill), runs `git pull origin main`, and starts a fresh pipeline.
+3. **Log Management**: Each automated run generates an isolated log file in `scripts/auto_test_logs/` labeled with the commit hash and timestamp to prevent overwriting.
+4. **Telegram Alerts**: If the `auto_test.sh` pipeline fails (exits with code > 0), the script immediately sends an alert containing the commit hash and exit code to the configured Telegram group.
+
+### How to Run
+It is highly recommended to run this script in the background using `nohup` or `tmux` so it persists after you close your SSH session:
+
+```bash
+cd /home/abc/chain-n/metanode-suite/scripts
+nohup ./ci_monitor.py > ci_monitor.log 2>&1 &
+```
+
+**Passing Arguments to `auto_test.sh`:**
+Any arguments passed to `ci_monitor.py` are forwarded directly to `auto_test.sh`. For example, to run the monitor only on specific steps in single mode:
+```bash
+nohup ./ci_monitor.py --mode single --steps "2,4,5" > ci_monitor.log 2>&1 &
+```
+
+**To stop the monitor:**
+```bash
+pkill -f ci_monitor.py
+```
+
 ## Troubleshooting
 
 - **"Lỗi ở Bước X" (Error at Step X):** Look at the lines directly above the error message to view the output of the Go program. Fix the compilation or logic error, and use `./auto_test.sh --step X` to resume from the failure point without resetting everything.
