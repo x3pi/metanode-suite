@@ -91,9 +91,19 @@ else
     fi
 
     if [ -d "$AUTO_TEST_LOGS" ]; then
-        FILE_COUNT=$(find "$AUTO_TEST_LOGS" -type f | wc -l)
-        rm -rf "$AUTO_TEST_LOGS"
-        echo "   → Đã xóa thư mục auto_test_logs/ ($FILE_COUNT files)"
+        # Keep the newest log file, delete the rest
+        LOG_FILES=($(ls -t "$AUTO_TEST_LOGS"/*.log 2>/dev/null))
+        FILE_COUNT=${#LOG_FILES[@]}
+        
+        if [ "$FILE_COUNT" -gt 1 ]; then
+            FILES_TO_DELETE=("${LOG_FILES[@]:1}")
+            rm -f "${FILES_TO_DELETE[@]}"
+            echo "   → Đã xóa $((${FILE_COUNT}-1)) files cũ trong auto_test_logs/, giữ lại 1 file mới nhất."
+        elif [ "$FILE_COUNT" -eq 1 ]; then
+            echo "   → Chỉ có 1 file log trong auto_test_logs/, đã giữ lại."
+        else
+            echo "   → Thư mục auto_test_logs/ trống."
+        fi
     fi
 
     if [ -f "$SCRIPT_DIR/error_report.txt" ]; then
