@@ -115,6 +115,7 @@ nohup ./ci_monitor.py > ci_monitor.log 2>&1 &
 Any arguments passed to `ci_monitor.py` are forwarded directly to `auto_test.sh`. For example, to run the monitor only on specific steps in single mode:
 ```bash
 nohup ./ci_monitor.py --mode single --steps "2,4,5" > ci_monitor.log 2>&1 &
+nohup ./ci_monitor.py --mode single > ci_monitor.log 2>&1 &
 ```
 
 **To stop the monitor:**
