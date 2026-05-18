@@ -43,6 +43,10 @@ type AccountInfo struct {
 	Address    string `json:"address"`
 }
 
+func ts() string {
+	return time.Now().Format("15:04:05.000")
+}
+
 // rawWriter wraps a raw TCP connection (same as tps_blast)
 type rawWriter struct {
 	conn         net.Conn
@@ -88,8 +92,8 @@ func newRawWriter(addr, version, toAddrHex string) (*rawWriter, error) {
 					var txErr pb.TransactionHashWithError
 					if proto.Unmarshal(msg.Body, &txErr) == nil {
 						txHashHex := common.BytesToHash(txErr.Hash).Hex()
-						fmt.Printf("\n❌ SERVER REJECTED TX: %s | Node: %s | Code: %d | Msg: %s\n",
-							txHashHex, rw.addr, txErr.Code, txErr.Description)
+						fmt.Printf("\n[%s] ❌ SERVER REJECTED TX: %s | Node: %s | Code: %d | Msg: %s\n",
+							ts(), txHashHex, rw.addr, txErr.Code, txErr.Description)
 						// Nếu lỗi invalid nonce → trigger cross-check nonce divergence
 						if strings.Contains(strings.ToLower(txErr.Description), "invalid nonce") {
 							if rw.nonceChecker != nil {
@@ -99,7 +103,7 @@ func newRawWriter(addr, version, toAddrHex string) (*rawWriter, error) {
 						}
 					}
 				} else if msg.Header.Command != "Receipt" {
-					fmt.Printf("\n📩 SERVER: %s\n", msg.Header.Command)
+					fmt.Printf("\n[%s] 📩 SERVER: %s\n", ts(), msg.Header.Command)
 				}
 			}
 		}
@@ -691,7 +695,7 @@ func main() {
 
 	reconnectNode := func(targetAddr string) *rawWriter {
 		for attempt := 1; attempt <= 120; attempt++ {
-			fmt.Printf("  🔌 Connecting to %s (attempt %d)...\n", targetAddr, attempt)
+			fmt.Printf("[%s]   🔌 Connecting to %s (attempt %d)...\n", ts(), targetAddr, attempt)
 			rw, err := newRawWriter(targetAddr, version, toAddrHex)
 			if err != nil {
 				time.Sleep(1 * time.Second)
@@ -716,10 +720,10 @@ func main() {
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			fmt.Printf("  ✅ Connected to %s and InitConnection sent\n", targetAddr)
+			fmt.Printf("[%s]   ✅ Connected to %s and InitConnection sent\n", ts(), targetAddr)
 			return rw
 		}
-		fmt.Printf("  ❌ Failed to connect to %s after 120 attempts\n", targetAddr)
+		fmt.Printf("[%s]   ❌ Failed to connect to %s after 120 attempts\n", ts(), targetAddr)
 		return nil
 	}
 
@@ -949,7 +953,7 @@ func main() {
 			if c.rw == nil {
 				c.rw = reconnectNode(c.addr)
 				if c.rw == nil {
-					fmt.Printf("\n  ❌ Skipping batch %d due to reconnect failure on %s\n", i, c.addr)
+					fmt.Printf("\n[%s]   ❌ Skipping batch %d due to reconnect failure on %s\n", ts(), i, c.addr)
 					continue
 				}
 			}
@@ -957,13 +961,13 @@ func main() {
 			err := c.rw.sendRaw(command.SendTransactions, batchBytes)
 			if err != nil {
 				writeErrors++
-				fmt.Printf("\n  ⚠️  Write error on %s at Batch %d: %v — reconnecting...\n", c.addr, i, err)
+				fmt.Printf("\n[%s]   ⚠️  Write error on %s at Batch %d: %v — reconnecting...\n", ts(), c.addr, i, err)
 				c.rw.close()
 				c.rw = reconnectNode(c.addr)
 				if c.rw != nil {
 					c.rw.sendRaw(command.SendTransactions, batchBytes)
 				} else {
-					fmt.Printf("\n  ❌ Skipping batch %d due to reconnect failure on %s\n", i, c.addr)
+					fmt.Printf("\n[%s]   ❌ Skipping batch %d due to reconnect failure on %s\n", ts(), i, c.addr)
 					continue
 				}
 			}
@@ -976,8 +980,8 @@ func main() {
 			if (i+1)%10 == 0 || i == len(batchedMsgs)-1 {
 				elapsed := time.Since(blastStart)
 				rate := float64(sentTxs) / elapsed.Seconds()
-				fmt.Printf("\r  📤 [%d/%d] %.0f tx/s | elapsed %s   ",
-					sentTxs, len(allTxs), rate, elapsed.Round(time.Millisecond))
+				fmt.Printf("\r[%s]   📤 [%d/%d] %.0f tx/s | elapsed %s   ",
+					ts(), sentTxs, len(allTxs), rate, elapsed.Round(time.Millisecond))
 			}
 
 			if c.rw != nil {
@@ -1055,8 +1059,8 @@ func main() {
 				pct = 100
 			}
 
-			fmt.Printf("\r  📡 [%s] Block: %d | TXs in blocks: %d/%d (%.0f%%) | +%d new   ",
-				time.Since(processStart).Round(time.Millisecond),
+			fmt.Printf("\r[%s]   📡 [%s] Block: %d | TXs in blocks: %d/%d (%.0f%%) | +%d new   ",
+				ts(), time.Since(processStart).Round(time.Millisecond),
 				currentBlockNum, totalTxsInBlocks, len(allTxs), pct, newTxs)
 
 			// Stop immediately when all TXs confirmed
