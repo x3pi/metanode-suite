@@ -123,6 +123,9 @@ def main():
     
     print(f"[{datetime.datetime.now()}] Đang chạy bài test đầu tiên. Ghi log ra: {log_file}")
     
+    commit_short = last_commit[:8] if last_commit else "init"
+    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
+    
     with open(log_file, "w") as f:
         current_process = subprocess.Popen(
             args,
@@ -185,6 +188,8 @@ def main():
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 log_file = os.path.join(LOGS_DIR, f"test_{current_commit[:8]}_{timestamp}.log")
                 print(f"[{datetime.datetime.now()}] Chạy bài test MỚI. Ghi log ra: {log_file}")
+                
+                send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nCommit: {current_commit[:8]}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Phát hiện mã mới trên GitHub")
                 
                 with open(log_file, "w") as f:
                     current_process = subprocess.Popen(
