@@ -19,8 +19,8 @@ import (
 
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
-	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
 	tx_models "tool-test/pkg/client-tcp/models"
+	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
 	"tool-test/pkg/logger"
 	pb "tool-test/pkg/proto"
 )
@@ -101,103 +101,107 @@ func main() {
 		for idx, d := range dataList {
 			fmt.Printf("\n--- THỰC THI TASK %d: %s ---\n", idx+1, d.Method)
 
-		var contractAddress common.Address
-		action := strings.ToLower(d.Action)
+			var contractAddress common.Address
+			action := strings.ToLower(d.Action)
 
-		if d.Contract != "" {
-			contractAddress = common.HexToAddress(d.Contract)
-		} else if lastDeployedAddress != nil {
-			contractAddress = *lastDeployedAddress
-		} else if action != "deploy" {
-			log.Fatalf("❌ Task %d không có thuộc tính 'contract' và cũng không có contract nào được deploy trước đó!", idx+1)
-		}
-
-		var txAmount *big.Int
-		if d.Amount != "" {
-			var ok bool
-			txAmount, ok = new(big.Int).SetString(d.Amount, 10)
-			if !ok {
-				log.Fatalf("❌ Amount không hợp lệ (không phải là số nguyên): %s", d.Amount)
+			if d.Contract != "" {
+				contractAddress = common.HexToAddress(d.Contract)
+			} else if lastDeployedAddress != nil {
+				contractAddress = *lastDeployedAddress
+			} else if action != "deploy" {
+				fmt.Printf("   ⚠️ Cảnh báo: Task %d không có 'contract'. Đang dùng địa chỉ rỗng (0x00...00) để Call mô phỏng.\n", idx+1)
 			}
-		}
 
-		// 4. Đọc ABI
-		var contractAbi abi.ABI
-		var hasAbi bool
-
-		if d.AbiPath != "" {
-			abiFile, err := os.Open(d.AbiPath)
-			if err != nil {
-				fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Lỗi mở file %s\n", d.AbiPath)
-			} else {
-				contractAbi, err = abi.JSON(abiFile)
-				abiFile.Close()
-				if err == nil {
-					hasAbi = true
-				} else {
-					fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Parse JSON lỗi\n")
+			var txAmount *big.Int
+			if d.Amount != "" {
+				var ok bool
+				txAmount, ok = new(big.Int).SetString(d.Amount, 10)
+				if !ok {
+					log.Fatalf("❌ Amount không hợp lệ (không phải là số nguyên): %s", d.Amount)
 				}
 			}
-		}
 
-		var payloadData []byte
+			// 4. Đọc ABI
+			var contractAbi abi.ABI
+			var hasAbi bool
 
-		// 5. Tương tác chọn InputData hay Method
-		useInputData := false
-		if d.Method != "" && d.InputData != "" && hasAbi {
-			fmt.Printf("⚠️ Task có CẢ Method (%s) VÀ InputData (%s).\n", d.Method, d.InputData)
-			fmt.Print("👉 Bạn muốn dùng cái nào? (1: Pack theo Method+Args, 2: Dùng InputData trực tiếp): ")
-			var choice string
-			fmt.Scanln(&choice)
-			if choice == "2" {
+			if d.AbiPath != "" {
+				abiFile, err := os.Open(d.AbiPath)
+				if err != nil {
+					fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Lỗi mở file %s\n", d.AbiPath)
+				} else {
+					contractAbi, err = abi.JSON(abiFile)
+					abiFile.Close()
+					if err == nil {
+						hasAbi = true
+					} else {
+						fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Parse JSON lỗi\n")
+					}
+				}
+			}
+
+			var payloadData []byte
+
+			// 5. Tương tác chọn InputData hay Method
+			useInputData := false
+			if d.Method != "" && d.InputData != "" && hasAbi {
+				fmt.Printf("⚠️ Task có CẢ Method (%s) VÀ InputData (%s).\n", d.Method, d.InputData)
+				fmt.Print("👉 Bạn muốn dùng cái nào? (1: Pack theo Method+Args, 2: Dùng InputData trực tiếp): ")
+				var choice string
+				fmt.Scanln(&choice)
+				if choice == "2" {
+					useInputData = true
+				}
+			} else if d.InputData != "" || d.Method == "" {
 				useInputData = true
 			}
-		} else if d.InputData != "" {
-			useInputData = true
-		}
 
-		if useInputData {
-			payloadData, err = hexutil.Decode(d.InputData)
-			if err != nil {
-				log.Fatalf("❌ Lỗi giải mã InputData: %v", err)
+			if useInputData {
+				if d.InputData == "" {
+					payloadData = []byte{}
+				} else {
+					payloadData, err = hexutil.Decode(d.InputData)
+					if err != nil {
+						log.Fatalf("❌ Lỗi giải mã InputData: %v", err)
+					}
+				}
+				fmt.Println("   📝 Đang sử dụng raw InputData Hex...")
+				if !hasAbi {
+					d.Method = ""
+				}
+			} else if action == "transfer" {
+				// Bỏ qua kiểm tra ABI nếu là transfer thuần
+				useInputData = true
+			} else {
+				if !hasAbi {
+					log.Fatalf("❌ Task giao dịch bằng Method+Args BẮT BUỘC phải đọc được ABI hợp lệ!")
+				}
+				method, ok := contractAbi.Methods[d.Method]
+				if !ok && d.Method != "" {
+					log.Fatalf("❌ Hàm '%s' không tồn tại trong file ABI!", d.Method)
+				}
+				parsedArgs := prepareArgs(method, d.Args)
+				payloadData, err = contractAbi.Pack(d.Method, parsedArgs...)
+				if err != nil {
+					log.Fatalf("❌ Lỗi Pack tham số %s: %v", d.Method, err)
+				}
 			}
-			fmt.Println("   📝 Đang sử dụng raw InputData Hex...")
-			if !hasAbi {
-				d.Method = ""
-			}
-		} else if action == "transfer" {
-			// Bỏ qua kiểm tra ABI nếu là transfer thuần
-			useInputData = true
-		} else {
-			if !hasAbi {
-				log.Fatalf("❌ Task giao dịch bằng Method+Args BẮT BUỘC phải đọc được ABI hợp lệ!")
-			}
-			method, ok := contractAbi.Methods[d.Method]
-			if !ok && d.Method != "" {
-				log.Fatalf("❌ Hàm '%s' không tồn tại trong file ABI!", d.Method)
-			}
-			parsedArgs := prepareArgs(method, d.Args)
-			payloadData, err = contractAbi.Pack(d.Method, parsedArgs...)
-			if err != nil {
-				log.Fatalf("❌ Lỗi Pack tham số %s: %v", d.Method, err)
-			}
-		}
 
-		// 6. Thực thi
-		if action == "deploy" {
-			if len(payloadData) == 0 {
-				log.Fatalf("❌ Action Deploy yêu cầu Bytecode trong 'input_data'!")
+			// 6. Thực thi
+			if action == "deploy" {
+				if len(payloadData) == 0 {
+					fmt.Println("⚠️ Cảnh báo: Action Deploy đang có Bytecode rỗng!")
+				}
+				executeDeployTCP(tcpClient, cfg, fromAddress, payloadData, &lastDeployedAddress)
+			} else if action == "call" || action == "read" {
+				executeCallTCP(tcpClient, cfg, contractAddress, fromAddress, contractAbi, d.Method, payloadData, d.Verify)
+			} else if action == "send" || action == "write" {
+				executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, payloadData, txAmount, d.Method)
+			} else if action == "transfer" {
+				executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, nil, txAmount, "NativeTransfer")
+			} else {
+				log.Fatalf("❌ Action không hợp lệ: %s", d.Action)
 			}
-			executeDeployTCP(tcpClient, cfg, fromAddress, payloadData, &lastDeployedAddress)
-		} else if action == "call" || action == "read" {
-			executeCallTCP(tcpClient, cfg, contractAddress, fromAddress, contractAbi, d.Method, payloadData, d.Verify)
-		} else if action == "send" || action == "write" {
-			executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, payloadData, txAmount, d.Method)
-		} else if action == "transfer" {
-			executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, nil, txAmount, "NativeTransfer")
-		} else {
-			log.Fatalf("❌ Action không hợp lệ: %s", d.Action)
-		}
 		}
 
 		if !*loopFlag {

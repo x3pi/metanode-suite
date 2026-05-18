@@ -3,6 +3,10 @@
 # Dừng pipeline nếu có bất kỳ lệnh nào bị lỗi
 # set -e
 
+# Tự động xuất traceback cho debugging
+export GOTRACEBACK=all
+export RUST_BACKTRACE=full
+
 # Tự động lấy thư mục gốc của project tool-test
 TOOL_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -81,7 +85,7 @@ handle_error() {
 
     echo -e "\n[3] METANODE 0 LATEST LOG (Last 100 lines):" >> "$report_file"
     echo "--------------------------------------------------" >> "$report_file"
-    LATEST_NODE0_LOG=$(find "$METANODE_SCRIPT_DIR/logs/node0" -type f -name "*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
+    LATEST_NODE0_LOG=$(find "$METANODE_DIR/consensus/metanode/logs/node_0" -type f -name "*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
     if [ -n "$LATEST_NODE0_LOG" ]; then
         tail -n 100 "$LATEST_NODE0_LOG" >> "$report_file"
     else
@@ -227,6 +231,24 @@ if should_run 2; then
 fi
 
 # ----------------------------------------------------
+# BẬT GIÁM SÁT LỆCH HASH (CHẠY NGẦM)
+# ----------------------------------------------------
+echo ""
+echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
+(
+    cd "$TOOL_TEST_DIR/block/block_hash_checker"
+    go run main.go --watch --interval 5s --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" > block_hash_checker_auto.log 2>&1
+    if grep -q "bị lệch hash" block_hash_checker_auto.log; then
+        echo -e "\n\n🚨 Phân tích từ log: Phát hiện blocks bị lệch hash!"
+        echo -e "🚨🚨🚨 PHÁT HIỆN LỆCH HASH! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
+        kill -TERM -$$ 2>/dev/null || kill -TERM $$
+    fi
+) &
+CHECKER_PID=$!
+trap "kill -9 $CHECKER_PID 2>/dev/null" EXIT
+
+
+# ----------------------------------------------------
 # BƯỚC 3: Test TCP Caller
 # ----------------------------------------------------
 if should_run 3; then
@@ -278,7 +300,7 @@ if should_run 7; then
     if [ "$DEPLOY_MODE" == "single" ]; then
         run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false --batch=10
     else
-        run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500
+        run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500 --amount 1
     fi
 fi
 

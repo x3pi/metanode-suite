@@ -37,4 +37,6 @@ Chạy test khôi phục snapshot cho node 1, lặp lại 5 lần, mỗi lần s
 
 ```bash
 ./test-snapshot.sh --node 1 --loops 5 --tps-rounds 10
+
+./test-snapshot.sh --node 1 --loops 1 --tps-rounds 1
 ```

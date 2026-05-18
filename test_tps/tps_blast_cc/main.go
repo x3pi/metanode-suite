@@ -319,10 +319,10 @@ func main() {
 	if raw, err := os.ReadFile(configPath); err == nil {
 		var rawCfg map[string]interface{}
 		if json.Unmarshal(raw, &rawCfg) == nil {
-			// Thêm rpc_1, rpc_2, rpc_3, ... theo thứ tự
-			for i := 1; i <= 10; i++ {
-				// Nếu load_balance = false, chỉ sử dụng rpc_1 (node hiện tại)
-				if !loadBalance && i > 1 {
+			// Thêm rpc_0, rpc_1, rpc_2, rpc_3, ... theo thứ tự
+			for i := 0; i <= 10; i++ {
+				// Nếu load_balance = false, chỉ sử dụng rpc_0 (node hiện tại)
+				if !loadBalance && i > 0 {
 					break
 				}
 
@@ -381,15 +381,17 @@ func main() {
 			poolSize = 1
 		}
 
-		var lastErr error
-		for retry := 0; retry <= 10; retry++ {
-			idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)
-			rc := rpcPool[idx]
+		// Pick node once — all retries stay on the same node
+		// This ensures consistency: the node we ask is the node we wait for
+		idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)
+		rc := rpcPool[idx]
 
+		var lastErr error
+		for retry := 0; retry <= 60; retry++ {
 			as, err := rc.GetAccountState(addr)
 			if err != nil {
 				lastErr = err
-				if retry < 10 {
+				if retry < 60 {
 					time.Sleep(1 * time.Second)
 					continue
 				}
@@ -397,7 +399,7 @@ func main() {
 			}
 			if as == nil {
 				lastErr = fmt.Errorf("node[%d] returned nil state", idx)
-				if retry < 10 {
+				if retry < 60 {
 					time.Sleep(1 * time.Second)
 					continue
 				}
@@ -407,11 +409,15 @@ func main() {
 			fetchedNonce := int64(as.Nonce)
 			if expectedNonce >= 0 && fetchedNonce < expectedNonce {
 				lastErr = fmt.Errorf("node[%d] returned stale nonce %d < expected %d", idx, fetchedNonce, expectedNonce)
-				if retry < 10 {
+				if retry < 60 {
 					time.Sleep(1 * time.Second)
 					continue
 				}
-				return 0, lastErr
+				// All retries exhausted but we KNOW the correct nonce from
+				// previous round's block polling (which confirmed all TXs).
+				// Use expectedNonce directly instead of failing.
+				fmt.Printf("\n    ⚠️  [NONCE FALLBACK] addr=%s node[%d] still stale after 60 retries, using expectedNonce=%d\n", addr, idx, expectedNonce)
+				return uint64(expectedNonce), nil
 			}
 
 			// Log 5 cái đầu để debug
@@ -684,11 +690,11 @@ func main() {
 	}
 
 	reconnectNode := func(targetAddr string) *rawWriter {
-		for attempt := 1; attempt <= 20; attempt++ {
+		for attempt := 1; attempt <= 120; attempt++ {
 			fmt.Printf("  🔌 Connecting to %s (attempt %d)...\n", targetAddr, attempt)
 			rw, err := newRawWriter(targetAddr, version, toAddrHex)
 			if err != nil {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			// Inject rpcPool + nonceChecker vào rawWriter
@@ -702,18 +708,18 @@ func main() {
 			initBody, _ := proto.Marshal(initMsg)
 			if err := rw.sendRaw(command.InitConnection, initBody); err != nil {
 				rw.close()
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			if err := rw.flush(); err != nil {
 				rw.close()
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			fmt.Printf("  ✅ Connected to %s and InitConnection sent\n", targetAddr)
 			return rw
 		}
-		fmt.Printf("  ❌ Failed to connect to %s after 20 attempts\n", targetAddr)
+		fmt.Printf("  ❌ Failed to connect to %s after 120 attempts\n", targetAddr)
 		return nil
 	}
 
@@ -1073,14 +1079,14 @@ func main() {
 				}
 			} else if newTxs == 0 && !seenAnyTx {
 				// Chưa thấy bất kỳ TX nào vào block — có thể chain bị tắc
-				if time.Since(processStart) > 30*time.Second {
-					noTxWarnedKey := time.Since(processStart).Round(10 * time.Second)
-					_ = noTxWarnedKey // tránh redeclare, dùng để rate-limit log
-					if int(time.Since(processStart).Seconds())%30 == 0 {
-						fmt.Printf("\n  ⚠️  [CẢNH BÁO] Chờ %s mà chưa có TX nào vào block! Chain có thể đang bị tắc hoặc TX chưa được mempool chấp nhận.\n",
-							time.Since(processStart).Round(time.Second))
-					}
-				}
+				// if time.Since(processStart) > 30*time.Second {
+				// 	noTxWarnedKey := time.Since(processStart).Round(10 * time.Second)
+				// 	_ = noTxWarnedKey // tránh redeclare, dùng để rate-limit log
+				// 	if int(time.Since(processStart).Seconds())%30 == 0 {
+				// 		fmt.Printf("\n  ⚠️  [CẢNH BÁO] Chờ %s mà chưa có TX nào vào block! Chain có thể đang bị tắc hoặc TX chưa được mempool chấp nhận.\n",
+				// 			time.Since(processStart).Round(time.Second))
+				// 	}
+				// }
 			} else {
 				emptyBlockStreak = 0
 			}

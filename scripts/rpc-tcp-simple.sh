@@ -11,6 +11,10 @@ run_tests() {
     echo "=================================================="
     cd "$BASE_DIR/test-rpc" || { echo "❌ Không tìm thấy thư mục test-rpc"; exit 1; }
     go run main.go -config=config-local.json -data=data.json
+    if [ $? -ne 0 ]; then
+        echo "❌ TEST RPC THẤT BẠI! Dừng chương trình."
+        exit 1
+    fi
     
     echo ""
     echo "=================================================="
@@ -18,6 +22,10 @@ run_tests() {
     echo "=================================================="
     cd "$BASE_DIR/test-tcp/caller-tcp" || { echo "❌ Không tìm thấy thư mục test-tcp/caller-tcp"; exit 1; }
     go run main-no-none.go -config=config-local.json -data=data.json
+    if [ $? -ne 0 ]; then
+        echo "❌ TEST TCP THẤT BẠI! Dừng chương trình."
+        exit 1
+    fi
     echo ""
 }
 

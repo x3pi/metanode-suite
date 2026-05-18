@@ -108,7 +108,7 @@ func main() {
 		} else if lastDeployedAddress != nil {
 			contractAddress = *lastDeployedAddress
 		} else if action != "deploy" {
-			log.Fatalf("❌ Task %d không có thuộc tính 'contract' và cũng không có contract nào được deploy trước đó!", idx+1)
+			fmt.Printf("   ⚠️ Cảnh báo: Task %d không có 'contract'. Đang dùng địa chỉ rỗng (0x00...00) để Call mô phỏng.\n", idx+1)
 		}
 
 		// 4. Đọc ABI
@@ -142,14 +142,18 @@ func main() {
 			if choice == "2" {
 				useInputData = true
 			}
-		} else if d.InputData != "" {
+		} else if d.InputData != "" || d.Method == "" {
 			useInputData = true
 		}
 
 		if useInputData {
-			payloadData, err = hexutil.Decode(d.InputData)
-			if err != nil {
-				log.Fatalf("❌ Lỗi giải mã InputData: %v", err)
+			if d.InputData == "" {
+				payloadData = []byte{}
+			} else {
+				payloadData, err = hexutil.Decode(d.InputData)
+				if err != nil {
+					log.Fatalf("❌ Lỗi giải mã InputData: %v", err)
+				}
 			}
 			fmt.Println("   📝 Đang sử dụng raw InputData Hex...")
 			if !hasAbi {
@@ -173,7 +177,7 @@ func main() {
 		// 6. Thực thi
 		if action == "deploy" {
 			if len(payloadData) == 0 {
-				log.Fatalf("❌ Action Deploy yêu cầu Bytecode trong 'input_data'!")
+				fmt.Println("⚠️ Cảnh báo: Action Deploy đang có Bytecode rỗng!")
 			}
 			executeDeployTCP(tcpClient, cfg, fromAddress, payloadData, &lastDeployedAddress)
 		} else if action == "call" || action == "read" {

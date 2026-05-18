@@ -1,35 +1,47 @@
-Deleted test-snap-shot.md
-Deleted test_snapshot_pipeline.sh
-Ran command: `chmod +x ./test-snapshot.sh`
-Ran command: `./test_snapshot_pipeline.sh --node 1 --loops 5 --tps-rounds 10`
-Ran command: `./test_snapshot.sh --node 1 --loops 5 --tps-rounds 10`
-Ran command: `chmod +x ./test-snapshot.sh`
-Ran command: `./test_snapshot.sh --node 1 --loops 5 --tps-rounds 10`
-Edited test-snapshot.md
-Viewed test-snapshot.sh:51-85
+Ran command: `git branch`
+Viewed app_blockchain.go:553-593
 
-Đoạn code này đóng vai trò là một **vòng lặp giám sát (monitoring loop)** để đảm bảo rằng nếu có lỗi lệch hash xảy ra trong lúc đang bơm giao dịch, script sẽ dừng lại ngay lập tức thay vì chạy lãng phí thời gian.
+Đúng vậy! Nhưng quyết định vào **SyncOnly** là do **Rust** quyết định, không phải Go. Đây là phân chia trách nhiệm:
 
-Dưới đây là giải thích chi tiết từng dòng:
+```
+Go (initBlockchain) ──────────────────────────────────
+  ✅ Xác định điểm xuất phát (GEI, CommitIndex)
+  ✅ Sẵn sàng nhận dữ liệu qua FFI socket
+  (Go không biết mình bị lag bao nhiêu block)
 
-1. **`while kill -0 $TPS_PID 2>/dev/null; do`**
-   - Lệnh `kill -0` thực chất KHÔNG giết tiến trình. Nó chỉ gửi một tín hiệu rỗng để **kiểm tra xem tiến trình đó (ở đây là tiến trình chạy TPS) có đang hoạt động hay không**.
-   - Ý nghĩa: "Chừng nào tiến trình bơm giao dịch (`TPS_PID`) vẫn còn đang chạy, thì tiếp tục vòng lặp này".
+Rust (consensus layer) ────────────────────────────────
+  📡 Kết nối Peers trong mạng
+  🔍 Hỏi: "Mày đang ở GEI bao nhiêu?" → Go trả lời GEI=239
+  🔍 So sánh với mạng lưới: Mạng đang ở GEI=677
+  ❗ Phát hiện gap = 677 - 239 = 438 commits còn thiếu
+  🔒 Vào SyncOnly (khoá Proposals, không bỏ phiếu)
+  🚀 fetch_commits() từ Peers → Bắn qua FFI sang Go
+```
 
-2. **`if ! kill -0 $CHECKER_PID 2>/dev/null; then`**
-   - Bên trong vòng lặp, nó kiểm tra liên tục xem tiến trình `block_hash_checker` (`CHECKER_PID`) có còn sống hay không. Dấu `!` phía trước mang ý nghĩa phủ định (NOT).
-   - Tiến trình `block_hash_checker` được thiết kế để tự động thoát (bị kill/crash) nếu nó phát hiện ra mạng lưới bị lệch hash (hash divergence). 
-   - Ý nghĩa: "Nếu tiến trình checker ĐÃ CHẾT, thì thực thi khối lệnh báo lỗi bên trong".
+**Luồng Go nhận sau đó** nằm ở `processRustEpochData` trong `block_processor_network.go`. Tôi đã thêm log BOOT FLOW vào `app_blockchain.go` — nhưng để thấy **luồng catch-up đang chạy**, bạn cần xem log ở **2 chỗ** khi restart:
 
-3. **`echo "❌ LỖI NGHIÊM TRỌNG..."` và `tail -n 20 ...`**
-   - In ra thông báo lỗi màu đỏ cho bạn biết mạng lưới vừa bị lệch hash.
-   - Dùng lệnh `tail -n 20` để trích xuất 20 dòng log cuối cùng của file log checker in thẳng ra màn hình để bạn có thể xem được ngay mã lỗi, số block và Node bị phân nhánh mà không cần mở file.
+| Chỗ xem log | Thông tin |
+|---|---|
+| `App.log` của go-master | `[BOOT FLOW]` — Go đang ở bước nào khi init |
+| `App.log` của go-master (sau đó) | `[PROCESSOR]` / `[BATCH-DRAIN]` — Rust đang bơm data sang |
+| Log của Rust node | `[STARTUP-SYNC]` / `SyncOnly` / `Proposals LOCKED` |
 
-4. **`kill -9 $TPS_PID 2>/dev/null` và `exit 1`**
-   - Khi đã phát hiện lỗi, nó dùng `kill -9` để ép buộc tắt tiến trình bơm giao dịch TPS để không spam thêm rác vào mạng lưới.
-   - Gọi lệnh `exit 1` để dừng toàn bộ file bash (dừng toàn bộ pipeline script hiện tại), báo hiệu là tiến trình test thất bại.
+Cụ thể: sau khi log `🎯 [BOOT FLOW] initBlockchain HOÀN TẤT` xuất hiện, nếu Rust phát hiện lag thì bạn sẽ thấy liên tiếp các log như:
 
-5. **`sleep 2`**
-   - Vòng lặp sẽ lặp lại mỗi 2 giây một lần để tiết kiệm tài nguyên CPU.
+```
+[PROCESSOR] Starting loop to read from dataChan...
+[BATCH-DRAIN] Drained 200 empty commits, highestGEI=439
+[BATCH-DRAIN] Drained 150 empty commits, highestGEI=589
+...
+[FORK-SAFETY] Initialized from LastGlobalExecIndex: lastGEI=677
+```
 
-**Tóm lại:** Khối code này giúp script không bị "mù". Thay vì đứng im chờ cái TPS bơm xong 20,000 giao dịch (có thể mất vài phút) rồi mới check kết quả, thì nó vừa chờ TPS vừa "liếc" sang coi thằng Checker có báo động (chết) hay không, có lỗi cái là cắt cầu dao (dừng TPS, báo lỗi) liền.
+Bạn có muốn tôi thêm log vào `block_processor_network.go` để thấy rõ hơn quá trình Rust bơm data vào không?
+
+---
+### 📋 Tóm tắt thay đổi
+- **Đã thay đổi:** Chỉ giải thích, không sửa code.
+- **Blast radius:** Không có.
+- **Rủi ro tiềm ẩn:** Không có.
+- **Lưu ý:** SyncOnly là trạng thái của Rust, Go không chủ động vào/ra SyncOnly — Go chỉ nhận và xử lý data từ Rust qua FFI bất kể đang ở mode nào.
+---
