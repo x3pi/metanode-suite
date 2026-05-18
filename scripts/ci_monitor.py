@@ -8,8 +8,8 @@ import sys
 import urllib.request
 import urllib.parse
 
-METANODE_DIR = "/home/abc/chain-n/metanode"
-TEST_SCRIPT_DIR = "/home/abc/chain-n/metanode-suite/scripts"
+TEST_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "metanode")
 TEST_SCRIPT = "./auto_test.sh"
 LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "auto_test_logs")
 
