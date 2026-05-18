@@ -97,6 +97,22 @@ func logBlockEvent(eventType string, blockNum uint64, gei string) {
 	}
 }
 
+// logAnomaly logs chain health anomalies to chain_anomalies.log and prints to terminal.
+func logAnomaly(anomalyType string, blockNum uint64, detail string) {
+	now := time.Now().Format("2006-01-02 15:04:05")
+	msg := fmt.Sprintf("[%s] %s: blockNumber=%d %s\n", now, anomalyType, blockNum, detail)
+
+	// Ghi vào file
+	f, err := os.OpenFile("chain_anomalies.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		f.WriteString(msg)
+		f.Close()
+	}
+
+	// In ra terminal
+	logger.Info("\n🚨 " + msg)
+}
+
 func logSystemError(nodeName string, blockNum uint64, errMsg string) {
 	now := time.Now().Format("2006-01-02 15:04:05")
 	msg := fmt.Sprintf("[%s] 🚨 [SYSTEM ERROR] Lỗi hệ thống: Node %s getBlockByNumber(%d) trả về null hoặc lỗi: %s\n", now, nodeName, blockNum, errMsg)
@@ -334,6 +350,17 @@ func parseNodes(s string) []nodeInfo {
 
 // ===== Check a batch of blocks =====
 
+// prevBlockState tracks sequential state for anomaly detection across consecutive blocks.
+type prevBlockState struct {
+	Timestamp      uint64
+	GEI            uint64
+	Epoch          uint64
+	StateRoot      string
+	StateRootStreak int // number of consecutive blocks with same stateRoot
+	BlockNum       uint64
+	IsNil          bool
+}
+
 func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatches []mismatch, matchCount, errorCount, skipCount uint64, nilBlocks []uint64, emptyBlocks []uint64) {
 	type result struct {
 		blockNum uint64
@@ -376,6 +403,9 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 	// Build a map of block hash by node name for chain integrity check (parentHash verification)
 	// prevBlockHashes[nodeName] = hash of previous block on that node
 	prevBlockHashes := make(map[string]string)
+
+	// Track sequential state per node for anomaly detection
+	prevState := make(map[string]*prevBlockState)
 
 	for _, r := range results {
 		if r.hasError {
@@ -486,9 +516,91 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 		} else {
 			matchCount++
 		}
+
+		// === CHECK 3–7: Sequential anomaly detection (per node) ===
+		for _, node := range nodes {
+			bi := r.blocks[node.Name]
+			if bi.IsError() {
+				// CHECK 4: Block gap — previous was valid but current is NIL
+				if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
+					logAnomaly("BLOCK_GAP", r.blockNum,
+						fmt.Sprintf("node=%s prev_block=#%d was OK, current block NOT FOUND (Gap in chain!)",
+							node.Name, prev.BlockNum))
+				}
+				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true}
+				continue
+			}
+
+			curTS := parseHexStr(bi.Timestamp)
+			curGEI := parseHexStr(bi.GlobalExecIndex)
+			curEpoch := parseHexStr(bi.Epoch)
+			curStateRoot := bi.StateRoot
+			curTxCount := bi.TxCount + bi.SysTxCount
+
+			if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
+				// CHECK 1: Timestamp regression
+				if curTS > 0 && prev.Timestamp > 0 && curTS < prev.Timestamp {
+					regression := prev.Timestamp - curTS
+					if regression > 30 {
+						logAnomaly("TIMESTAMP_REGRESSION", r.blockNum,
+							fmt.Sprintf("node=%s ts=%d < prev_ts=%d (-%ds — stale DAG commit!)",
+								node.Name, curTS, prev.Timestamp, regression))
+					}
+				}
+
+				// CHECK 2: GEI regression or duplicate
+				if curGEI > 0 && prev.GEI > 0 && curGEI <= prev.GEI {
+					logAnomaly("GEI_REGRESSION", r.blockNum,
+						fmt.Sprintf("node=%s GEI=%d <= prev_GEI=%d (Ghost block or duplicate!)",
+							node.Name, curGEI, prev.GEI))
+				}
+
+				// CHECK 3: Epoch inconsistency (epoch must never decrease)
+				if curEpoch > 0 && prev.Epoch > 0 && curEpoch < prev.Epoch {
+					logAnomaly("EPOCH_REGRESSION", r.blockNum,
+						fmt.Sprintf("node=%s epoch=%d < prev_epoch=%d (CRITICAL: epoch went backward!)",
+							node.Name, curEpoch, prev.Epoch))
+				}
+
+				// CHECK 5: StateRoot freeze (same stateRoot across 5+ consecutive non-epoch-boundary blocks with txs)
+				if curStateRoot == prev.StateRoot && curEpoch == prev.Epoch {
+					newStreak := prev.StateRootStreak + 1
+					if newStreak >= 5 && curTxCount > 0 {
+						logAnomaly("STATEROOT_FREEZE", r.blockNum,
+							fmt.Sprintf("node=%s stateRoot=%s...unchanged for %d consecutive blocks with txs (pipeline stuck?)",
+								node.Name, safePrefix(curStateRoot, 18), newStreak))
+					}
+					prevState[node.Name] = &prevBlockState{
+						Timestamp: curTS, GEI: curGEI, Epoch: curEpoch,
+						StateRoot: curStateRoot, StateRootStreak: newStreak,
+						BlockNum: r.blockNum,
+					}
+				} else {
+					prevState[node.Name] = &prevBlockState{
+						Timestamp: curTS, GEI: curGEI, Epoch: curEpoch,
+						StateRoot: curStateRoot, StateRootStreak: 0,
+						BlockNum: r.blockNum,
+					}
+				}
+			} else {
+				prevState[node.Name] = &prevBlockState{
+					Timestamp: curTS, GEI: curGEI, Epoch: curEpoch,
+					StateRoot: curStateRoot, StateRootStreak: 0,
+					BlockNum: r.blockNum,
+				}
+			}
+		}
 	}
 
 	return
+}
+
+// safePrefix returns the first n chars of a string safely.
+func safePrefix(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // (hash comparison is now inline in checkBatch — compares all fields + chain integrity)
