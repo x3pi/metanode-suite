@@ -147,7 +147,21 @@ def main():
                     # Cảnh báo lỗi qua Telegram nếu script chết với mã lỗi > 0
                     if exit_code > 0:
                         commit_short = last_commit[:8] if last_commit else "N/A"
-                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nBài test tự động cho nhánh main (Commit: {commit_short}) vừa THẤT BẠI với Exit Code: {exit_code}.\n\nHãy kiểm tra file log trên server."
+                        
+                        # Đọc 20 dòng cuối của file log để gửi kèm
+                        tail_logs = "Không thể đọc file log."
+                        try:
+                            if os.path.exists(log_file):
+                                with open(log_file, "r") as f:
+                                    lines = f.readlines()
+                                    tail_logs = "".join(lines[-20:])
+                                    # Giới hạn số lượng ký tự để không vượt quá giới hạn của Telegram
+                                    if len(tail_logs) > 3000:
+                                        tail_logs = tail_logs[-3000:]
+                        except Exception as e:
+                            print(f"Lỗi đọc log: {e}")
+                            
+                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nBài test (Commit: {commit_short}) THẤT BẠI với Exit Code: {exit_code}.\n\n📄 **Trích xuất 20 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
                         send_telegram_message(msg)
                     
                     current_process = None
