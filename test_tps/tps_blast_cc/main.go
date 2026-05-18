@@ -263,7 +263,7 @@ func main() {
 	flag.IntVar(&waitSecs, "wait", 120, "Max seconds to wait for chain processing")
 	flag.StringVar(&recipient, "recipient", "0xbF2b4B9b9dFB6d23F7F0FC46981c2eC89f94A9F2", "Recipient address")
 	flag.IntVar(&destId, "dest", 2, "Destination chain ID")
-	flag.StringVar(&amountWei, "amount", "1000000000000000000", "Amount in wei (default: 1 ETH)")
+	flag.StringVar(&amountWei, "amount", "100", "Amount in wei (default: 1 ETH)")
 	flag.IntVar(&numRounds, "rounds", 1, "Number of benchmark rounds")
 	flag.BoolVar(&parallelNative, "parallel_native", false, "Use native self-transfers for parallel execution benchmarking")
 	flag.BoolVar(&loadBalance, "load_balance", false, "Round-robin transactions across all connection_node_* in config")
@@ -380,7 +380,7 @@ func main() {
 		if !parallelNative {
 			poolSize = 1
 		}
-		
+
 		var lastErr error
 		for retry := 0; retry <= 10; retry++ {
 			idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)
