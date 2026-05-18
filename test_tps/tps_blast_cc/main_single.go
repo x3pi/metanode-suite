@@ -757,11 +757,11 @@ func main() {
 			if newTxs == 0 && seenAnyTx {
 				emptyBlockStreak++
 				// With 10ms poll, need 6000 streaks = 60 seconds of no new blocks
-				if emptyBlockStreak >= 6000 {
-					processingDuration = time.Since(processStart)
-					fmt.Printf("\n  ✅ Chain idle — %d/%d TXs in blocks (timeout after 60s)\n", totalTxsInBlocks, len(allTxs))
-					break
-				}
+				// if emptyBlockStreak >= 6000 {
+				// 	processingDuration = time.Since(processStart)
+				// 	fmt.Printf("\n  ✅ Chain idle — %d/%d TXs in blocks (timeout after 60s)\n", totalTxsInBlocks, len(allTxs))
+				// 	break
+				// }
 			} else {
 				emptyBlockStreak = 0
 			}
