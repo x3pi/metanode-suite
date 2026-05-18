@@ -137,69 +137,66 @@ def main():
     
     try:
         while True:
-            time.sleep(10) # Kiểm tra GitHub mỗi 10 giây (giảm tải cho mạng)
-            
-            if current_process and current_process.poll() is not None:
-                exit_code = current_process.poll()
-                print(f"[{datetime.datetime.now()}] Bài test hiện tại đã xong (Exit Code: {exit_code}). Đang chờ commit mới...")
+            try:
+                time.sleep(10) # Kiểm tra GitHub mỗi 10 giây (giảm tải cho mạng)
                 
-                # Cảnh báo lỗi qua Telegram nếu script chết với mã lỗi > 0 (không phải do bị kill bởi tín hiệu)
-                if exit_code > 0:
-                    commit_short = last_commit[:8] if last_commit else "N/A"
-                    msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nBài test tự động cho nhánh main (Commit: {commit_short}) vừa THẤT BẠI với Exit Code: {exit_code}.\n\nHãy kiểm tra file log trên server."
-                    send_telegram_message(msg)
+                if current_process and current_process.poll() is not None:
+                    exit_code = current_process.poll()
+                    print(f"[{datetime.datetime.now()}] Bài test hiện tại đã xong (Exit Code: {exit_code}). Đang chờ commit mới...")
+                    
+                    # Cảnh báo lỗi qua Telegram nếu script chết với mã lỗi > 0
+                    if exit_code > 0:
+                        commit_short = last_commit[:8] if last_commit else "N/A"
+                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nBài test tự động cho nhánh main (Commit: {commit_short}) vừa THẤT BẠI với Exit Code: {exit_code}.\n\nHãy kiểm tra file log trên server."
+                        send_telegram_message(msg)
+                    
+                    current_process = None
+                    
+                current_commit = get_remote_commit()
                 
-                current_process = None
-                
-            current_commit = get_remote_commit()
-            
-            # Bỏ qua nếu lỗi mạng không lấy được commit
-            if not current_commit:
-                continue
-                
-            if current_commit != last_commit:
-                print(f"\n=======================================================")
-                print(f"[{datetime.datetime.now()}] 🔄 PHÁT HIỆN COMMIT MỚI TRÊN GITHUB!")
-                print(f"   Mã cũ (remote): {last_commit}")
-                print(f"   Mã mới (remote): {current_commit}")
-                print(f"=======================================================\n")
-                
-                # Cập nhật mã hash để không lặp lại
-                last_commit = current_commit
-                
-                # Kéo code mới về máy
-                pull_success = pull_latest_code()
-                if not pull_success:
-                    print(f"[{datetime.datetime.now()}] Bỏ qua chạy test do Pull code thất bại.")
+                # Bỏ qua nếu lỗi mạng không lấy được commit
+                if not current_commit:
                     continue
-                
-                # Kill bài test cũ (nếu đang chạy)
-                if current_process and current_process.poll() is None:
-                    kill_process_group(current_process)
-                
-                # Dọn dẹp tiến trình
-                subprocess.run(["pkill", "-f", "block_hash_checker"], capture_output=True)
-                print(f"[{datetime.datetime.now()}] Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
+                    
+                if current_commit != last_commit:
+                    print(f"\n=======================================================")
+                    print(f"[{datetime.datetime.now()}] 🔄 PHÁT HIỆN COMMIT MỚI TRÊN GITHUB!")
+                    print(f"   Mã cũ (remote): {last_commit}")
+                    print(f"   Mã mới (remote): {current_commit}")
+                    print(f"=======================================================\n")
+                    
+                    last_commit = current_commit
+                    
+                    pull_success = pull_latest_code()
+                    if not pull_success:
+                        print(f"[{datetime.datetime.now()}] Bỏ qua chạy test do Pull code thất bại.")
+                        continue
+                    
+                    if current_process and current_process.poll() is None:
+                        kill_process_group(current_process)
+                    
+                    subprocess.run(["pkill", "-f", "block_hash_checker"], capture_output=True)
+                    print(f"[{datetime.datetime.now()}] Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
+                    time.sleep(5)
+                    
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    log_file = os.path.join(LOGS_DIR, f"test_{current_commit[:8]}_{timestamp}.log")
+                    print(f"[{datetime.datetime.now()}] Chạy bài test MỚI. Ghi log ra: {log_file}")
+                    
+                    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nCommit: {current_commit[:8]}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Phát hiện mã mới trên GitHub")
+                    
+                    with open(log_file, "w") as f:
+                        current_process = subprocess.Popen(
+                            args,
+                            cwd=TEST_SCRIPT_DIR,
+                            stdout=f,
+                            stderr=subprocess.STDOUT,
+                            preexec_fn=os.setsid
+                        )
+            except Exception as loop_err:
+                print(f"[{datetime.datetime.now()}] ⚠️ Lỗi trong vòng lặp chính của Monitor (Đã bắt lỗi để tránh crash): {loop_err}")
                 time.sleep(5)
                 
-                # (Việc build lại code sẽ do auto_test.sh đảm nhiệm vì có tham số --build-all)
-                
-                # Bắt đầu bài test mới
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                log_file = os.path.join(LOGS_DIR, f"test_{current_commit[:8]}_{timestamp}.log")
-                print(f"[{datetime.datetime.now()}] Chạy bài test MỚI. Ghi log ra: {log_file}")
-                
-                send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nCommit: {current_commit[:8]}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Phát hiện mã mới trên GitHub")
-                
-                with open(log_file, "w") as f:
-                    current_process = subprocess.Popen(
-                        args,
-                        cwd=TEST_SCRIPT_DIR,
-                        stdout=f,
-                        stderr=subprocess.STDOUT,
-                        preexec_fn=os.setsid
-                    )
-                    
     except KeyboardInterrupt:
         print(f"\n[{datetime.datetime.now()}] Đang dừng chương trình theo dõi...")
         if current_process and current_process.poll() is None:
