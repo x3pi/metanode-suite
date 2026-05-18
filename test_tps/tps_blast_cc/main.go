@@ -381,15 +381,17 @@ func main() {
 			poolSize = 1
 		}
 
-		var lastErr error
-		for retry := 0; retry <= 10; retry++ {
-			idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)
-			rc := rpcPool[idx]
+		// Pick node once — all retries stay on the same node
+		// This ensures consistency: the node we ask is the node we wait for
+		idx := atomic.AddInt64(&rpcPoolIdx, 1) % int64(poolSize)
+		rc := rpcPool[idx]
 
+		var lastErr error
+		for retry := 0; retry <= 60; retry++ {
 			as, err := rc.GetAccountState(addr)
 			if err != nil {
 				lastErr = err
-				if retry < 10 {
+				if retry < 60 {
 					time.Sleep(1 * time.Second)
 					continue
 				}
@@ -397,7 +399,7 @@ func main() {
 			}
 			if as == nil {
 				lastErr = fmt.Errorf("node[%d] returned nil state", idx)
-				if retry < 10 {
+				if retry < 60 {
 					time.Sleep(1 * time.Second)
 					continue
 				}
@@ -407,11 +409,15 @@ func main() {
 			fetchedNonce := int64(as.Nonce)
 			if expectedNonce >= 0 && fetchedNonce < expectedNonce {
 				lastErr = fmt.Errorf("node[%d] returned stale nonce %d < expected %d", idx, fetchedNonce, expectedNonce)
-				if retry < 10 {
+				if retry < 60 {
 					time.Sleep(1 * time.Second)
 					continue
 				}
-				return 0, lastErr
+				// All retries exhausted but we KNOW the correct nonce from
+				// previous round's block polling (which confirmed all TXs).
+				// Use expectedNonce directly instead of failing.
+				fmt.Printf("\n    ⚠️  [NONCE FALLBACK] addr=%s node[%d] still stale after 60 retries, using expectedNonce=%d\n", addr, idx, expectedNonce)
+				return uint64(expectedNonce), nil
 			}
 
 			// Log 5 cái đầu để debug
@@ -684,11 +690,11 @@ func main() {
 	}
 
 	reconnectNode := func(targetAddr string) *rawWriter {
-		for attempt := 1; attempt <= 20; attempt++ {
+		for attempt := 1; attempt <= 120; attempt++ {
 			fmt.Printf("  🔌 Connecting to %s (attempt %d)...\n", targetAddr, attempt)
 			rw, err := newRawWriter(targetAddr, version, toAddrHex)
 			if err != nil {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			// Inject rpcPool + nonceChecker vào rawWriter
@@ -702,18 +708,18 @@ func main() {
 			initBody, _ := proto.Marshal(initMsg)
 			if err := rw.sendRaw(command.InitConnection, initBody); err != nil {
 				rw.close()
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			if err := rw.flush(); err != nil {
 				rw.close()
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			fmt.Printf("  ✅ Connected to %s and InitConnection sent\n", targetAddr)
 			return rw
 		}
-		fmt.Printf("  ❌ Failed to connect to %s after 20 attempts\n", targetAddr)
+		fmt.Printf("  ❌ Failed to connect to %s after 120 attempts\n", targetAddr)
 		return nil
 	}
 

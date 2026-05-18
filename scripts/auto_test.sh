@@ -3,6 +3,10 @@
 # Dừng pipeline nếu có bất kỳ lệnh nào bị lỗi
 # set -e
 
+# Tự động xuất traceback cho debugging
+export GOTRACEBACK=all
+export RUST_BACKTRACE=full
+
 # Tự động lấy thư mục gốc của project tool-test
 TOOL_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -81,7 +85,7 @@ handle_error() {
 
     echo -e "\n[3] METANODE 0 LATEST LOG (Last 100 lines):" >> "$report_file"
     echo "--------------------------------------------------" >> "$report_file"
-    LATEST_NODE0_LOG=$(find "$METANODE_SCRIPT_DIR/logs/node0" -type f -name "*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
+    LATEST_NODE0_LOG=$(find "$METANODE_DIR/consensus/metanode/logs/node_0" -type f -name "*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
     if [ -n "$LATEST_NODE0_LOG" ]; then
         tail -n 100 "$LATEST_NODE0_LOG" >> "$report_file"
     else
@@ -294,9 +298,9 @@ if should_run 7; then
     echo "📌 BƯỚC 7: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 20 --load_balance=false --batch=10
+        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=true --batch=100 --amount 1
     else
-        run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500
+        run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500 --amount 1
     fi
 fi
 

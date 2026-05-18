@@ -427,11 +427,11 @@ func main() {
 	_ = bls.NewKeyPair(config.PrivateKey()) // keep import
 
 	reconnectNode := func(targetAddr string) *rawWriter {
-		for attempt := 1; attempt <= 20; attempt++ {
+		for attempt := 1; attempt <= 120; attempt++ {
 			fmt.Printf("  🔌 Connecting to %s (attempt %d)...\n", targetAddr, attempt)
 			rw, err := newRawWriter(targetAddr, version, toAddrHex)
 			if err != nil {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			initMsg := &pb.InitConnection{
@@ -442,18 +442,18 @@ func main() {
 			initBody, _ := proto.Marshal(initMsg)
 			if err := rw.sendRaw(command.InitConnection, initBody); err != nil {
 				rw.close()
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			if err := rw.flush(); err != nil {
 				rw.close()
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			fmt.Printf("  ✅ Connected to %s and InitConnection sent\n", targetAddr)
 			return rw
 		}
-		fmt.Printf("  ❌ Failed to connect to %s after 20 attempts\n", targetAddr)
+		fmt.Printf("  ❌ Failed to connect to %s after 120 attempts\n", targetAddr)
 		return nil
 	}
 
