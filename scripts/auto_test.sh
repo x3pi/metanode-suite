@@ -7,6 +7,9 @@
 export GOTRACEBACK=all
 export RUST_BACKTRACE=full
 
+# Xóa cờ dừng cũ nếu có
+rm -f /tmp/MTN_CHAIN_ERROR_STOP
+
 # Tự động lấy thư mục gốc của project tool-test
 TOOL_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

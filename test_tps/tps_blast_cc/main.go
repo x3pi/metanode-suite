@@ -943,6 +943,15 @@ func main() {
 		writeErrors := 0
 
 		for i, batchBytes := range batchedMsgs {
+			// Check for STOP flag from block_hash_checker
+			if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
+				reason, _ := os.ReadFile("/tmp/MTN_CHAIN_ERROR_STOP")
+				errMsg := fmt.Sprintf("\n🛑 FATAL: Phát hiện lỗi chuỗi từ block_hash_checker: %s\n   -> DỪNG BLASTING NGAY LẬP TỨC!", string(reason))
+				fmt.Println(errMsg)
+				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
+				os.Exit(1)
+			}
+
 			clientIdx := i % len(clients)
 			c := clients[clientIdx]
 
@@ -1017,6 +1026,15 @@ func main() {
 		seenAnyTx := false
 
 		for time.Since(processStart) < maxWait {
+			// Check for STOP flag from block_hash_checker
+			if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
+				reason, _ := os.ReadFile("/tmp/MTN_CHAIN_ERROR_STOP")
+				errMsg := fmt.Sprintf("\n🛑 FATAL: Phát hiện lỗi chuỗi từ block_hash_checker: %s\n   -> DỪNG POLLING NGAY LẬP TỨC!", string(reason))
+				fmt.Println(errMsg)
+				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
+				os.Exit(1)
+			}
+
 			time.Sleep(pollInterval)
 
 			currentBlockNum, err := rpcClient.GetBlockNumber()

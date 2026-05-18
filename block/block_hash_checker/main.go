@@ -111,6 +111,15 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
+
+	triggerStopFlag(anomalyType)
+}
+
+func triggerStopFlag(reason string) {
+	err := os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+	if err == nil {
+		logger.Info("\n🛑 ĐÃ KÍCH HOẠT CỜ DỪNG AUTO_TEST (/tmp/MTN_CHAIN_ERROR_STOP)")
+	}
 }
 
 func logSystemError(nodeName string, blockNum uint64, errMsg string) {
@@ -513,6 +522,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 		if hasMismatch {
 			mismatches = append(mismatches, mismatch{BlockNumber: r.blockNum, Blocks: r.blocks})
+			triggerStopFlag("CHAIN_BROKEN_OR_HASH_MISMATCH")
 		} else {
 			matchCount++
 		}
