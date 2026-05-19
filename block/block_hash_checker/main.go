@@ -112,7 +112,7 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
 
-	triggerStopFlag(anomalyType)
+	triggerStopFlag(fmt.Sprintf("%s: blockNumber=%d %s", anomalyType, blockNum, detail))
 }
 
 func triggerStopFlag(reason string) {
@@ -536,7 +536,17 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 		if hasMismatch {
 			mismatches = append(mismatches, mismatch{BlockNumber: r.blockNum, Blocks: r.blocks})
-			triggerStopFlag("CHAIN_BROKEN_OR_HASH_MISMATCH")
+			// Generate detailed mismatch information
+			var details []string
+			for _, node := range nodes {
+				bi := r.blocks[node.Name]
+				if bi.IsError() {
+					details = append(details, fmt.Sprintf("%s=ERR(%s)", node.Name, bi.Error))
+				} else {
+					details = append(details, fmt.Sprintf("%s=hash(%s) gei(%d) epoch(%d)", node.Name, safePrefix(bi.Hash, 10), parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch)))
+				}
+			}
+			triggerStopFlag(fmt.Sprintf("CHAIN_BROKEN_OR_HASH_MISMATCH: blockNumber=%d details: [%s]", r.blockNum, strings.Join(details, " | ")))
 		} else {
 			matchCount++
 		}
