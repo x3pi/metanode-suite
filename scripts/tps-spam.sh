@@ -108,6 +108,10 @@ _run_loop() {
             } >> "$ERR_LOG"
             echo "[$TIMESTAMP] Round $ROUND | TPS: ~${TPS} tx/s | Blocks: $BLOCK_RANGE | TXs: $COUNT | ❌ FAILED (exit=$EXIT_CODE)" >> "$TPS_LOG"
             echo "  ❌ Round $ROUND FAILED! Xem: $ERR_LOG"
+            
+            # Tạo flag dừng và thoát khỏi vòng lặp
+            touch "$FLAG_STOP"
+            break
         fi
 
         # Summary min/max/avg TPS mỗi 10 round
