@@ -1038,9 +1038,11 @@ func main() {
 		startEpoch := startEpochBeforeBlast
 		epochTransitioned := false
 		var processStart time.Time
+		var timeoutStartEpoch uint64
 		if epochWait <= 0 {
 			epochTransitioned = true
 			processStart = time.Now()
+			timeoutStartEpoch = startEpochBeforeBlast
 		}
 
 		if epochWait > 0 {
@@ -1096,6 +1098,7 @@ func main() {
 						fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", blk.Epoch, bn, time.Now().Format("15:04:05.000"))
 						epochTransitioned = true
 						processStart = time.Now()
+						timeoutStartEpoch = blk.Epoch
 					}
 
 					newTxsCount := uint64(0)
@@ -1153,12 +1156,23 @@ func main() {
 			} else {
 				processingDuration = time.Since(epochWaitStart)
 			}
+
+			// Get current epoch at timeout
+			currentEpoch := uint64(0)
+			if bn, err := rpcClient.GetBlockNumber(); err == nil {
+				if blk, err := rpcClient.GetBlockByNumber(bn); err == nil && blk != nil {
+					currentEpoch = blk.Epoch
+				}
+			}
+
+			epochInfo := fmt.Sprintf(" (Epoch ban đầu: %d | Epoch tính giờ: %d | Epoch hiện tại: %d)", startEpochBeforeBlast, timeoutStartEpoch, currentEpoch)
+
 			if !seenAnyTx {
-				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ mà KHÔNG có TX nào vào block! Kiểm tra: (1) Node có đang chạy? (2) TX có bị reject ở mempool? (3) Chain có bị kẹt không?", maxWait)
+				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ mà KHÔNG có TX nào vào block! Kiểm tra: (1) Node có đang chạy? (2) TX có bị reject ở mempool? (3) Chain có bị kẹt không?%s", maxWait, epochInfo)
 				fmt.Printf("\n  ❌ %s\n", errMsg)
 				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 			} else {
-				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ, chỉ %d/%d TXs vào block.", maxWait, totalTxsInBlocks, len(allTxs))
+				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ, chỉ %d/%d TXs vào block.%s", maxWait, totalTxsInBlocks, len(allTxs), epochInfo)
 				fmt.Printf("\n  ❌ %s\n", errMsg)
 				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 			}
