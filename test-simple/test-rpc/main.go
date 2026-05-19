@@ -48,7 +48,7 @@ func main() {
 	// Khai báo flags
 	configFlag := flag.String("config", "config.json", "Đường dẫn đến file cấu hình mạng")
 	dataFlag := flag.String("data", "data.json", "Đường dẫn đến file dữ liệu (Action, Method, Args)")
-	rpcFlag := flag.String("rpc", "", "Ghi đè RPC URL (Override)")
+	urlFlag := flag.String("url", "", "Ghi đè RPC URL (Override)")
 	pkFlag := flag.String("pk", "", "Ghi đè Private Key (Override)")
 	chainFlag := flag.Int64("chain", 0, "Ghi đè Chain ID (Override, ví dụ: 991)")
 	flag.Parse()
@@ -61,8 +61,8 @@ func main() {
 	cfg := loadConfig(*configFlag)
 
 	// Ghi đè (Override) cấu hình nếu người dùng truyền Flag từ dòng lệnh
-	if *rpcFlag != "" {
-		cfg.RPCUrl = *rpcFlag
+	if *urlFlag != "" {
+		cfg.RPCUrl = *urlFlag
 		fmt.Printf("⚠️  Bật chế độ Override: RPC URL <- %s\n", cfg.RPCUrl)
 	}
 	if *pkFlag != "" {

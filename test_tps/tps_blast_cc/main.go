@@ -255,6 +255,7 @@ func main() {
 		parallelNative bool
 		loadBalance    bool
 		verify         bool
+		epochWait      int
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -272,6 +273,7 @@ func main() {
 	flag.BoolVar(&parallelNative, "parallel_native", false, "Use native self-transfers for parallel execution benchmarking")
 	flag.BoolVar(&loadBalance, "load_balance", false, "Round-robin transactions across all connection_node_* in config")
 	flag.BoolVar(&verify, "verify", false, "After each round, check recipient balance to confirm TXs landed")
+	flag.IntVar(&epochWait, "epoch-wait", 300, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
@@ -917,11 +919,15 @@ func main() {
 		}
 
 		startBlock, _ := rpcClient.GetBlockNumber()
-		fmt.Printf("\n  🏁 Starting block: %d\n", startBlock)
+		startEpochBeforeBlast := uint64(0)
+		if blk, err := rpcClient.GetBlockByNumber(startBlock); err == nil && blk != nil {
+			startEpochBeforeBlast = blk.Epoch
+		}
+		fmt.Printf("\n  🏁 Starting block: %d | Epoch: %d | Time: %s\n", startBlock, startEpochBeforeBlast, time.Now().Format("15:04:05.000"))
 
 		// Batch and blast
 		fmt.Printf("\n🔥 BLASTING %d %s TXs across %d nodes via SendTransactions...\n", len(allTxs), txTypeName, len(clients))
-		fmt.Printf("   Batch size: %d, Sleep between batches: %dms\n", batchSize, sleepMs)
+		fmt.Printf("   Epoch: %d | Start Time: %s | Batch size: %d, Sleep: %dms\n", startEpochBeforeBlast, time.Now().Format("15:04:05.000"), batchSize, sleepMs)
 
 		var batchedMsgs [][]byte
 		for i := 0; i < len(allTxs); i += batchSize {
@@ -1009,14 +1015,12 @@ func main() {
 
 		blastDuration := time.Since(blastStart)
 		injectionTPS := float64(len(allTxs)) / blastDuration.Seconds()
-		fmt.Printf("\n\n  📤 Injected: %d TXs in %s\n", len(allTxs), blastDuration.Round(time.Millisecond))
+		fmt.Printf("\n\n  📤 Injected: %d TXs in %s | End Time: %s\n", len(allTxs), blastDuration.Round(time.Millisecond), time.Now().Format("15:04:05.000"))
 		fmt.Printf("  🚀 Injection TPS: %.0f tx/s\n", injectionTPS)
 
-		// Poll for completion
+		// ================= Poll for TX completion =================
 		maxWait := time.Duration(waitSecs) * time.Second
 		pollInterval := 20 * time.Millisecond
-		fmt.Printf("\n⏳ Polling chain for completion (max %s)...\n", maxWait)
-		processStart := time.Now()
 
 		// Build map of expected tx hashes to correctly count only our TXs
 		expectedTxHashes := make(map[string]bool)
@@ -1029,7 +1033,22 @@ func main() {
 		totalTxsInBlocks := uint64(0)
 		seenAnyTx := false
 
-		for time.Since(processStart) < maxWait {
+		epochWaitStart := time.Now()
+		startEpoch := startEpochBeforeBlast
+		epochTransitioned := false
+		var processStart time.Time
+		if epochWait <= 0 {
+			epochTransitioned = true
+			processStart = time.Now()
+		}
+
+		if epochWait > 0 {
+			fmt.Printf("\n⏳ [%s] Bắt đầu quét block & chờ chuyển đổi epoch (tối đa %d giây). Epoch hiện tại: %d\n", time.Now().Format("15:04:05.000"), epochWait, startEpoch)
+		} else {
+			fmt.Printf("\n⏳ [%s] Bắt đầu quét block (timeout %s)...\n", time.Now().Format("15:04:05.000"), maxWait)
+		}
+
+		for {
 			// Check for STOP flag from block_hash_checker
 			if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
 				reason, _ := os.ReadFile("/tmp/MTN_CHAIN_ERROR_STOP")
@@ -1037,6 +1056,23 @@ func main() {
 				fmt.Println(errMsg)
 				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 				os.Exit(1)
+			}
+
+			// Check epoch transition timeout
+			if !epochTransitioned && epochWait > 0 {
+				if time.Since(epochWaitStart) > time.Duration(epochWait)*time.Second {
+					errMsg := fmt.Sprintf("\n🛑 FATAL: Quá %d giây không có epoch mới! (startEpoch: %d) | Time: %s", epochWait, startEpoch, time.Now().Format("15:04:05.000"))
+					fmt.Println(errMsg)
+					logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
+					os.Exit(1)
+				}
+			}
+
+			// Check TX confirmation timeout
+			if epochTransitioned && !processStart.IsZero() {
+				if time.Since(processStart) > maxWait {
+					break
+				}
 			}
 
 			time.Sleep(pollInterval)
@@ -1051,6 +1087,16 @@ func main() {
 			for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
 				blk, err := rpcClient.GetBlockByNumber(bn)
 				if err == nil && blk != nil {
+					// Check epoch transition
+					if startEpoch == 0 {
+						startEpoch = blk.Epoch
+					}
+					if epochWait > 0 && !epochTransitioned && blk.Epoch > startEpoch {
+						fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", blk.Epoch, bn, time.Now().Format("15:04:05.000"))
+						epochTransitioned = true
+						processStart = time.Now()
+					}
+
 					newTxsCount := uint64(0)
 					for _, txHash := range blk.Transactions {
 						if expectedTxHashes[strings.ToLower(txHash)] {
@@ -1060,7 +1106,6 @@ func main() {
 					newTxs += newTxsCount
 					nextLastBlockNum = bn
 				} else {
-					// Stop the loop if fetching a block fails, to avoid skipping it permanently
 					break
 				}
 			}
@@ -1077,20 +1122,36 @@ func main() {
 				pct = 100
 			}
 
+			var elapsedStr string
+			if epochTransitioned && !processStart.IsZero() {
+				elapsedStr = fmt.Sprintf("Timeout: %s/%s", time.Since(processStart).Round(time.Millisecond), maxWait)
+			} else if epochWait > 0 {
+				elapsedStr = fmt.Sprintf("Wait Epoch: %s/%ds", time.Since(epochWaitStart).Round(time.Millisecond), epochWait)
+			} else {
+				elapsedStr = fmt.Sprintf("Elapsed: %s", time.Since(epochWaitStart).Round(time.Millisecond))
+			}
+
 			fmt.Printf("\r[%s]   📡 [%s] Block: %d | TXs in blocks: %d/%d (%.0f%%) | +%d new   ",
-				ts(), time.Since(processStart).Round(time.Millisecond),
-				currentBlockNum, totalTxsInBlocks, len(allTxs), pct, newTxs)
+				ts(), elapsedStr, currentBlockNum, totalTxsInBlocks, len(allTxs), pct, newTxs)
 
 			// Stop immediately when all TXs confirmed
 			if totalTxsInBlocks >= uint64(len(allTxs)) {
-				processingDuration = time.Since(processStart)
-				fmt.Printf("\n  ✅ All %d/%d TXs confirmed in blocks\n", totalTxsInBlocks, len(allTxs))
+				if !processStart.IsZero() {
+					processingDuration = time.Since(processStart)
+				} else {
+					processingDuration = time.Since(epochWaitStart)
+				}
+				fmt.Printf("\n  ✅ All %d/%d TXs confirmed in blocks | End Time: %s\n", totalTxsInBlocks, len(allTxs), time.Now().Format("15:04:05.000"))
 				break
 			}
 		}
 
 		if processingDuration == 0 {
-			processingDuration = time.Since(processStart)
+			if !processStart.IsZero() {
+				processingDuration = time.Since(processStart)
+			} else {
+				processingDuration = time.Since(epochWaitStart)
+			}
 			if !seenAnyTx {
 				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ mà KHÔNG có TX nào vào block! Kiểm tra: (1) Node có đang chạy? (2) TX có bị reject ở mempool? (3) Chain có bị kẹt không?", maxWait)
 				fmt.Printf("\n  ❌ %s\n", errMsg)

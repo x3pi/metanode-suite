@@ -361,13 +361,13 @@ func parseNodes(s string) []nodeInfo {
 
 // prevBlockState tracks sequential state for anomaly detection across consecutive blocks.
 type prevBlockState struct {
-	Timestamp      uint64
-	GEI            uint64
-	Epoch          uint64
-	StateRoot      string
+	Timestamp       uint64
+	GEI             uint64
+	Epoch           uint64
+	StateRoot       string
 	StateRootStreak int // number of consecutive blocks with same stateRoot
-	BlockNum       uint64
-	IsNil          bool
+	BlockNum        uint64
+	IsNil           bool
 }
 
 func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatches []mismatch, matchCount, errorCount, skipCount uint64, nilBlocks []uint64, emptyBlocks []uint64) {

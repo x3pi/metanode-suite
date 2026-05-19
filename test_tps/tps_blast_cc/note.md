@@ -1,28 +1,51 @@
--count 10000 Số TXs
--batch 500 TXs per batch
--sleep 10 ms giữa mỗi batch
--wait 120 Max seconds đợi chain xử lý
--config ../../../cmd/tool/tps_blast/config.json Client config
--keys ../gen_spam_keys/generated_keys.json Keys file
--recipient ADDRESS_LOCK_BALANCE Recipient address
--dest 2 Destination chain ID
--node từ config Override node TCP address
--rpc auto
+# Tài liệu hướng dẫn sử dụng công cụ TPS Blast Cross-Chain (`tps_blast_cc`)
 
-go run main.go --count 10000
+## 🛠 Danh sách các tham số (Flags)
 
-``` bash
-single chỉ test kh có load blance khi fetch nonce
---verify : verify sau khi giao dịch
-go run main_single.go --count 50000 --parallel_native=true --rounds 5 --load_balance=true  --batch=500
-go run main_single.go --count 1000 --parallel_native=true --rounds 5 --load_balance=true  --batch=500 
+| Tham số | Giá trị mặc định | Mô tả |
+| :--- | :--- | :--- |
+| `--config` | `./config.json` | Đường dẫn đến file cấu hình JSON của Client chứa thông tin private key và connection address. |
+| `--keys` | `../gen_spam_keys/generated_keys.json` | Đường dẫn tới file JSON chứa danh sách các khóa bảo mật được sinh ra để chạy spam TXs. |
+| `--count` | `10000` | Tổng số lượng giao dịch muốn tạo ra để gửi lên mạng lưới (lockAndBridge hoặc Native). |
+| `--batch` | `500` | Số lượng giao dịch tối đa được gộp chung và gửi đi trong mỗi batch thông qua TCP. |
+| `--sleep` | `10` | Thời gian nghỉ (sleep) tính bằng mili-giây (ms) giữa các đợt bắn batch giao dịch. |
+| `--node` | `""` | Ghi đè địa chỉ TCP của node. Có thể truyền nhiều node phân tách bằng dấu phẩy (vd: `node1:port,node2:port`). |
+| `--rpc` | `""` | Địa chỉ HTTP RPC dùng để kiểm tra thông tin tài khoản, số dư hoặc xác nhận (VD: `http://localhost:8757`). |
+| `--wait` | `120` | Thời gian chờ tối đa (giây) để các giao dịch được đóng gói thành công vào block trước khi báo lỗi Timeout. |
+| `--recipient` | `0xbF2b4B9b9dFB6...` | Địa chỉ ví nhận tiền trên chuỗi đích (destination chain). |
+| `--dest` | `2` | ID của chuỗi đích (Destination Chain ID) để thực hiện giao dịch cross-chain. |
+| `--amount` | `100` | Số lượng coin giao dịch tính bằng Wei (mặc định là 100 Wei). |
+| `--rounds` | `1` | Số vòng (rounds) chạy kiểm tra hiệu năng liên tiếp. |
+| `--parallel_native` | `false` | Nếu bật `true`, công cụ chuyển sang chế độ tự chuyển tiền song song (Native Transfers) thay vì cross-chain contract. |
+| `--load_balance` | `false` | Nếu bật `true`, giao dịch sẽ được chia đều xoay vòng (round-robin) qua tất cả các `connection_node_*` có trong cấu hình. |
+| `--verify` | `false` | Xác minh số dư tài khoản nhận tiền sau khi hoàn thành mỗi vòng để đảm bảo giao dịch thực tế đã thành công. |
+| `--epoch-wait` | `600` | Thời gian tối đa (giây) chờ cho hệ thống chuyển dịch sang Epoch mới trước khi bắt đầu tính timeout giao dịch. Gán `0` để tắt chức năng này. |
 
-go run main.go --count 20000 --parallel_native=true --rounds 5 --load_balance=true  --batch=500 
-go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false  --batch=10 
-go run main.go --count 50000 --parallel_native=true --rounds 5 --load_balance=true --batch=10000 --sleep=0
 
-go run main.go --count 1000 --parallel_native=true --rounds 1 --load_balance=false  --batch=5 --verify
-go run main.go --count 20000 --parallel_native=true --rounds 5 --load_balance=false  --batch=500
+## 💡 Ví dụ chạy lệnh (Examples)
+
+### 1. Chạy cơ bản với Epoch Wait (Mặc định 10 phút / 600 giây):
+```bash
+go run main.go --count 10000 --epoch-wait 600
+```
+
+### 2. Tắt cơ chế chờ chuyển epoch (Bắn TX và tính giờ timeout luôn không cần đợi epoch):
+```bash
+go run main.go --count 20000 --parallel_native=true --epoch-wait 0 --batch 500
+```
+
+### 3. Cấu hình thời gian chờ epoch ngắn hơn (Ví dụ: Chờ tối đa 30 giây):
+```bash
+go run main.go --count 5000 --parallel_native=true --epoch-wait 30 --rounds 3 --batch 100 --verify
+```
+
+### 4. Các kịch bản chạy benchmark khác:
+```bash
+# Chạy single node kiểm tra kết quả giao dịch
+go run main.go --count 1000 --parallel_native=true --rounds 1 --load_balance=false --batch 5 --verify --epoch-wait 120
+
+# Chạy tải nặng song song (Parallel Native) chia đều qua nhiều node
+go run main.go --count 50000 --parallel_native=true --rounds 5 --load_balance=true --batch 10000 --sleep 0 --epoch-wait 300
 ```
 
 ``` bash

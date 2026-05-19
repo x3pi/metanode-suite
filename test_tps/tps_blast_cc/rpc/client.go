@@ -134,6 +134,7 @@ func (c *RPCClient) GetBlockNumber() (uint64, error) {
 type Block struct {
 	Number       uint64
 	Hash         string
+	Epoch        uint64
 	Transactions []string
 }
 
@@ -152,6 +153,7 @@ func (c *RPCClient) GetBlockByNumber(number uint64) (*Block, error) {
 	var rawBlock struct {
 		Number       string   `json:"number"`
 		Hash         string   `json:"hash"`
+		Epoch        string   `json:"epoch"`
 		Transactions []string `json:"transactions"`
 	}
 
@@ -167,9 +169,18 @@ func (c *RPCClient) GetBlockByNumber(number uint64) (*Block, error) {
 			num = n
 		}
 	}
+	var epoch uint64
+	if rawBlock.Epoch != "" {
+		hexStr := strings.TrimPrefix(rawBlock.Epoch, "0x")
+		e, err := strconv.ParseUint(hexStr, 16, 64)
+		if err == nil {
+			epoch = e
+		}
+	}
 	return &Block{
 		Number:       num,
 		Hash:         rawBlock.Hash,
+		Epoch:        epoch,
 		Transactions: rawBlock.Transactions,
 	}, nil
 }
