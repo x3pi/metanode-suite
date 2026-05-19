@@ -590,9 +590,11 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				if curStateRoot == prev.StateRoot && curEpoch == prev.Epoch {
 					newStreak := prev.StateRootStreak + 1
 					if newStreak >= 5 && curTxCount > 0 {
+						// Fetch receipt details for this frozen block to diagnose WHY stateRoot didn't change
+						receiptSummary := fetchReceiptSummary(client, node.URL, r.blockNum)
 						logAnomaly("STATEROOT_FREEZE", r.blockNum,
-							fmt.Sprintf("node=%s stateRoot=%s...unchanged for %d consecutive blocks with txs (pipeline stuck?)",
-								node.Name, safePrefix(curStateRoot, 18), newStreak))
+							fmt.Sprintf("node=%s stateRoot=%s...unchanged for %d consecutive blocks with txs (pipeline stuck?) [txs=%d in this block] %s",
+								node.Name, safePrefix(curStateRoot, 18), newStreak, curTxCount, receiptSummary))
 					}
 					prevState[node.Name] = &prevBlockState{
 						Timestamp: curTS, GEI: curGEI, Epoch: curEpoch,
@@ -742,6 +744,199 @@ func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, 
 		TxCount:          txCount,
 		SysTxCount:       sysTxCount,
 	}, nil
+}
+
+// ===== Receipt diagnostics for STATEROOT_FREEZE =====
+
+// receiptResult represents a parsed transaction receipt from JSON-RPC
+type receiptResult struct {
+	TransactionHash string `json:"transactionHash"`
+	Status          string `json:"status"`     // "0x1" = success, "0x0" = failure
+	From            string `json:"from"`
+	To              string `json:"to"`
+	GasUsed         string `json:"gasUsed"`
+	BlockNumber     string `json:"blockNumber"`
+}
+
+// txObjectResult represents a full transaction object from eth_getBlockByNumber(true)
+type txObjectResult struct {
+	Hash  string `json:"hash"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Nonce string `json:"nonce"`
+	Value string `json:"value"`
+}
+
+// fetchReceiptSummary fetches block with full TXs and their receipts,
+// returning a diagnostic summary string like "[receipts: 5✅ / 0❌ / 0❓ | samples: 0x1234...→n=3:ok, ...]"
+func fetchReceiptSummary(client *http.Client, nodeURL string, blockNum uint64) string {
+	hexBlock := fmt.Sprintf("0x%x", blockNum)
+
+	// Step 1: Fetch block with full transaction objects
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_getBlockByNumber",
+		Params:  []interface{}{hexBlock, true}, // true = full tx objects
+		ID:      1,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "[receipts: fetch_error]"
+	}
+
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "[receipts: rpc_error]"
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "[receipts: read_error]"
+	}
+
+	var rpcResp rpcResponse
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return "[receipts: parse_error]"
+	}
+
+	if string(rpcResp.Result) == "null" {
+		return "[receipts: block_null]"
+	}
+
+	// Parse block with full tx objects
+	var fullBlock struct {
+		Transactions []txObjectResult `json:"transactions"`
+	}
+	if err := json.Unmarshal(rpcResp.Result, &fullBlock); err != nil {
+		return "[receipts: tx_parse_error]"
+	}
+
+	txs := fullBlock.Transactions
+	if len(txs) == 0 {
+		return "[receipts: 0 txs in block body]"
+	}
+
+	// Step 2: Fetch receipt for each TX (parallel, max 10 concurrent)
+	type receiptInfo struct {
+		TxHash  string
+		From    string
+		Nonce   uint64
+		Status  string // "ok", "fail", "missing"
+		GasUsed uint64
+	}
+
+	results := make([]receiptInfo, len(txs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
+
+	for i, tx := range txs {
+		wg.Add(1)
+		go func(idx int, txObj txObjectResult) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			nonce := parseHexStr(txObj.Nonce)
+			ri := receiptInfo{
+				TxHash: txObj.Hash,
+				From:   txObj.From,
+				Nonce:  nonce,
+				Status: "missing",
+			}
+
+			rcp, err := getTransactionReceipt(client, nodeURL, txObj.Hash)
+			if err == nil && rcp != nil {
+				ri.GasUsed = parseHexStr(rcp.GasUsed)
+				if rcp.Status == "0x1" {
+					ri.Status = "ok"
+				} else {
+					ri.Status = "fail"
+				}
+			}
+
+			results[idx] = ri
+		}(i, tx)
+	}
+	wg.Wait()
+
+	// Step 3: Summarize
+	okCount := 0
+	failCount := 0
+	missingCount := 0
+	for _, ri := range results {
+		switch ri.Status {
+		case "ok":
+			okCount++
+		case "fail":
+			failCount++
+		default:
+			missingCount++
+		}
+	}
+
+	// Build nonce detail for first 5 TXs
+	nonceSamples := make([]string, 0, 5)
+	for i, ri := range results {
+		if i >= 5 {
+			break
+		}
+		fromShort := ri.From
+		if len(fromShort) > 10 {
+			fromShort = fromShort[:10] + "..."
+		}
+		nonceSamples = append(nonceSamples, fmt.Sprintf("%s→n=%d:%s", fromShort, ri.Nonce, ri.Status))
+	}
+
+	return fmt.Sprintf("[receipts: %d✅ / %d❌ / %d❓ | samples: %s]",
+		okCount, failCount, missingCount, strings.Join(nonceSamples, ", "))
+}
+
+// getTransactionReceipt fetches a single TX receipt via JSON-RPC
+func getTransactionReceipt(client *http.Client, nodeURL string, txHash string) (*receiptResult, error) {
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_getTransactionReceipt",
+		Params:  []interface{}{txHash},
+		ID:      1,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var rpcResp rpcResponse
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %v", err)
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
+	}
+
+	if string(rpcResp.Result) == "null" {
+		return nil, nil // TX exists in block but receipt not found
+	}
+
+	var rcp receiptResult
+	if err := json.Unmarshal(rpcResp.Result, &rcp); err != nil {
+		return nil, fmt.Errorf("cannot parse receipt: %v", err)
+	}
+
+	return &rcp, nil
 }
 
 func parseHexStr(hexStr string) uint64 {
