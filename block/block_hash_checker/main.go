@@ -396,11 +396,25 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 			for _, node := range nodes {
 				bi, err := getBlockInfo(client, node.URL, blockNum)
+				if err != nil || bi.IsError() {
+					// Retry logic: allow lagging nodes to catch up on async LevelDB writes
+					for retries := 1; retries <= 3; retries++ {
+						time.Sleep(500 * time.Millisecond)
+						bi, err = getBlockInfo(client, node.URL, blockNum)
+						if err == nil && !bi.IsError() {
+							break
+						}
+					}
+				}
+
 				if err != nil {
 					blocks[node.Name] = blockInfo{Error: fmt.Sprintf("ERROR: %v", err)}
 					hasErr = true
 				} else {
 					blocks[node.Name] = bi
+					if bi.IsError() {
+						hasErr = true
+					}
 				}
 			}
 
