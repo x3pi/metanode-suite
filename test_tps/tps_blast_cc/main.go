@@ -723,7 +723,7 @@ func main() {
 			fmt.Printf("[%s]   ✅ Connected to %s and InitConnection sent\n", ts(), targetAddr)
 			return rw
 		}
-		logger.Errorf("[%s]   ❌ Lỗi: Server %s bị hỏng (không thể kết nối sau 30s). Dừng chương trình!\n", ts(), targetAddr)
+		fmt.Printf("[%s]   ❌ Lỗi: Server %s bị hỏng (không thể kết nối sau 30s). Dừng chương trình!\n", ts(), targetAddr)
 		os.Exit(1)
 		return nil
 	}
