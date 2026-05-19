@@ -696,7 +696,7 @@ func main() {
 	}
 
 	reconnectNode := func(targetAddr string) *rawWriter {
-		for attempt := 1; attempt <= 120; attempt++ {
+		for attempt := 1; attempt <= 30; attempt++ {
 			fmt.Printf("[%s]   🔌 Connecting to %s (attempt %d)...\n", ts(), targetAddr, attempt)
 			rw, err := newRawWriter(targetAddr, version, toAddrHex)
 			if err != nil {
@@ -725,7 +725,8 @@ func main() {
 			fmt.Printf("[%s]   ✅ Connected to %s and InitConnection sent\n", ts(), targetAddr)
 			return rw
 		}
-		fmt.Printf("[%s]   ❌ Failed to connect to %s after 120 attempts\n", ts(), targetAddr)
+		fmt.Printf("[%s]   ❌ Lỗi: Server %s bị hỏng (không thể kết nối sau 30s). Dừng chương trình!\n", ts(), targetAddr)
+		os.Exit(1)
 		return nil
 	}
 
