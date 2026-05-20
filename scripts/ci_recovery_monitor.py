@@ -7,18 +7,22 @@ import datetime
 import sys
 import urllib.request
 import urllib.parse
-import argparse
+
+TEST_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "metanode")
+TEST_SCRIPT = "./test-node-recovery-gap.sh"
+LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "recovery_test_logs")
 
 TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
 TELEGRAM_CHAT_ID = "-1003867050625"
 
-def send_telegram_message(message, parse_mode="Markdown"):
+def send_telegram_message(message):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = urllib.parse.urlencode({
             'chat_id': TELEGRAM_CHAT_ID,
             'text': message,
-            'parse_mode': parse_mode
+            'parse_mode': 'Markdown'
         }).encode('utf-8')
         req = urllib.request.Request(url, data=data)
         with urllib.request.urlopen(req, timeout=10) as response:
@@ -26,11 +30,11 @@ def send_telegram_message(message, parse_mode="Markdown"):
     except Exception as e:
         print(f"[{datetime.datetime.now()}] ⚠️ Error sending telegram message: {e}")
 
-def get_remote_commit(metanode_dir):
+def get_remote_commit():
     try:
         result = subprocess.run(
             ["git", "ls-remote", "origin", "refs/heads/main"],
-            cwd=metanode_dir,
+            cwd=METANODE_DIR,
             capture_output=True,
             text=True,
             check=True,
@@ -44,12 +48,12 @@ def get_remote_commit(metanode_dir):
         print(f"[{datetime.datetime.now()}] Error checking remote commit: {e}")
         return None
 
-def pull_latest_code(metanode_dir):
+def pull_latest_code():
     try:
         print(f"[{datetime.datetime.now()}] 📥 Đang tải (pull) mã nguồn mới nhất từ GitHub...")
         result = subprocess.run(
             ["git", "pull", "origin", "main"],
-            cwd=metanode_dir,
+            cwd=METANODE_DIR,
             capture_output=True,
             text=True,
             check=True,
@@ -64,11 +68,11 @@ def pull_latest_code(metanode_dir):
         print(f"[{datetime.datetime.now()}] ❌ Timeout khi kéo code")
         return False
 
-def get_local_commit(metanode_dir):
+def get_local_commit():
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=metanode_dir,
+            cwd=METANODE_DIR,
             capture_output=True,
             text=True,
             check=True
@@ -77,25 +81,30 @@ def get_local_commit(metanode_dir):
     except subprocess.CalledProcessError:
         return None
 
-def clean_up_orphans(kill_procs_str):
-    if not kill_procs_str:
-        return
-    processes_to_kill = [p.strip() for p in kill_procs_str.split(',')]
+def clean_up_orphans():
+    """Dọn dẹp các tiến trình có thể còn sót lại của bài test trước"""
+    processes_to_kill = [
+        "block_hash_checker",
+        "rpc-tcp-simple",
+        "tps_blast_cc",
+        "test-node-recovery-gap"
+    ]
     for proc in processes_to_kill:
-        if proc:
-            subprocess.run(["pkill", "-f", proc], capture_output=True)
+        subprocess.run(["pkill", "-f", proc], capture_output=True)
 
 def kill_process_group(process):
     if process:
         try:
-            print(f"[{datetime.datetime.now()}] 🛑 Terminating previous script (PID: {process.pid})")
+            print(f"[{datetime.datetime.now()}] 🛑 Terminating previous test script (PID: {process.pid})")
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
             
+            # Chờ dọn dẹp
             for _ in range(30):
                 if process.poll() is not None:
                     break
                 time.sleep(0.1)
                 
+            # Cưỡng chế kill nếu chưa chết
             if process.poll() is None:
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 process.wait()
@@ -105,60 +114,36 @@ def kill_process_group(process):
             print(f"[{datetime.datetime.now()}] Error killing process: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Metanode GitHub CI/CD Monitor")
-    parser.add_argument("--script", default="./auto_test.sh", help="Path to the script to run (default: ./auto_test.sh)")
-    parser.add_argument("--name", default="AUTO TEST", help="Name of the pipeline for Telegram notifications")
-    parser.add_argument("--logs-dir", default="ci_logs", help="Directory to store logs")
-    parser.add_argument("--kill-procs", default="block_hash_checker", help="Comma-separated list of processes to pkill on restart/stop")
-    
-    # Lấy các argument dùng cho script con (cách nhau bởi --)
-    # Ví dụ: ./ci_monitor.py --script ./auto_test.sh --name "Auto Test" -- --step 1,2,3
-    if "--" in sys.argv:
-        idx = sys.argv.index("--")
-        monitor_args = sys.argv[1:idx]
-        script_args = sys.argv[idx+1:]
-    else:
-        monitor_args = sys.argv[1:]
-        script_args = []
-        
-    args = parser.parse_args(monitor_args)
-    
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), "metanode")
-    LOGS_DIR = os.path.join(SCRIPT_DIR, args.logs_dir)
-    
     os.makedirs(LOGS_DIR, exist_ok=True)
     
     print(f"=======================================================")
-    print(f"🚀 {args.name} - GITHUB CI/CD MONITOR")
+    print(f"🚀 RECOVERY GAP - GITHUB CI/CD MONITOR")
     print(f"📂 Theo dõi repo: {METANODE_DIR}")
-    print(f"📜 Script thực thi: {args.script}")
-    print(f"⚙️ Script Args: {script_args}")
+    print(f"📜 Script thực thi: {TEST_SCRIPT}")
     print(f"📂 Thư mục Logs: {LOGS_DIR}")
-    print(f"🔫 Kill procs: {args.kill_procs}")
     print(f"=======================================================\n")
     
-    last_commit = get_remote_commit(METANODE_DIR)
+    last_commit = get_remote_commit()
     if not last_commit:
         print(f"[{datetime.datetime.now()}] ⚠️ Không thể kết nối GitHub, đang fallback dùng commit local...")
-        last_commit = get_local_commit(METANODE_DIR)
+        last_commit = get_local_commit()
         
     print(f"[{datetime.datetime.now()}] Baseline commit (Remote): {last_commit}")
     
     current_process = None
-    cmd_to_run = [args.script] + script_args
+    args = [TEST_SCRIPT] + sys.argv[1:]
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(LOGS_DIR, f"{args.name.replace(' ', '_').lower()}_{last_commit[:8] if last_commit else 'init'}_{timestamp}.log")
+    log_file = os.path.join(LOGS_DIR, f"recovery_test_{last_commit[:8] if last_commit else 'init'}_{timestamp}.log")
     
-    print(f"[{datetime.datetime.now()}] ▶️ Đang chạy pipeline lần đầu tiên. Ghi log ra: {log_file}")
+    print(f"[{datetime.datetime.now()}] ▶️ Đang chạy bài test đầu tiên. Ghi log ra: {log_file}")
     
     commit_short = last_commit[:8] if last_commit else "init"
-    send_telegram_message(f"🚀 *[CI Monitor]* BẮT ĐẦU PIPELINE: {args.name}!\n\n*Commit:* `{commit_short}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`\n*Lý do:* Khởi động CI Monitor")
+    send_telegram_message(f"🚀 *[CI Monitor]* BẮT ĐẦU RECOVERY TEST PIPELINE MỚI!\n\n*Commit:* `{commit_short}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`\n*Lý do:* Khởi động CI Monitor")
     
     with open(log_file, "w") as f:
         current_process = subprocess.Popen(
-            cmd_to_run,
-            cwd=SCRIPT_DIR,
+            args,
+            cwd=TEST_SCRIPT_DIR,
             stdout=f,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid
@@ -167,15 +152,15 @@ def main():
     try:
         while True:
             try:
-                time.sleep(10)
+                time.sleep(10) # Chu kỳ check github
                 
-                # Kiểm tra tiến trình có chết hay không
+                # 1. Kiểm tra tiến trình hiện tại có chết không
                 if current_process and current_process.poll() is not None:
                     exit_code = current_process.poll()
-                    print(f"[{datetime.datetime.now()}] 🏁 Pipeline hiện tại đã xong (Exit Code: {exit_code}). Đang chờ commit mới...")
+                    print(f"[{datetime.datetime.now()}] 🏁 Bài test hiện tại đã xong (Exit Code: {exit_code}). Đang chờ commit mới...")
                     
-                    commit_short = last_commit[:8] if last_commit else "N/A"
                     if exit_code > 0:
+                        commit_short = last_commit[:8] if last_commit else "N/A"
                         tail_logs = "Không thể đọc file log."
                         try:
                             if os.path.exists(log_file):
@@ -187,16 +172,17 @@ def main():
                         except Exception as e:
                             print(f"Lỗi đọc log: {e}")
                             
-                        msg = f"❌ *[CI Monitor]* CẢNH BÁO LỖI PIPELINE: {args.name}!\n\nBài test (Commit: `{commit_short}`) THẤT BẠI với Exit Code: `{exit_code}`.\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log chi tiết."
+                        msg = f"❌ *[CI Monitor]* CẢNH BÁO LỖI RECOVERY PIPELINE!\n\nBài test (Commit: `{commit_short}`) THẤT BẠI với Exit Code: `{exit_code}`.\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
                         send_telegram_message(msg)
                     else:
-                        msg = f"✅ *[CI Monitor]* PIPELINE HOÀN TẤT THÀNH CÔNG: {args.name}!\n\nBài test (Commit: `{commit_short}`) chạy mượt mà không gặp lỗi."
+                        commit_short = last_commit[:8] if last_commit else "N/A"
+                        msg = f"✅ *[CI Monitor]* RECOVERY TEST HOÀN TẤT THÀNH CÔNG!\n\nBài test (Commit: `{commit_short}`) chạy mượt mà không gặp lỗi phân nhánh hay lệch hash."
                         send_telegram_message(msg)
-                        
+
                     current_process = None
                     
-                # Kiểm tra commit mới trên GitHub
-                current_commit = get_remote_commit(METANODE_DIR)
+                # 2. Kiểm tra commit mới trên GitHub
+                current_commit = get_remote_commit()
                 if not current_commit:
                     continue
                     
@@ -209,7 +195,7 @@ def main():
                     
                     last_commit = current_commit
                     
-                    pull_success = pull_latest_code(METANODE_DIR)
+                    pull_success = pull_latest_code()
                     if not pull_success:
                         print(f"[{datetime.datetime.now()}] ⚠️ Bỏ qua chạy test do Pull code thất bại.")
                         continue
@@ -217,20 +203,20 @@ def main():
                     if current_process and current_process.poll() is None:
                         kill_process_group(current_process)
                     
-                    clean_up_orphans(args.kill_procs)
+                    clean_up_orphans()
                     print(f"[{datetime.datetime.now()}] ⏳ Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
                     time.sleep(5)
                     
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    log_file = os.path.join(LOGS_DIR, f"{args.name.replace(' ', '_').lower()}_{current_commit[:8]}_{timestamp}.log")
-                    print(f"[{datetime.datetime.now()}] ▶️ Chạy pipeline MỚI. Ghi log ra: {log_file}")
+                    log_file = os.path.join(LOGS_DIR, f"recovery_test_{current_commit[:8]}_{timestamp}.log")
+                    print(f"[{datetime.datetime.now()}] ▶️ Chạy bài test RECOVERY MỚI. Ghi log ra: {log_file}")
                     
-                    send_telegram_message(f"🚀 *[CI Monitor]* PHÁT HIỆN CODE MỚI, KHỞI ĐỘNG LẠI PIPELINE: {args.name}!\n\n*Commit mới:* `{current_commit[:8]}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`")
+                    send_telegram_message(f"🚀 *[CI Monitor]* PHÁT HIỆN CODE MỚI, KHỞI ĐỘNG RECOVERY PIPELINE!\n\n*Commit mới:* `{current_commit[:8]}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`")
                     
                     with open(log_file, "w") as f:
                         current_process = subprocess.Popen(
-                            cmd_to_run,
-                            cwd=SCRIPT_DIR,
+                            args,
+                            cwd=TEST_SCRIPT_DIR,
                             stdout=f,
                             stderr=subprocess.STDOUT,
                             preexec_fn=os.setsid
@@ -243,7 +229,7 @@ def main():
         print(f"\n[{datetime.datetime.now()}] 🛑 Đang dừng chương trình theo dõi...")
         if current_process and current_process.poll() is None:
             kill_process_group(current_process)
-        clean_up_orphans(args.kill_procs)
+        clean_up_orphans()
         print("Đã tắt hoàn toàn.")
 
 if __name__ == "__main__":

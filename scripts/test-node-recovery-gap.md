@@ -1,16 +1,17 @@
-# Test Node Recovery Gap
+# Test Node Recovery Gap (Script Gốc)
 
-Công cụ này dùng để kiểm tra khả năng phục hồi tự động (Auto-Recovery) và đồng bộ của một node bất kỳ sau khi nó bị ngắt kết nối/tắt đi trong một khoảng thời gian (khoảng hổng `Gap Epoch`). Kịch bản cũng tự động kiểm tra xem Node có bị lệch Hash so với phần còn lại của mạng sau khi hồi phục hay không.
+Công cụ này hiện đóng vai trò là **Script Chính (Main Script)** để kiểm tra toàn bộ vòng đời của mạng Metanode, bao gồm khởi tạo mạng, test giao dịch cơ bản, và kiểm tra khả năng phục hồi tự động (Auto-Recovery) của một node bất kỳ sau khi nó bị ngắt kết nối (tạo khoảng hổng `Gap Epoch`).
 
-## 🛠 Cách hoạt động (7 Bước)
+## 🛠 Cách hoạt động (8 Bước)
 
-1. Tắt node được chọn bằng `mtn-orchestrator.sh`.
-2. Chạy ngầm công cụ spam giao dịch (`rpc-tcp-simple.sh`) để đẩy mạng tiến tới.
-3. Chờ đợi mạng sinh ra đủ số lượng Epoch như yêu cầu (`Gap Epoch`).
-4. Tạm ngưng spam, bật lại node.
-5. Gọi `Hash Checker` (chạy 30 giây) để xem Node có đồng bộ đúng stateRoot, txRoot... và không bị lệch Hash không.
-6. Sau khi node hồi phục, tiếp tục bật lại công cụ Spam giao dịch (Stress Test).
-7. Gọi `Hash Checker` (chạy thêm 40 giây) để đảm bảo dưới áp lực cao, mạng vẫn ổn định và không xảy ra phân chia chuỗi (Fork/Chain Broken).
+1. **Khởi tạo & Test Cơ Bản**: Tự động gọi `simple_test.sh` để setup mạng từ con số 0 và chạy các bài test cơ bản ban đầu (Bước 1 -> 8).
+2. **Kiểm tra Điều kiện**: Đảm bảo mạng đã chạy ít nhất qua Epoch 1.
+3. **Tắt Node**: Tắt node được chọn (mặc định là Node 1) bằng `mtn-orchestrator.sh`.
+4. **Tạo Gap (Bắn giao dịch ngầm)**: Chạy ngầm tool `send_tx_native` (với thông số `--count 20000 --parallel_native=true`) để đẩy Epoch của các node khỏe lên cao.
+5. **Đợi Gap Epoch**: Chờ đợi mạng sinh ra đủ số lượng Epoch như yêu cầu (`Gap Epoch`) rồi tạm ngưng spam giao dịch.
+6. **Khởi động lại Node**: Bật lại node bị tắt, cho phép nó kết nối lại mạng để tải State và Block còn thiếu.
+7. **Kiểm tra Đồng bộ (Hash Checker)**: Chạy công cụ kiểm tra Hash trong 30 giây để xác nhận Node đã hồi phục thành công và khớp Hash với mạng.
+8. **Stress Test & Kiểm tra lại**: Tiếp tục bật lại công cụ `send_tx_native` để dội tải vào mạng, đồng thời chạy Hash Checker thêm 40 giây để đảm bảo dưới áp lực cao, node phục hồi không bị rớt nhịp hay phân nhánh.
 
 ---
 
@@ -18,7 +19,7 @@ Công cụ này dùng để kiểm tra khả năng phục hồi tự động (Au
 
 ### 1. Chạy với cấu hình mặc định
 
-Mặc định công cụ sẽ test **tắt Node 1**, chờ **tạo khoảng hổng 3 Epochs** trước khi bật lại, và chạy test **1 lần**.
+Mặc định công cụ sẽ test **tắt Node 1**, chờ **tạo khoảng hổng 1 Epoch** trước khi bật lại, và chạy test **1 lần**.
 
 ```bash
 cd /home/abc/nhat/con-chain-v2/tool-test/scripts

@@ -556,11 +556,11 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			bi := r.blocks[node.Name]
 			if bi.IsError() {
 				// CHECK 4: Block gap — previous was valid but current is NIL
-				if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
-					logAnomaly("BLOCK_GAP", r.blockNum,
-						fmt.Sprintf("node=%s prev_block=#%d was OK, current block NOT FOUND (Gap in chain!)",
-							node.Name, prev.BlockNum))
-				}
+				// if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
+				// 	logAnomaly("BLOCK_GAP", r.blockNum,
+				// 		fmt.Sprintf("node=%s prev_block=#%d was OK, current block NOT FOUND (Gap in chain!)",
+				// 			node.Name, prev.BlockNum))
+				// }
 				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true}
 				continue
 			}
@@ -599,7 +599,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				// CHECK 5: StateRoot freeze (same stateRoot across 5+ consecutive non-epoch-boundary blocks with txs)
 				if curStateRoot == prev.StateRoot && curEpoch == prev.Epoch {
 					newStreak := prev.StateRootStreak + 1
-					// LƯU Ý: Chỉ bắt lỗi nếu block thực sự có giao dịch người dùng (bi.TxCount > 0). 
+					// LƯU Ý: Chỉ bắt lỗi nếu block thực sự có giao dịch người dùng (bi.TxCount > 0).
 					// Bỏ qua giao dịch hệ thống vì nó có thể không làm thay đổi account state.
 					if newStreak >= 5 && bi.TxCount > 0 {
 						// Fetch receipt details for this frozen block to diagnose WHY stateRoot didn't change
@@ -768,7 +768,7 @@ func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, 
 // receiptResult represents a parsed transaction receipt from JSON-RPC
 type receiptResult struct {
 	TransactionHash string `json:"transactionHash"`
-	Status          string `json:"status"`     // "0x1" = success, "0x0" = failure
+	Status          string `json:"status"` // "0x1" = success, "0x0" = failure
 	From            string `json:"from"`
 	To              string `json:"to"`
 	GasUsed         string `json:"gasUsed"`
@@ -1222,9 +1222,10 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	totalMismatches := 0
 	trackedGhosts := make(map[uint64]bool)
 	lastVerifiedBlock := uint64(0)
+	nodeWasDead := make(map[string]bool)
 
 	// Run immediately on start
-	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock) {
+	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead) {
 		fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 		fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 		os.Exit(1)
@@ -1233,7 +1234,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	for {
 		select {
 		case <-ticker.C:
-			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock) {
+			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead) {
 				fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 				fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 				os.Exit(1)
@@ -1247,7 +1248,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 }
 
 // watchOnce returns true if mismatch detected (caller should stop)
-func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64) bool {
+func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64, nodeWasDead map[string]bool) bool {
 	*totalChecks++
 	now := time.Now().Format("15:04:05")
 
@@ -1270,6 +1271,12 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 
 		var gei, epoch uint64
 		if err == nil {
+			if nodeWasDead[n.Name] {
+				fmt.Printf("\n🔄 NODE %s ĐÃ SỐNG LẠI! Tiến hành đặt lại mốc kiểm tra để quét lại từ đầu (block 1)...\n", n.Name)
+				nodeWasDead[n.Name] = false
+				*lastVerifiedBlock = 0
+			}
+
 			// Lấy gei và epoch từ chính block mới nhất thông qua eth_getBlockByNumber
 			bi, errBi := getBlockInfo(client, n.URL, num)
 			if errBi == nil && !bi.IsError() {
@@ -1280,6 +1287,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 			}
 		} else {
 			hasNodeError = true
+			nodeWasDead[n.Name] = true
 		}
 
 		results = append(results, nodeBlock{name: n.Name, block: num, gei: gei, epoch: epoch, err: err})
