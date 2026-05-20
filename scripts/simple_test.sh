@@ -5,7 +5,7 @@
 
 # Tự động lấy thư mục gốc của project tool-test
 TOOL_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
+rm -f /tmp/MTN_CHAIN_ERROR_STOP
 # Thư mục gốc của metanode (cùng cấp với tool-test)
 METANODE_DIR="$(cd "$TOOL_TEST_DIR/../metanode" && pwd)"
 

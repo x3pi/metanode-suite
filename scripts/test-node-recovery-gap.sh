@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Tham số (mặc định: node=1, gap=3, loop=1)
 NODE_ID=${1:-1}
-GAP_EPOCH=${2:-3}
+GAP_EPOCH=${2:-1}
 LOOP_COUNT=${3:-1}
 
 # Đường dẫn động để chạy được trên nhiều máy
