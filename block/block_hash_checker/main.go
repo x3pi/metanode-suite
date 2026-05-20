@@ -396,12 +396,12 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 			for _, node := range nodes {
 				bi, err := getBlockInfo(client, node.URL, blockNum)
-				if err != nil || bi.IsError() {
+				if err != nil || (bi.IsError() && bi.Error != "(block không tồn tại)") {
 					// Retry logic: allow lagging nodes to catch up on async LevelDB writes
 					for retries := 1; retries <= 3; retries++ {
 						time.Sleep(500 * time.Millisecond)
 						bi, err = getBlockInfo(client, node.URL, blockNum)
-						if err == nil && !bi.IsError() {
+						if err == nil && (!bi.IsError() || bi.Error == "(block không tồn tại)") {
 							break
 						}
 					}
@@ -1362,12 +1362,12 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		from = *lastVerifiedBlock + 1
 	}
 
-	if from > minBlock {
+	if from > maxBlock {
 		fmt.Printf(" ✅ Không có block mới (đã check tới %d)\n", *lastVerifiedBlock)
 		// Vẫn in hash của block mới nhất để user theo dõi
-		fmt.Printf("   📦 Block %d hashes:\n", minBlock)
+		fmt.Printf("   📦 Block %d hashes:\n", maxBlock)
 		for _, n := range nodes {
-			bi, err := getBlockInfo(client, n.URL, minBlock)
+			bi, err := getBlockInfo(client, n.URL, maxBlock)
 			if err != nil {
 				fmt.Printf("      %-12s ERR: %v\n", n.Name+":", err)
 			} else if bi.IsError() {
@@ -1379,13 +1379,13 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		return false
 	}
 
-	mismatches, matched, _, skipped, nilBlocks, emptyBlocks := checkBatch(client, nodes, from, minBlock)
+	mismatches, matched, _, skipped, nilBlocks, emptyBlocks := checkBatch(client, nodes, from, maxBlock)
 
 	if len(mismatches) == 0 {
 		if skipped > 0 {
-			fmt.Printf(" ✅ hash khớp %d blocks, ⚠️ %d blocks không đủ node (block %d→%d)\n", matched, skipped, from, minBlock)
+			fmt.Printf(" ✅ hash khớp %d blocks, ⚠️ %d blocks không đủ node (block %d→%d)\n", matched, skipped, from, maxBlock)
 		} else {
-			fmt.Printf(" ✅ hash khớp %d blocks (block %d→%d)\n", matched, from, minBlock)
+			fmt.Printf(" ✅ hash khớp %d blocks (block %d→%d)\n", matched, from, maxBlock)
 		}
 
 		if len(nilBlocks) > 0 || len(emptyBlocks) > 0 {
@@ -1416,10 +1416,10 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 			fmt.Printf("   %s\n", strings.Join(parts, "  |  "))
 		}
 
-		// In hash của block mới nhất (minBlock) từ mỗi node
-		fmt.Printf("   📦 Block %d hashes:\n", minBlock)
+		// In hash của block mới nhất (maxBlock) từ mỗi node
+		fmt.Printf("   📦 Block %d hashes:\n", maxBlock)
 		for _, n := range nodes {
-			bi, err := getBlockInfo(client, n.URL, minBlock)
+			bi, err := getBlockInfo(client, n.URL, maxBlock)
 			if err != nil {
 				fmt.Printf("      %-12s ERR: %v\n", n.Name+":", err)
 			} else if bi.IsError() {

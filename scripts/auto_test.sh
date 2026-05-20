@@ -240,7 +240,7 @@ echo ""
 echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
 (
     cd "$TOOL_TEST_DIR/block/block_hash_checker"
-    go run main.go --watch --interval 5s --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" > block_hash_checker_auto.log 2>&1
+    go run main.go --watch --interval 200ms --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" > block_hash_checker_auto.log 2>&1
     if grep -q "bị lệch hash" block_hash_checker_auto.log; then
         echo -e "\n\n🚨 Phân tích từ log: Phát hiện blocks bị lệch hash!"
         echo -e "🚨🚨🚨 PHÁT HIỆN LỆCH HASH! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
