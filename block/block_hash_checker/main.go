@@ -599,12 +599,19 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				// CHECK 5: StateRoot freeze (same stateRoot across 5+ consecutive non-epoch-boundary blocks with txs)
 				if curStateRoot == prev.StateRoot && curEpoch == prev.Epoch {
 					newStreak := prev.StateRootStreak + 1
-					if newStreak >= 5 && curTxCount > 0 {
+					// LƯU Ý: Chỉ bắt lỗi nếu block thực sự có giao dịch người dùng (bi.TxCount > 0). 
+					// Bỏ qua giao dịch hệ thống vì nó có thể không làm thay đổi account state.
+					if newStreak >= 5 && bi.TxCount > 0 {
 						// Fetch receipt details for this frozen block to diagnose WHY stateRoot didn't change
 						receiptSummary := fetchReceiptSummary(client, node.URL, r.blockNum)
-						logAnomaly("STATEROOT_FREEZE", r.blockNum,
-							fmt.Sprintf("node=%s stateRoot=%s...unchanged for %d consecutive blocks with txs (pipeline stuck?) [txs=%d in this block] %s",
-								node.Name, safePrefix(curStateRoot, 18), newStreak, curTxCount, receiptSummary))
+						detailStr := fmt.Sprintf("\n"+
+							"   [VẤN ĐỀ NGHIÊM TRỌNG TRÊN NODE %s]\n"+
+							"   - Block này có tổng cộng %d giao dịch (Giao dịch thường: %d, Giao dịch hệ thống: %d).\n"+
+							"   - Kết quả chạy: %s\n"+
+							"   - TUY NHIÊN, StateRoot (%s...) KHÔNG HỀ THAY ĐỔI trong %d block liên tiếp.\n"+
+							"   => KẾT LUẬN: Giao dịch báo thành công (tăng nonce, thu phí) nhưng node đã GẶP LỖI không cập nhật trạng thái (không commit NOMT Trie) vào Database!",
+							node.Name, curTxCount, bi.TxCount, bi.SysTxCount, receiptSummary, safePrefix(curStateRoot, 10), newStreak)
+						logAnomaly("STATEROOT_FREEZE_LỖI_KHÔNG_LƯU_STATE", r.blockNum, detailStr)
 					}
 					prevState[node.Name] = &prevBlockState{
 						Timestamp: curTS, GEI: curGEI, Epoch: curEpoch,
