@@ -7,6 +7,7 @@ import datetime
 import sys
 import urllib.request
 import urllib.parse
+import socket
 
 TEST_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "metanode")
@@ -16,7 +17,41 @@ LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "auto_test_logs")
 TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
 TELEGRAM_CHAT_ID = "-1003867050625"
 
+_SERVER_IP_INFO_CACHE = None
+
+def get_server_ip_info():
+    global _SERVER_IP_INFO_CACHE
+    if _SERVER_IP_INFO_CACHE is not None:
+        return _SERVER_IP_INFO_CACHE
+
+    local_ip = "Unknown"
+    hostname = "Unknown"
+    try:
+        hostname = socket.gethostname()
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+
+    public_ip = None
+    try:
+        req = urllib.request.Request("https://api.ipify.org", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            public_ip = resp.read().decode('utf-8').strip()
+    except Exception:
+        pass
+
+    if public_ip and public_ip != local_ip:
+        _SERVER_IP_INFO_CACHE = f"{hostname} (Local: {local_ip}, Public: {public_ip})"
+    else:
+        _SERVER_IP_INFO_CACHE = f"{hostname} ({local_ip})"
+        
+    return _SERVER_IP_INFO_CACHE
+
 def send_telegram_message(message):
+
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = urllib.parse.urlencode({
@@ -156,7 +191,8 @@ def main():
     print(f"[{datetime.datetime.now()}] Đang chạy bài test đầu tiên. Ghi log ra: {log_file}")
     
     commit_short = last_commit[:8] if last_commit else "init"
-    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
+    server_info = get_server_ip_info()
+    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
     
     with open(log_file, "w") as f:
         current_process = subprocess.Popen(
@@ -193,7 +229,8 @@ def main():
                         except Exception as e:
                             print(f"Lỗi đọc log: {e}")
                             
-                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nBài test (Commit: {commit_short}) THẤT BẠI với Exit Code: {exit_code}.\n\n📄 **Trích xuất 20 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
+                        server_info = get_server_ip_info()
+                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI với Exit Code: {exit_code}.\n\n📄 **Trích xuất 20 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
                         send_telegram_message(msg)
                     
                     current_process = None
@@ -232,7 +269,8 @@ def main():
                     log_file = os.path.join(LOGS_DIR, f"test_{current_commit[:8]}_{timestamp}.log")
                     print(f"[{datetime.datetime.now()}] Chạy bài test MỚI. Ghi log ra: {log_file}")
                     
-                    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nCommit: {current_commit[:8]}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Phát hiện mã mới trên GitHub")
+                    server_info = get_server_ip_info()
+                    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {current_commit[:8]}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Phát hiện mã mới trên GitHub")
                     
                     with open(log_file, "w") as f:
                         current_process = subprocess.Popen(
