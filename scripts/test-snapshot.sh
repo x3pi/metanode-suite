@@ -47,8 +47,43 @@ TPS_DIR="$TOOL_TEST_DIR/test_tps/tps_blast_cc"
 SCRIPTS_DIR="$TOOL_TEST_DIR/scripts"
 METANODE_SCRIPT_DIR="$(cd "$TOOL_TEST_DIR/../metanode" && pwd)/consensus/metanode/scripts/node"
 
+# Xóa cờ lỗi cũ trước khi chạy
+rm -f /tmp/MTN_CHAIN_ERROR_STOP
+
+# Theo dõi cờ lỗi từ Hash Checker ngầm
+monitor_error_flag() {
+    while true; do
+        if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+            echo -e "\n\n🛑 PHÁT HIỆN LỖI NGHIÊM TRỌNG: /tmp/MTN_CHAIN_ERROR_STOP đã được tạo!"
+            echo "Nội dung lỗi:"
+            cat /tmp/MTN_CHAIN_ERROR_STOP
+            echo -e "\n🛑 Dừng toàn bộ bài test ngay lập tức..."
+            kill -9 $CHECKER_PID $TPS_PID 2>/dev/null || true
+            pkill -f "rpc-tcp-simple.sh" || true
+            pkill -f "main.go --count" || true
+            kill -TERM -$$
+            exit 1
+        fi
+        sleep 2
+    done
+}
+monitor_error_flag &
+MONITOR_PID=$!
+
 # Xử lý tín hiệu Ctrl+C (SIGINT) để kill sạch các tiến trình chạy ngầm
-trap 'echo -e "\n🛑 Bị ngắt (Ctrl+C)! Đang dừng tất cả tiến trình ngầm..."; kill -9 $CHECKER_PID $TPS_PID 2>/dev/null; pkill -P $$ 2>/dev/null; exit 1' SIGINT SIGTERM
+trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
+
+echo "====================================================================="
+echo "🚀 BƯỚC 0: CHẠY SIMPLE TEST ĐỂ KHỞI TẠO VÀ TEST MẠNG CƠ BẢN"
+echo "====================================================================="
+cd "$SCRIPTS_DIR" || exit 1
+./simple_test.sh
+SIMPLE_EXIT=$?
+if [ $SIMPLE_EXIT -ne 0 ]; then
+    echo "❌ LỖI: simple_test.sh thất bại! Dừng toàn bộ."
+    kill $MONITOR_PID 2>/dev/null || true
+    exit 1
+fi
 
 for ((i=1; i<=LOOPS; i++)); do
     echo ""
@@ -198,3 +233,4 @@ echo ""
 echo "====================================================================="
 echo "🎊 TẤT CẢ $LOOPS VÒNG LẶP TEST SNAPSHOT ĐÃ HOÀN TẤT THÀNH CÔNG!"
 echo "====================================================================="
+kill $MONITOR_PID 2>/dev/null || true

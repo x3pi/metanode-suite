@@ -4,7 +4,7 @@ set -euo pipefail
 # Tham số (mặc định: node=1, gap=3, loop=1)
 NODE_ID=${1:-1}
 GAP_EPOCH=${2:-1}
-LOOP_COUNT=${3:-1}
+LOOP_COUNT=${3:-20000}
 
 # Đường dẫn động để chạy được trên nhiều máy
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

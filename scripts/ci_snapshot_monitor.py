@@ -11,8 +11,8 @@ import socket
 
 TEST_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "metanode")
-TEST_SCRIPT = "./test-node-recovery-gap.sh"
-LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "recovery_test_logs")
+TEST_SCRIPT = "./test-snapshot.sh"
+LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "snapshot_test_logs")
 
 TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
 TELEGRAM_CHAT_ID = "-1003867050625"
@@ -129,7 +129,7 @@ def clean_up_orphans():
         "block_hash_checker",
         "rpc-tcp-simple",
         "tps_blast_cc",
-        "test-node-recovery-gap"
+        "test-snapshot"
     ]
     for proc in processes_to_kill:
         subprocess.run(["pkill", "-f", proc], capture_output=True)
@@ -188,7 +188,7 @@ def main():
     os.makedirs(LOGS_DIR, exist_ok=True)
     
     print(f"=======================================================")
-    print(f"🚀 RECOVERY GAP - GITHUB CI/CD MONITOR")
+    print(f"🚀 SNAPSHOT GAP - GITHUB CI/CD MONITOR")
     print(f"📂 Theo dõi repo: {METANODE_DIR}")
     print(f"📜 Script thực thi: {TEST_SCRIPT}")
     print(f"📂 Thư mục Logs: {LOGS_DIR}")
@@ -204,13 +204,13 @@ def main():
     current_process = None
     args = [TEST_SCRIPT] + sys.argv[1:]
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(LOGS_DIR, f"recovery_test_{last_commit[:8] if last_commit else 'init'}_{timestamp}.log")
+    log_file = os.path.join(LOGS_DIR, f"snapshot_test_{last_commit[:8] if last_commit else 'init'}_{timestamp}.log")
     
     print(f"[{datetime.datetime.now()}] Đang chạy bài test đầu tiên. Ghi log ra: {log_file}")
     
     commit_short = last_commit[:8] if last_commit else "init"
     server_info = get_server_ip_info()
-    send_telegram_message(f"🚀 *[RECOVERY TEST]* BẮT ĐẦU CHẠY PIPELINE MỚI!\n\n*Server:* `{server_info}`\n*Commit:* `{commit_short}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`\n*Lý do:* Khởi động CI Monitor")
+    send_telegram_message(f"🚀 *[SNAPSHOT TEST]* BẮT ĐẦU CHẠY PIPELINE MỚI!\n\n*Server:* `{server_info}`\n*Commit:* `{commit_short}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`\n*Lý do:* Khởi động CI Monitor")
     
     with open(log_file, "w") as f:
         current_process = subprocess.Popen(
@@ -244,12 +244,12 @@ def main():
                             print(f"Lỗi đọc log: {e}")
                             
                         server_info = get_server_ip_info()
-                        msg = f"❌ *[RECOVERY TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI với Exit Code: `{exit_code}`.\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
+                        msg = f"❌ *[SNAPSHOT TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI với Exit Code: `{exit_code}`.\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
                         send_telegram_message(msg)
                     else:
                         commit_short = last_commit[:8] if last_commit else "N/A"
                         server_info = get_server_ip_info()
-                        msg = f"✅ *[RECOVERY TEST]* HOÀN TẤT THÀNH CÔNG!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) chạy mượt mà không gặp lỗi phân nhánh hay lệch hash."
+                        msg = f"✅ *[SNAPSHOT TEST]* HOÀN TẤT THÀNH CÔNG!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) chạy mượt mà không gặp lỗi phân nhánh hay lệch hash."
                         send_telegram_message(msg)
 
                     current_process = None
@@ -282,11 +282,11 @@ def main():
                     clean_old_logs()
                     
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    log_file = os.path.join(LOGS_DIR, f"recovery_test_{current_commit[:8]}_{timestamp}.log")
-                    print(f"[{datetime.datetime.now()}] Chạy bài test RECOVERY MỚI. Ghi log ra: {log_file}")
+                    log_file = os.path.join(LOGS_DIR, f"snapshot_test_{current_commit[:8]}_{timestamp}.log")
+                    print(f"[{datetime.datetime.now()}] Chạy bài test SNAPSHOT MỚI. Ghi log ra: {log_file}")
                     
                     server_info = get_server_ip_info()
-                    send_telegram_message(f"🚀 *[RECOVERY TEST]* PHÁT HIỆN CODE MỚI!\n\n*Server:* `{server_info}`\n*Commit mới:* `{current_commit[:8]}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`")
+                    send_telegram_message(f"🚀 *[SNAPSHOT TEST]* PHÁT HIỆN CODE MỚI, KHỞI ĐỘNG SNAPSHOT PIPELINE!\n\n*Server:* `{server_info}`\n*Commit mới:* `{current_commit[:8]}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`")
                     
                     with open(log_file, "w") as f:
                         current_process = subprocess.Popen(
