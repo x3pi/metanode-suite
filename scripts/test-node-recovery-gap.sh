@@ -65,11 +65,12 @@ stop_spam() {
 
 # Đảm bảo dọn dẹp khi script bị ngắt
 cleanup() {
+    local err=$?
     trap - EXIT INT TERM
-    echo -e "\n[CLEANUP] Đang thoát test..."
+    echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
     kill $MONITOR_PID 2>/dev/null || true
-    exit 0
+    exit $err
 }
 trap cleanup EXIT INT TERM
 
