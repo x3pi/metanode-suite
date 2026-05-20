@@ -16,25 +16,6 @@ HASH_CHECKER_DIR="$(dirname "$SCRIPT_DIR")/block/block_hash_checker"
 # Xóa cờ lỗi cũ trước khi chạy
 rm -f /tmp/MTN_CHAIN_ERROR_STOP
 
-# Theo dõi cờ lỗi từ Hash Checker ngầm
-monitor_error_flag() {
-    while true; do
-        if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
-            echo -e "\n\n🛑 PHÁT HIỆN LỖI NGHIÊM TRỌNG: /tmp/MTN_CHAIN_ERROR_STOP đã được tạo!"
-            echo "Nội dung lỗi:"
-            cat /tmp/MTN_CHAIN_ERROR_STOP
-            echo -e "\n🛑 Dừng toàn bộ bài test ngay lập tức..."
-            # Dọn dẹp và kill toàn bộ Process Group của script này
-            stop_spam
-            kill -TERM -$$
-            exit 1
-        fi
-        sleep 2
-    done
-}
-monitor_error_flag &
-MONITOR_PID=$!
-
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
     # Gọi RPC và lấy epoch dưới dạng hex
@@ -69,10 +50,29 @@ cleanup() {
     trap - EXIT INT TERM
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
-    kill $MONITOR_PID 2>/dev/null || true
+    kill ${MONITOR_PID:-0} 2>/dev/null || true
     exit $err
 }
 trap cleanup EXIT INT TERM
+
+# Theo dõi cờ lỗi từ Hash Checker ngầm
+monitor_error_flag() {
+    while true; do
+        if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+            echo -e "\n\n🛑 PHÁT HIỆN LỖI NGHIÊM TRỌNG: /tmp/MTN_CHAIN_ERROR_STOP đã được tạo!"
+            echo "Nội dung lỗi:"
+            cat /tmp/MTN_CHAIN_ERROR_STOP
+            echo -e "\n🛑 Dừng toàn bộ bài test ngay lập tức..."
+            # Dọn dẹp và kill toàn bộ Process Group của script này
+            stop_spam
+            kill -TERM -$$
+            exit 1
+        fi
+        sleep 2
+    done
+}
+monitor_error_flag &
+MONITOR_PID=$!
 
 # Hàm phân tích lỗi tự động
 analyze_mismatch() {
