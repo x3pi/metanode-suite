@@ -35,6 +35,20 @@ def get_server_ip_info():
     except Exception:
         pass
 
+    configured_ips = []
+    try:
+        # Lấy tất cả các IP tĩnh được cấu hình cố định trên các card mạng của máy
+        result = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=1)
+        configured_ips = [ip for ip in result.stdout.strip().split() if ip != "127.0.0.1"]
+    except Exception:
+        pass
+
+    # Nếu có IP tĩnh từ hostname -I, hiển thị danh sách này, nếu không fallback dùng local_ip
+    if configured_ips:
+        ip_str = ", ".join(configured_ips)
+    else:
+        ip_str = local_ip
+
     public_ip = None
     try:
         req = urllib.request.Request("https://api.ipify.org", headers={'User-Agent': 'Mozilla/5.0'})
@@ -43,12 +57,13 @@ def get_server_ip_info():
     except Exception:
         pass
 
-    if public_ip and public_ip != local_ip:
-        _SERVER_IP_INFO_CACHE = f"{hostname} (Local: {local_ip}, Public: {public_ip})"
+    if public_ip:
+        _SERVER_IP_INFO_CACHE = f"{hostname} (Static/Private IP: {ip_str}, Public IP: {public_ip})"
     else:
-        _SERVER_IP_INFO_CACHE = f"{hostname} ({local_ip})"
+        _SERVER_IP_INFO_CACHE = f"{hostname} (Static/Private IP: {ip_str})"
         
     return _SERVER_IP_INFO_CACHE
+
 
 def send_telegram_message(message):
 
