@@ -10,20 +10,22 @@
 # Cách dùng:
 #   ./start_ci.sh                  # Chạy mặc định (mode single)
 #   ./start_ci.sh --mode single    # Tường minh chỉ định mode
-#   ./start_ci.sh --keep-logs      # Giữ lại logs cũ, không xóa
+#   ./ci_monitor.sh                  # Chạy mặc định (giữ lại logs cũ)
+#   ./ci_monitor.sh --mode single    # Tường minh chỉ định mode
+#   ./ci_monitor.sh --clean-logs     # Xóa logs cũ khi khởi động
 # =============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CI_MONITOR="$SCRIPT_DIR/ci_monitor.py"
 CI_LOG="$SCRIPT_DIR/ci_monitor.log"
 AUTO_TEST_LOGS="$SCRIPT_DIR/auto_test_logs"
-KEEP_LOGS=false
+CLEAN_LOGS=false
 CI_ARGS=()
 
 # Parse arguments
 for arg in "$@"; do
-    if [ "$arg" = "--keep-logs" ]; then
-        KEEP_LOGS=true
+    if [ "$arg" = "--clean-logs" ]; then
+        CLEAN_LOGS=true
     else
         CI_ARGS+=("$arg")
     fi
@@ -80,10 +82,8 @@ echo "   ✅ Đã dọn sạch tiến trình."
 
 # ─── Bước 2: Xóa logs cũ ─────────────────────────────────────
 echo ""
-if [ "$KEEP_LOGS" = true ]; then
-    echo "📁 [2/3] Giữ lại logs cũ (--keep-logs)."
-else
-    echo "🗑️  [2/3] Xóa logs cũ..."
+if [ "$CLEAN_LOGS" = true ]; then
+    echo "🗑️  [2/3] Xóa logs cũ (--clean-logs)..."
 
     if [ -f "$CI_LOG" ]; then
         rm -f "$CI_LOG"
@@ -112,6 +112,8 @@ else
     fi
 
     echo "   ✅ Đã dọn sạch logs."
+else
+    echo "📁 [2/3] Giữ lại logs cũ (mặc định)."
 fi
 
 # ─── Bước 3: Khởi động ci_monitor mới ────────────────────────

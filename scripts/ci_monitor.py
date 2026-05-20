@@ -98,6 +98,38 @@ def kill_process_group(process):
         except Exception as e:
             print(f"[{datetime.datetime.now()}] Error killing process: {e}")
 
+def clean_old_logs():
+    try:
+        print(f"[{datetime.datetime.now()}] 🧹 Đang dọn dẹp logs cũ trước khi chạy build mới...")
+        # Xóa error_report.txt cũ nếu có
+        error_report = os.path.join(TEST_SCRIPT_DIR, "error_report.txt")
+        if os.path.exists(error_report):
+            os.remove(error_report)
+            print(f"[{datetime.datetime.now()}]   → Đã xóa: error_report.txt")
+            
+        if os.path.exists(LOGS_DIR):
+            log_files = [
+                os.path.join(LOGS_DIR, f)
+                for f in os.listdir(LOGS_DIR)
+                if f.endswith(".log")
+            ]
+            log_files.sort(key=os.path.getmtime, reverse=True)
+            
+            if len(log_files) > 1:
+                files_to_delete = log_files[1:]
+                for f in files_to_delete:
+                    try:
+                        os.remove(f)
+                    except OSError as e:
+                        print(f"[{datetime.datetime.now()}]   ⚠️ Không thể xóa {f}: {e}")
+                print(f"[{datetime.datetime.now()}]   → Đã dọn sạch {len(files_to_delete)} files log cũ, giữ lại 1 file mới nhất.")
+            elif len(log_files) == 1:
+                print(f"[{datetime.datetime.now()}]   → Chỉ có 1 file log cũ, đã giữ lại.")
+            else:
+                print(f"[{datetime.datetime.now()}]   → Thư mục logs trống.")
+    except Exception as e:
+        print(f"[{datetime.datetime.now()}] ⚠️ Lỗi khi dọn dẹp logs cũ: {e}")
+
 def main():
     os.makedirs(LOGS_DIR, exist_ok=True)
     
@@ -192,6 +224,9 @@ def main():
                     subprocess.run(["pkill", "-f", "block_hash_checker"], capture_output=True)
                     print(f"[{datetime.datetime.now()}] Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
                     time.sleep(5)
+                    
+                    # Dọn dẹp logs cũ trước khi chạy build/test mới
+                    clean_old_logs()
                     
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                     log_file = os.path.join(LOGS_DIR, f"test_{current_commit[:8]}_{timestamp}.log")
