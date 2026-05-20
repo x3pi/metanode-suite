@@ -4,7 +4,7 @@ set -euo pipefail
 # Tham số (mặc định: node=1, gap=3, loop=1)
 NODE_ID=${1:-1}
 GAP_EPOCH=${2:-1}
-LOOP_COUNT=${3:-1}
+LOOP_COUNT=${3:-20000}
 
 # Đường dẫn động để chạy được trên nhiều máy
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +12,28 @@ ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 ORCH_SCRIPT="$ROOT_DIR/metanode/consensus/metanode/scripts/mtn-orchestrator.sh"
 RPC_TCP_SCRIPT="$SCRIPT_DIR/rpc-tcp-simple.sh"
 HASH_CHECKER_DIR="$(dirname "$SCRIPT_DIR")/block/block_hash_checker"
+
+# Xóa cờ lỗi cũ trước khi chạy
+rm -f /tmp/MTN_CHAIN_ERROR_STOP
+
+# Theo dõi cờ lỗi từ Hash Checker ngầm
+monitor_error_flag() {
+    while true; do
+        if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+            echo -e "\n\n🛑 PHÁT HIỆN LỖI NGHIÊM TRỌNG: /tmp/MTN_CHAIN_ERROR_STOP đã được tạo!"
+            echo "Nội dung lỗi:"
+            cat /tmp/MTN_CHAIN_ERROR_STOP
+            echo -e "\n🛑 Dừng toàn bộ bài test ngay lập tức..."
+            # Dọn dẹp và kill toàn bộ Process Group của script này
+            stop_spam
+            kill -TERM -$$
+            exit 1
+        fi
+        sleep 2
+    done
+}
+monitor_error_flag &
+MONITOR_PID=$!
 
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
@@ -37,13 +59,17 @@ stop_spam() {
     pkill -f "rpc-tcp-simple.sh" || true
     pkill -f "test-rpc.*main.go" || true
     pkill -f "test-tcp.*main-no-none.go" || true
+    pkill -f "main.go --count 20000" || true
     sleep 2
 }
 
 # Đảm bảo dọn dẹp khi script bị ngắt
 cleanup() {
+    trap - EXIT INT TERM
     echo -e "\n[CLEANUP] Đang thoát test..."
     stop_spam
+    kill $MONITOR_PID 2>/dev/null || true
+    exit 0
 }
 trap cleanup EXIT INT TERM
 
@@ -91,6 +117,10 @@ echo "========================================================="
 echo "🧪 TEST RECOVERY NODE (Node: $NODE_ID, Gap: $GAP_EPOCH epochs, Loop: $LOOP_COUNT lần)"
 echo "========================================================="
 
+echo "🔄 Đang chạy Simple Test (Bao gồm Setup và Test Cơ Bản)..."
+bash "$SCRIPT_DIR/simple_test.sh"
+echo "✅ Khởi tạo và Simple Test hoàn tất!"
+
 for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     echo -e "\n\n🔄 VÒNG LẶP TEST THỨ $loop / $LOOP_COUNT"
     echo "========================================================="
@@ -110,7 +140,8 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     $ORCH_SCRIPT stop-node $NODE_ID
 
     echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
-    $RPC_TCP_SCRIPT --loop > /dev/null 2>&1 &
+    cd "$ROOT_DIR/tool-test/test_tps/tps_blast_cc"
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
 
     START_EPOCH=$(get_current_epoch)
     TARGET_EPOCH=$((START_EPOCH + GAP_EPOCH))
@@ -153,7 +184,8 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
     echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
-    $RPC_TCP_SCRIPT --loop > /dev/null 2>&1 &
+    cd "$ROOT_DIR/tool-test/test_tps/tps_blast_cc"
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
 
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
     cd $HASH_CHECKER_DIR

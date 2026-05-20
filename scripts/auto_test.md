@@ -18,7 +18,7 @@ The `auto_test.sh` script is an end-to-end automation pipeline designed to facil
 ## Prerequisites
 
 - You must execute this script from within a bash terminal.
-- Ensure your `$PROJECT_ROOT` and paths (`/home/abc/nhat/con-chain-v2/...`) are correct and accessible.
+- Ensure your `$PROJECT_ROOT` and paths (`/home/abc/nhat/consensus-chain/...`) are correct and accessible.
 - Dependencies such as `go`, binary compilation toolchains, and necessary shell scripts (e.g., `mtn-orchestrator.sh` or `deploy_cluster.sh`) must be executable.
 
 ## Usage & Arguments
@@ -62,7 +62,7 @@ The script supports overriding the starting step and the deployment topology mod
 - **Action:** Refreshes `genesis.json` from `genesis-main.json` to ensure clean state and generates 50,000 unique key pairs (`generated_keys.json`) used subsequently by the load tester.
 
 ### Bước 2: Deploy Cluster
-- **Location:** `mtn-consensus/metanode/scripts/...`
+- **Location:** `mtn-consensus/metanode/scripts/...` or `metanode-suite/scripts/`
 - **Action:** 
   - If `--mode single`: Runs `mtn-orchestrator.sh restart --fresh --build-all`.
   - If `--mode multi`: Runs `deploy_cluster.sh --env deploy-3machines.env --all`.
@@ -107,7 +107,7 @@ To continuously monitor the GitHub repository and run the test pipeline automati
 It is highly recommended to run this script in the background using `nohup` or `tmux` so it persists after you close your SSH session:
 
 ```bash
-cd /home/abc/chain-n/metanode-suite/scripts
+cd /home/abc/nhat/consensus-chain/metanode-suite/scripts
 nohup ./ci_monitor.py > ci_monitor.log 2>&1 &
 ```
 

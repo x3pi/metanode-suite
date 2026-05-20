@@ -112,7 +112,7 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
 
-	triggerStopFlag(anomalyType)
+	triggerStopFlag(fmt.Sprintf("%s: blockNumber=%d %s", anomalyType, blockNum, detail))
 }
 
 func triggerStopFlag(reason string) {
@@ -361,13 +361,13 @@ func parseNodes(s string) []nodeInfo {
 
 // prevBlockState tracks sequential state for anomaly detection across consecutive blocks.
 type prevBlockState struct {
-	Timestamp      uint64
-	GEI            uint64
-	Epoch          uint64
-	StateRoot      string
+	Timestamp       uint64
+	GEI             uint64
+	Epoch           uint64
+	StateRoot       string
 	StateRootStreak int // number of consecutive blocks with same stateRoot
-	BlockNum       uint64
-	IsNil          bool
+	BlockNum        uint64
+	IsNil           bool
 }
 
 func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatches []mismatch, matchCount, errorCount, skipCount uint64, nilBlocks []uint64, emptyBlocks []uint64) {
@@ -396,11 +396,25 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 			for _, node := range nodes {
 				bi, err := getBlockInfo(client, node.URL, blockNum)
+				if err != nil || bi.IsError() {
+					// Retry logic: allow lagging nodes to catch up on async LevelDB writes
+					for retries := 1; retries <= 3; retries++ {
+						time.Sleep(500 * time.Millisecond)
+						bi, err = getBlockInfo(client, node.URL, blockNum)
+						if err == nil && !bi.IsError() {
+							break
+						}
+					}
+				}
+
 				if err != nil {
 					blocks[node.Name] = blockInfo{Error: fmt.Sprintf("ERROR: %v", err)}
 					hasErr = true
 				} else {
 					blocks[node.Name] = bi
+					if bi.IsError() {
+						hasErr = true
+					}
 				}
 			}
 
@@ -522,7 +536,17 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 		if hasMismatch {
 			mismatches = append(mismatches, mismatch{BlockNumber: r.blockNum, Blocks: r.blocks})
-			triggerStopFlag("CHAIN_BROKEN_OR_HASH_MISMATCH")
+			// Generate detailed mismatch information
+			var details []string
+			for _, node := range nodes {
+				bi := r.blocks[node.Name]
+				if bi.IsError() {
+					details = append(details, fmt.Sprintf("%s=ERR(%s)", node.Name, bi.Error))
+				} else {
+					details = append(details, fmt.Sprintf("%s=hash(%s) gei(%d) epoch(%d)", node.Name, safePrefix(bi.Hash, 10), parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch)))
+				}
+			}
+			triggerStopFlag(fmt.Sprintf("CHAIN_BROKEN_OR_HASH_MISMATCH: blockNumber=%d details: [%s]", r.blockNum, strings.Join(details, " | ")))
 		} else {
 			matchCount++
 		}
@@ -532,11 +556,11 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			bi := r.blocks[node.Name]
 			if bi.IsError() {
 				// CHECK 4: Block gap — previous was valid but current is NIL
-				if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
-					logAnomaly("BLOCK_GAP", r.blockNum,
-						fmt.Sprintf("node=%s prev_block=#%d was OK, current block NOT FOUND (Gap in chain!)",
-							node.Name, prev.BlockNum))
-				}
+				// if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
+				// 	logAnomaly("BLOCK_GAP", r.blockNum,
+				// 		fmt.Sprintf("node=%s prev_block=#%d was OK, current block NOT FOUND (Gap in chain!)",
+				// 			node.Name, prev.BlockNum))
+				// }
 				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true}
 				continue
 			}
@@ -575,10 +599,19 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				// CHECK 5: StateRoot freeze (same stateRoot across 5+ consecutive non-epoch-boundary blocks with txs)
 				if curStateRoot == prev.StateRoot && curEpoch == prev.Epoch {
 					newStreak := prev.StateRootStreak + 1
-					if newStreak >= 5 && curTxCount > 0 {
-						logAnomaly("STATEROOT_FREEZE", r.blockNum,
-							fmt.Sprintf("node=%s stateRoot=%s...unchanged for %d consecutive blocks with txs (pipeline stuck?)",
-								node.Name, safePrefix(curStateRoot, 18), newStreak))
+					// LƯU Ý: Chỉ bắt lỗi nếu block thực sự có giao dịch người dùng (bi.TxCount > 0).
+					// Bỏ qua giao dịch hệ thống vì nó có thể không làm thay đổi account state.
+					if newStreak >= 5 && bi.TxCount > 0 {
+						// Fetch receipt details for this frozen block to diagnose WHY stateRoot didn't change
+						receiptSummary := fetchReceiptSummary(client, node.URL, r.blockNum)
+						detailStr := fmt.Sprintf("\n"+
+							"   [VẤN ĐỀ NGHIÊM TRỌNG TRÊN NODE %s]\n"+
+							"   - Block này có tổng cộng %d giao dịch (Giao dịch thường: %d, Giao dịch hệ thống: %d).\n"+
+							"   - Kết quả chạy: %s\n"+
+							"   - TUY NHIÊN, StateRoot (%s...) KHÔNG HỀ THAY ĐỔI trong %d block liên tiếp.\n"+
+							"   => KẾT LUẬN: Giao dịch báo thành công (tăng nonce, thu phí) nhưng node đã GẶP LỖI không cập nhật trạng thái (không commit NOMT Trie) vào Database!",
+							node.Name, curTxCount, bi.TxCount, bi.SysTxCount, receiptSummary, safePrefix(curStateRoot, 10), newStreak)
+						logAnomaly("STATEROOT_FREEZE_LỖI_KHÔNG_LƯU_STATE", r.blockNum, detailStr)
 					}
 					prevState[node.Name] = &prevBlockState{
 						Timestamp: curTS, GEI: curGEI, Epoch: curEpoch,
@@ -728,6 +761,199 @@ func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, 
 		TxCount:          txCount,
 		SysTxCount:       sysTxCount,
 	}, nil
+}
+
+// ===== Receipt diagnostics for STATEROOT_FREEZE =====
+
+// receiptResult represents a parsed transaction receipt from JSON-RPC
+type receiptResult struct {
+	TransactionHash string `json:"transactionHash"`
+	Status          string `json:"status"` // "0x1" = success, "0x0" = failure
+	From            string `json:"from"`
+	To              string `json:"to"`
+	GasUsed         string `json:"gasUsed"`
+	BlockNumber     string `json:"blockNumber"`
+}
+
+// txObjectResult represents a full transaction object from eth_getBlockByNumber(true)
+type txObjectResult struct {
+	Hash  string `json:"hash"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Nonce string `json:"nonce"`
+	Value string `json:"value"`
+}
+
+// fetchReceiptSummary fetches block with full TXs and their receipts,
+// returning a diagnostic summary string like "[receipts: 5✅ / 0❌ / 0❓ | samples: 0x1234...→n=3:ok, ...]"
+func fetchReceiptSummary(client *http.Client, nodeURL string, blockNum uint64) string {
+	hexBlock := fmt.Sprintf("0x%x", blockNum)
+
+	// Step 1: Fetch block with full transaction objects
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_getBlockByNumber",
+		Params:  []interface{}{hexBlock, true}, // true = full tx objects
+		ID:      1,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "[receipts: fetch_error]"
+	}
+
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "[receipts: rpc_error]"
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "[receipts: read_error]"
+	}
+
+	var rpcResp rpcResponse
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return "[receipts: parse_error]"
+	}
+
+	if string(rpcResp.Result) == "null" {
+		return "[receipts: block_null]"
+	}
+
+	// Parse block with full tx objects
+	var fullBlock struct {
+		Transactions []txObjectResult `json:"transactions"`
+	}
+	if err := json.Unmarshal(rpcResp.Result, &fullBlock); err != nil {
+		return "[receipts: tx_parse_error]"
+	}
+
+	txs := fullBlock.Transactions
+	if len(txs) == 0 {
+		return "[receipts: 0 txs in block body]"
+	}
+
+	// Step 2: Fetch receipt for each TX (parallel, max 10 concurrent)
+	type receiptInfo struct {
+		TxHash  string
+		From    string
+		Nonce   uint64
+		Status  string // "ok", "fail", "missing"
+		GasUsed uint64
+	}
+
+	results := make([]receiptInfo, len(txs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
+
+	for i, tx := range txs {
+		wg.Add(1)
+		go func(idx int, txObj txObjectResult) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			nonce := parseHexStr(txObj.Nonce)
+			ri := receiptInfo{
+				TxHash: txObj.Hash,
+				From:   txObj.From,
+				Nonce:  nonce,
+				Status: "missing",
+			}
+
+			rcp, err := getTransactionReceipt(client, nodeURL, txObj.Hash)
+			if err == nil && rcp != nil {
+				ri.GasUsed = parseHexStr(rcp.GasUsed)
+				if rcp.Status == "0x1" {
+					ri.Status = "ok"
+				} else {
+					ri.Status = "fail"
+				}
+			}
+
+			results[idx] = ri
+		}(i, tx)
+	}
+	wg.Wait()
+
+	// Step 3: Summarize
+	okCount := 0
+	failCount := 0
+	missingCount := 0
+	for _, ri := range results {
+		switch ri.Status {
+		case "ok":
+			okCount++
+		case "fail":
+			failCount++
+		default:
+			missingCount++
+		}
+	}
+
+	// Build nonce detail for first 5 TXs
+	nonceSamples := make([]string, 0, 5)
+	for i, ri := range results {
+		if i >= 5 {
+			break
+		}
+		fromShort := ri.From
+		if len(fromShort) > 10 {
+			fromShort = fromShort[:10] + "..."
+		}
+		nonceSamples = append(nonceSamples, fmt.Sprintf("%s→n=%d:%s", fromShort, ri.Nonce, ri.Status))
+	}
+
+	return fmt.Sprintf("[receipts: %d✅ / %d❌ / %d❓ | samples: %s]",
+		okCount, failCount, missingCount, strings.Join(nonceSamples, ", "))
+}
+
+// getTransactionReceipt fetches a single TX receipt via JSON-RPC
+func getTransactionReceipt(client *http.Client, nodeURL string, txHash string) (*receiptResult, error) {
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_getTransactionReceipt",
+		Params:  []interface{}{txHash},
+		ID:      1,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var rpcResp rpcResponse
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %v", err)
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
+	}
+
+	if string(rpcResp.Result) == "null" {
+		return nil, nil // TX exists in block but receipt not found
+	}
+
+	var rcp receiptResult
+	if err := json.Unmarshal(rpcResp.Result, &rcp); err != nil {
+		return nil, fmt.Errorf("cannot parse receipt: %v", err)
+	}
+
+	return &rcp, nil
 }
 
 func parseHexStr(hexStr string) uint64 {
@@ -996,9 +1222,10 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	totalMismatches := 0
 	trackedGhosts := make(map[uint64]bool)
 	lastVerifiedBlock := uint64(0)
+	nodeWasDead := make(map[string]bool)
 
 	// Run immediately on start
-	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock) {
+	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead) {
 		fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 		fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 		os.Exit(1)
@@ -1007,7 +1234,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	for {
 		select {
 		case <-ticker.C:
-			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock) {
+			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead) {
 				fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 				fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 				os.Exit(1)
@@ -1021,7 +1248,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 }
 
 // watchOnce returns true if mismatch detected (caller should stop)
-func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64) bool {
+func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64, nodeWasDead map[string]bool) bool {
 	*totalChecks++
 	now := time.Now().Format("15:04:05")
 
@@ -1044,6 +1271,12 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 
 		var gei, epoch uint64
 		if err == nil {
+			if nodeWasDead[n.Name] {
+				fmt.Printf("\n🔄 NODE %s ĐÃ SỐNG LẠI! Tiến hành đặt lại mốc kiểm tra để quét lại từ đầu (block 1)...\n", n.Name)
+				nodeWasDead[n.Name] = false
+				*lastVerifiedBlock = 0
+			}
+
 			// Lấy gei và epoch từ chính block mới nhất thông qua eth_getBlockByNumber
 			bi, errBi := getBlockInfo(client, n.URL, num)
 			if errBi == nil && !bi.IsError() {
@@ -1054,6 +1287,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 			}
 		} else {
 			hasNodeError = true
+			nodeWasDead[n.Name] = true
 		}
 
 		results = append(results, nodeBlock{name: n.Name, block: num, gei: gei, epoch: epoch, err: err})

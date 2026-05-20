@@ -50,7 +50,7 @@ func main() {
 	// Khai báo flags
 	configFlag := flag.String("config", "config-main.json", "Đường dẫn đến file cấu hình TCP")
 	dataFlag := flag.String("data", "data.json", "Đường dẫn đến file dữ liệu (Action, Method, Args)")
-	connAddrFlag := flag.String("conn", "", "Ghi đè Parent Connection Address (Override)")
+	urlFlag := flag.String("url", "", "Ghi đè Connection Address (Override)")
 	pkFlag := flag.String("pk", "", "Ghi đè Private Key (Override)")
 	chainFlag := flag.Int("chain", 0, "Ghi đè Chain ID (Override, ví dụ: 991)")
 	loopFlag := flag.Bool("loop", false, "Gửi giao dịch liên tục (lặp lại) cho đến khi thoát")
@@ -68,8 +68,8 @@ func main() {
 	cfg := cfgRaw.(*tcp_config.ClientConfig)
 
 	// Ghi đè (Override) cấu hình nếu người dùng truyền Flag
-	if *connAddrFlag != "" {
-		cfg.ParentConnectionAddress = *connAddrFlag
+	if *urlFlag != "" {
+		cfg.ParentConnectionAddress = *urlFlag
 		fmt.Printf("⚠️  Bật chế độ Override: Connection Address <- %s\n", cfg.ParentConnectionAddress)
 	}
 	if *pkFlag != "" {

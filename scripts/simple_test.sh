@@ -116,107 +116,14 @@ echo "💡 Usage: ./auto_test.sh [--step|--steps \"2,4,5\"] [--mode single|multi
 echo "=================================================="
 
 # ----------------------------------------------------
-# INIT: Kiểm tra và mount phân vùng BTRFS LVM
+# SETUP: BƯỚC 1 & BƯỚC 2 (Genesis, Cluster, Proxy)
 # ----------------------------------------------------
-echo "📌 Đang kiểm tra mount point BTRFS cho database..."
-if ! mountpoint -q "$METANODE_DIR/execution/cmd/simple_chain/sample" 2>/dev/null; then
-    echo "  -> Phân vùng chưa được mount, đang tiến hành chạy migrate-to-btrfs-lvm.sh (có thể yêu cầu sudo)..."
-    # Dùng lệnh chạy bình thường không đưa vào run_and_capture vì sudo sẽ yêu cầu gõ password trực tiếp trên terminal
-    bash "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh"
+if should_run 1 || should_run 2; then
+    echo "📌 GỌI SETUP CHAIN (BƯỚC 1 & 2)..."
+    bash "$TOOL_TEST_DIR/scripts/setup/setup_chain.sh"
     if [ $? -ne 0 ]; then
-        echo "❌ Lỗi khi chạy migrate-to-btrfs-lvm.sh!"
+        echo "❌ Lỗi khi chạy setup_chain.sh!"
         exit 1
-    fi
-else
-    echo "  -> Phân vùng BTRFS đã được mount sẵn."
-fi
-
-# ----------------------------------------------------
-# BƯỚC 1: Xóa genesis cũ và tạo file genesis mới
-# ----------------------------------------------------
-# if should_run 1; then
-#     echo ""
-#     echo "📌 BƯỚC 1: Prepare Genesis & Gen Spam Keys..."
-#     cd "$METANODE_DIR/execution/cmd/simple_chain"
-#     echo "  -> Xóa genesis.json và copy từ genesis-main.json..."
-#     rm -f genesis.json
-#     cp genesis-main.json genesis.json
-
-#     cd "$TOOL_TEST_DIR/test_tps/gen_spam_keys"
-#     echo "  -> Chạy Gen Spam Keys (count 50000)..."
-#     run_and_capture "Gen Spam Keys (Bước 1)" go run main.go --count 50000 --genesis-in "$METANODE_DIR/execution/cmd/simple_chain/genesis-main.json" --genesis-out "$METANODE_DIR/execution/cmd/simple_chain/genesis.json"
-# fi
-
-# ----------------------------------------------------
-# BƯỚC 2: Triển khai Cụm
-# ----------------------------------------------------
-if should_run 2; then
-    echo ""
-    echo "📌 BƯỚC 2: Triển khai cụm Cluster (deploy_cluster.sh)..."
-    if [ "$DEPLOY_MODE" == "single" ]; then
-        cd "$METANODE_SCRIPT_DIR/.."
-        run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
-    else
-        cd "$METANODE_SCRIPT_DIR"
-        run_and_capture "Deploy Cluster Single (Bước 2)" ./deploy_cluster.sh --env deploy-3machines.env --all
-    fi
-
-    # Đợi 1 chút để các HTTP server start up hoàn toàn
-    sleep 5
-fi
-
-# ----------------------------------------------------
-# BƯỚC 2.5: Bật RPC Proxy
-# ----------------------------------------------------
-if should_run 2; then
-    echo ""
-    echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy..."
-    if ! curl -s http://127.0.0.1:8545 > /dev/null; then
-        echo "  -> RPC Proxy chưa bật, đang tiến hành khởi động qua tmux session 'rpc-proxy'..."
-        cd "$RPC_CLIENT_DIR"
-        
-        # Tự động tạo TLS Certificate & Key nếu chưa có
-        if [ ! -f "certificate.pem" ] || [ ! -f "private.key" ]; then
-            echo "  -> Không tìm thấy TLS cert/key, đang tự động khởi tạo..."
-            openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
-        fi
-
-        # Nếu session đã tồn tại thì tắt đi trước khi tạo mới
-        tmux kill-session -t rpc-proxy 2>/dev/null || true
-        # tmux new-session -d -s rpc-proxy 'go run main.go --config config-rpc-node0.json --tcp-config config-client-tcp-node0.json'
-         tmux new-session -d -s rpc-proxy 'go run main.go'
-        echo "  -> Đang chờ RPC proxy khởi động (tối đa 15s)..."
-        for i in {1..15}; do
-            if curl -s http://127.0.0.1:8545 -m 1 > /dev/null; then
-                break
-            fi
-            sleep 1
-        done
-        
-        # Kiểm tra lại xem đã lên chưa
-        if ! curl -s http://127.0.0.1:8545 -m 2 > /dev/null; then
-            echo "  ❌ Khởi động RPC Proxy thất bại!"
-            echo "  📄 Tmux Pane Output:"
-            echo "--------------------------------------------------"
-            tmux capture-pane -p -t rpc-proxy || echo "Cannot capture tmux pane"
-            echo "--------------------------------------------------"
-            
-            # Tìm file log mới nhất trong node0_data/logs
-            LATEST_LOG=$(find "$RPC_CLIENT_DIR" -maxdepth 3 -path "*/node0_data/logs/*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
-            if [ -n "$LATEST_LOG" ]; then
-                echo "  📄 File log: $LATEST_LOG"
-                echo "--------------------------------------------------"
-                tail -n 30 "$LATEST_LOG"
-                echo "--------------------------------------------------"
-            else
-                echo "  ⚠️ Không tìm thấy file log nào trong $RPC_CLIENT_DIR/node0_data/logs/"
-            fi
-            exit 1
-        else
-            echo "  ✅ RPC Proxy đã khởi động thành công ở port 8545."
-        fi
-    else
-        echo "  ✅ RPC Proxy đã hoạt động ở port 8545."
     fi
 fi
 
@@ -288,7 +195,7 @@ if should_run 7; then
     echo "📌 BƯỚC 7: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10
+        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 5 --load_balance=false --batch=10
     else
         run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500
     fi
@@ -303,6 +210,7 @@ if should_run 8; then
     cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
     run_and_capture "Test History RPC (Bước 8)" go run main.go -config=config-local.json -wait 5
 fi
+
 
 echo ""
 echo "=================================================="
