@@ -141,7 +141,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     $ORCH_SCRIPT stop-node $NODE_ID
 
     echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
-    cd "$ROOT_DIR/tool-test/test_tps/tps_blast_cc"
+    cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
     go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
 
     START_EPOCH=$(get_current_epoch)
@@ -185,7 +185,7 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
     echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
-    cd "$ROOT_DIR/tool-test/test_tps/tps_blast_cc"
+    cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
     go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
 
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
