@@ -2,7 +2,7 @@
 
 # Mặc định cấu hình
 NODE_ID=1
-LOOPS=1
+LOOPS=2000
 TPS_ROUNDS=1
 TPS_COUNT=20000
 
@@ -150,7 +150,7 @@ for ((i=1; i<=LOOPS; i++)); do
             elif [ "$CUR_DIFF" -eq "$PREV_DIFF" ]; then
                 STALL_COUNT=$((STALL_COUNT + 1))
                 if [ $STALL_COUNT -ge 6 ]; then # 6 lần liên tiếp (~30s) không giảm
-                    echo "❌ LỖI: Tiến trình đồng bộ bị kẹt ở mức chênh $CUR_DIFF blocks trong 30s!"
+                    echo "❌ LỖI: Tiến trình đồng bộ bị kẹt ở mức chênh $CUR_DIFF blocks trong 100!"
                     kill -9 $CHECKER_PID 2>/dev/null
                     exit 1
                 fi
@@ -185,10 +185,10 @@ for ((i=1; i<=LOOPS; i++)); do
     fi
 
     # 4. Restore Node
-    echo "👉 Bước 4: Restore Node $NODE_ID từ snapshot..."
+    echo "👉 Bước 4: Restore Node $NODE_ID từ snapshot của Node 4..."
     cd "$METANODE_SCRIPT_DIR" || exit 1
-    # Tự động gửi phím "y" để xác nhận thao tác restore_node.sh
-    echo "y" | ./restore_node.sh "$NODE_ID"
+    # Tự động gửi phím "y" liên tục để vượt qua các prompt xác nhận của restore_node.sh
+    yes | ./restore_node.sh "$NODE_ID" "" 4
     RESTORE_EXIT_CODE=$?
     if [ $RESTORE_EXIT_CODE -ne 0 ]; then
         echo "❌ LỖI: Thao tác restore_node.sh thất bại!"
