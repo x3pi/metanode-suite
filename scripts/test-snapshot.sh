@@ -212,7 +212,7 @@ for ((i=1; i<=LOOPS; i++)); do
     echo "   ⏳ Đợi 10s cho node $NODE_ID ổn định sau khi restore..."
     sleep 10
     
-    local SPAM_NODE=0
+    SPAM_NODE=0
     if [ "$NODE_ID" = "0" ]; then
         SPAM_NODE=1
     fi
@@ -220,7 +220,7 @@ for ((i=1; i<=LOOPS; i++)); do
     cd "$TPS_DIR" || exit 1
     echo "👉 Chạy giao dịch lên chính node vừa khôi phục ($NODE_ID)..."
     go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $NODE_ID > blast_restore_node.log 2>&1
-    local TPS_REC_EXIT=$?
+    TPS_REC_EXIT=$?
     if [ $TPS_REC_EXIT -ne 0 ]; then
         echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $NODE_ID thất bại (exit code $TPS_REC_EXIT)!"
         echo "--- LOG CHI TIẾT ---"
@@ -231,7 +231,7 @@ for ((i=1; i<=LOOPS; i++)); do
     
     echo "👉 Đổi sang chạy giao dịch qua node khác ($SPAM_NODE)..."
     go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_other_node.log 2>&1
-    local TPS_OTH_EXIT=$?
+    TPS_OTH_EXIT=$?
     if [ $TPS_OTH_EXIT -ne 0 ]; then
         echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $SPAM_NODE thất bại (exit code $TPS_OTH_EXIT)!"
         echo "--- LOG CHI TIẾT ---"

@@ -28,7 +28,7 @@ rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
     # Gọi RPC và lấy epoch dưới dạng hex
-    local hex_epoch=$(curl -s --max-time 2 -X POST http://127.0.0.1:8757 \
+    hex_epoch=$(curl -s --max-time 2 -X POST http://127.0.0.1:8757 \
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' \
         | grep -oP '"epoch":"\K(0x[0-9a-fA-F]+)' || echo "0x0")
@@ -58,7 +58,7 @@ stop_spam() {
 
 # Đảm bảo dọn dẹp khi script bị ngắt
 cleanup() {
-    local err=$?
+    err=$?
     trap - EXIT INT TERM
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
@@ -89,8 +89,8 @@ MONITOR_PID=$!
 
 # Hàm phân tích lỗi tự động
 analyze_mismatch() {
-    local target="${1:-unknown}"
-    local log_file="$HASH_CHECKER_DIR/hash_mismatch_alert.log"
+    target="${1:-unknown}"
+    log_file="$HASH_CHECKER_DIR/hash_mismatch_alert.log"
     echo -e "\n📊 [PHÂN TÍCH NHANH LỖI RECOVERY] (Đang test Node $target)"
     echo "--------------------------------------------------------"
     if [ ! -f "$log_file" ]; then
@@ -99,7 +99,7 @@ analyze_mismatch() {
         return
     fi
     
-    local mismatches=$(grep -c "⚠️  Block" "$log_file" || true)
+    mismatches=$(grep -c "⚠️  Block" "$log_file" || true)
     echo "🚨 Phân tích từ log: Phát hiện $mismatches blocks bị lệch hash!"
     
     # Phân tích nguyên nhân
@@ -196,7 +196,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
 
         echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
         cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
-        local SPAM_NODE=0
+        SPAM_NODE=0
         if [ "$TARGET_NODE" = "0" ]; then
             SPAM_NODE=1
         fi
@@ -256,7 +256,7 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
     cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
-    local SPAM_NODE=0
+    SPAM_NODE=0
     if [ "$TARGET_NODE" = "0" ]; then
         SPAM_NODE=1
     fi
