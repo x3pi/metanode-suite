@@ -293,28 +293,28 @@ if should_run 6; then
 fi
 
 # ----------------------------------------------------
-# BƯỚC 7: Load Test TPS
+# BƯỚC 7: Test History RPC
 # ----------------------------------------------------
 if should_run 7; then
     echo ""
-    echo "📌 BƯỚC 7: Load Test TPS (20,000 txs)..."
-    cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
-    if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 7) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch=10 --amount 1
-    else
-        run_and_capture "Load Test TPS (Bước 7) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500 --amount 1
-    fi
-fi
-
-# ----------------------------------------------------
-# BƯỚC 8: Test History RPC
-# ----------------------------------------------------
-if should_run 8; then
-    echo ""
-    echo "📌 BƯỚC 8: Test History RPC..."
+    echo "📌 BƯỚC 7: Test History RPC..."
     cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
     run_and_capture "Test History RPC (Bước 8)" go run main.go -config=config-local.json -wait 5
 fi
+# ----------------------------------------------------
+# BƯỚC 8: Load Test TPS
+# ----------------------------------------------------
+if should_run 8; then
+    echo ""
+    echo "📌 BƯỚC 8: Load Test TPS (20,000 txs)..."
+    cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
+    if [ "$DEPLOY_MODE" == "single" ]; then
+        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch=10 --amount 1
+    else
+        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500 --amount 1
+    fi
+fi
+
 
 echo ""
 echo "=================================================="
