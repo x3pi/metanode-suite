@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # Mặc định cấu hình
-NODE_ID=1
 LOOPS=2000
 TPS_ROUNDS=1
 TPS_COUNT=20000
@@ -14,21 +13,19 @@ usage() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
-    echo "  --node <id>         Chọn node để restore (mặc định: $NODE_ID)"
     echo "  --loops <num>       Số vòng lặp test (mặc định: $LOOPS)"
     echo "  --tps-rounds <num>  Số round chạy TPS blast mỗi vòng (mặc định: $TPS_ROUNDS)"
     echo "  --tps-count <num>   Số lượng giao dịch TPS mỗi round (mặc định: $TPS_COUNT)"
     echo "  -h, --help          Hiển thị trợ giúp này"
     echo ""
     echo "Ví dụ:"
-    echo "  $0 --node 1 --loops 5 --tps-rounds 2"
+    echo "  $0 --loops 5 --tps-rounds 2"
     echo "========================================================="
 }
 
 # Parse các tham số truyền vào
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --node) NODE_ID="$2"; shift ;;
         --loops) LOOPS="$2"; shift ;;
         --tps-rounds) TPS_ROUNDS="$2"; shift ;;
         --tps-count) TPS_COUNT="$2"; shift ;;
@@ -86,6 +83,9 @@ if [ $SIMPLE_EXIT -ne 0 ]; then
 fi
 
 for ((i=1; i<=LOOPS; i++)); do
+    # Xác định Node luân phiên (0, 1, 2, 3), trừ node 4 (dùng để tải snapshot)
+    NODE_ID=$(( (i - 1) % 4 ))
+
     echo ""
     echo "====================================================================="
     echo "🔄 BẮT ĐẦU VÒNG LẶP TEST SNAPSHOT: $i / $LOOPS (Node: $NODE_ID)"
@@ -108,7 +108,7 @@ for ((i=1; i<=LOOPS; i++)); do
     while kill -0 $TPS_PID 2>/dev/null; do
         if ! kill -0 $CHECKER_PID 2>/dev/null; then
             echo ""
-            echo "❌ LỖI NGHIÊM TRỌNG: block_hash_checker đã bị kill (khả năng phát hiện lệch hash)!"
+            echo "❌ LỖI NGHIÊM TRỌNG (Đang test Node $NODE_ID): block_hash_checker đã bị kill (khả năng phát hiện lệch hash)!"
             echo "   Xem log chi tiết tại: $CHECKER_DIR/hash_checker_loop_${i}.log"
             echo "--- LOG TÓM TẮT ---"
             tail -n 20 "$CHECKER_DIR/hash_checker_loop_${i}.log"
@@ -123,7 +123,7 @@ for ((i=1; i<=LOOPS; i++)); do
     wait $TPS_PID
     TPS_EXIT_CODE=$?
     if [ $TPS_EXIT_CODE -ne 0 ]; then
-        echo "❌ LỖI: Tiến trình TPS blast thất bại (exit code $TPS_EXIT_CODE)"
+        echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình TPS blast thất bại (exit code $TPS_EXIT_CODE)"
         kill -9 $CHECKER_PID 2>/dev/null
         exit 1
     fi
@@ -150,7 +150,7 @@ for ((i=1; i<=LOOPS; i++)); do
             elif [ "$CUR_DIFF" -eq "$PREV_DIFF" ]; then
                 STALL_COUNT=$((STALL_COUNT + 1))
                 if [ $STALL_COUNT -ge 6 ]; then # 6 lần liên tiếp (~30s) không giảm
-                    echo "❌ LỖI: Tiến trình đồng bộ bị kẹt ở mức chênh $CUR_DIFF blocks trong 100!"
+                    echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình đồng bộ bị kẹt ở mức chênh $CUR_DIFF blocks trong 30s!"
                     kill -9 $CHECKER_PID 2>/dev/null
                     exit 1
                 fi
@@ -168,7 +168,7 @@ for ((i=1; i<=LOOPS; i++)); do
     done
 
     if [ "$SYNCED" = false ]; then
-        echo "❌ LỖI: Quá thời gian chờ đồng bộ (10 phút)!"
+        echo "❌ LỖI (Đang test Node $NODE_ID): Quá thời gian chờ đồng bộ (100 giây)!"
         kill -9 $CHECKER_PID 2>/dev/null
         exit 1
     fi
@@ -176,9 +176,8 @@ for ((i=1; i<=LOOPS; i++)); do
     echo "   👉 Chờ thêm 5s sau khi đồng bộ để hệ thống thật sự lưu state..."
     sleep 5
     
-    # Kiểm tra lại checker sau thời gian chờ
     if ! kill -0 $CHECKER_PID 2>/dev/null; then
-        echo "❌ LỖI: block_hash_checker đã báo lệch hash và thoát sau khi bơm TPS!"
+        echo "❌ LỖI (Đang test Node $NODE_ID): block_hash_checker đã báo lệch hash và thoát sau khi bơm TPS!"
         echo "   Xem log tại: $CHECKER_DIR/hash_checker_loop_${i}.log"
         tail -n 20 "$CHECKER_DIR/hash_checker_loop_${i}.log"
         exit 1
@@ -191,7 +190,7 @@ for ((i=1; i<=LOOPS; i++)); do
     yes | ./restore_node.sh "$NODE_ID" "" 4
     RESTORE_EXIT_CODE=$?
     if [ $RESTORE_EXIT_CODE -ne 0 ]; then
-        echo "❌ LỖI: Thao tác restore_node.sh thất bại!"
+        echo "❌ LỖI (Đang test Node $NODE_ID): Thao tác restore_node.sh thất bại!"
         kill -9 $CHECKER_PID 2>/dev/null
         exit 1
     fi
@@ -203,7 +202,7 @@ for ((i=1; i<=LOOPS; i++)); do
     ./rpc-tcp-simple.sh
     RPC_EXIT=$?
     if [ $RPC_EXIT -ne 0 ]; then
-        echo "❌ LỖI: rpc-tcp-simple.sh thất bại (exit code $RPC_EXIT). Dừng pipeline!"
+        echo "❌ LỖI (Đang test Node $NODE_ID): rpc-tcp-simple.sh thất bại (exit code $RPC_EXIT). Dừng pipeline!"
         kill -9 $CHECKER_PID 2>/dev/null
         exit 1
     fi
@@ -213,7 +212,7 @@ for ((i=1; i<=LOOPS; i++)); do
     sleep 10
 
     if ! kill -0 $CHECKER_PID 2>/dev/null; then
-        echo "❌ LỖI: block_hash_checker phát hiện lệch hash sau khi chạy rpc-tcp-simple.sh!"
+        echo "❌ LỖI (Đang test Node $NODE_ID): block_hash_checker phát hiện lệch hash sau khi chạy rpc-tcp-simple.sh!"
         echo "   Xem log tại: $CHECKER_DIR/hash_checker_loop_${i}.log"
         tail -n 20 "$CHECKER_DIR/hash_checker_loop_${i}.log"
         exit 1

@@ -76,8 +76,9 @@ MONITOR_PID=$!
 
 # Hàm phân tích lỗi tự động
 analyze_mismatch() {
+    local target="${1:-unknown}"
     local log_file="$HASH_CHECKER_DIR/hash_mismatch_alert.log"
-    echo -e "\n📊 [PHÂN TÍCH NHANH LỖI RECOVERY]"
+    echo -e "\n📊 [PHÂN TÍCH NHANH LỖI RECOVERY] (Đang test Node $target)"
     echo "--------------------------------------------------------"
     if [ ! -f "$log_file" ]; then
         echo "✅ Không tìm thấy file báo lỗi. Mạng hoàn toàn đồng bộ!"
@@ -106,10 +107,10 @@ analyze_mismatch() {
     echo "--------------------------------------------------------"
 
     if [ "$mismatches" -ge 100 ]; then
-        echo -e "\n🛑 LỖI NGHIÊM TRỌNG: Phát hiện >= 100 block bị lệch hash! Dừng script ngay lập tức để kiểm tra!"
+        echo -e "\n🛑 LỖI NGHIÊM TRỌNG (Đang test Node $target): Phát hiện >= 100 block bị lệch hash! Dừng script ngay lập tức để kiểm tra!"
         exit 1
     elif [ "$mismatches" -gt 0 ]; then
-        echo -e "\n🛑 LỖI: Phát hiện $mismatches block bị lệch hash! Dừng script để kiểm tra!"
+        echo -e "\n🛑 LỖI (Đang test Node $target): Phát hiện $mismatches block bị lệch hash! Dừng script để kiểm tra!"
         exit 1
     fi
 }
@@ -126,6 +127,20 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     echo -e "\n\n🔄 VÒNG LẶP TEST THỨ $loop / $LOOP_COUNT"
     echo "========================================================="
 
+    # Xác định TARGET_NODE luân phiên
+    MOD=$(( (loop - 1) % 5 ))
+    if [ $MOD -eq 0 ]; then
+        TARGET_NODE=1
+    elif [ $MOD -eq 1 ]; then
+        TARGET_NODE=2
+    elif [ $MOD -eq 2 ]; then
+        TARGET_NODE=3
+    elif [ $MOD -eq 3 ]; then
+        TARGET_NODE=4
+    else
+        TARGET_NODE="all"
+    fi
+
     echo -e "\n[1/8] ⏳ Kiểm tra điều kiện bắt đầu (Yêu cầu Epoch >= 1)..."
     while true; do
         CURRENT_EPOCH=$(get_current_epoch)
@@ -137,43 +152,65 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         sleep 5
     done
 
-    echo -e "\n[2/8] 🛑 Dừng node $NODE_ID..."
-    $ORCH_SCRIPT stop-node $NODE_ID
+    if [ "$TARGET_NODE" == "all" ]; then
+        echo -e "\n[2/8] 🛑 Dừng toàn bộ mạng..."
+        $ORCH_SCRIPT stop
 
-    echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
-    cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
+        echo -e "\n[3/8] 🚀 Bỏ qua tạo gap vì mạng đã dừng hoàn toàn."
+        echo -e "\n[4/8] ⏳ Bỏ qua chờ epoch gap."
 
-    START_EPOCH=$(get_current_epoch)
-    TARGET_EPOCH=$((START_EPOCH + GAP_EPOCH))
-    echo -e "\n[4/8] ⏳ Đang ở Epoch $START_EPOCH. Chờ mạng chạy đến Epoch $TARGET_EPOCH..."
-
-    while true; do
-        CURRENT_EPOCH=$(get_current_epoch)
-        if [ "$CURRENT_EPOCH" -ge "$TARGET_EPOCH" ]; then
-            echo "✅ Đã đạt Epoch $CURRENT_EPOCH. (Gap đã tạo xong)"
-            break
-        fi
-        echo "   ... Hiện tại: $CURRENT_EPOCH / $TARGET_EPOCH"
+        echo -e "\n[5/8] 🔄 Khởi động lại toàn bộ mạng..."
+        $ORCH_SCRIPT start
+        
+        echo "⏳ Chờ 10s để xác nhận tiến trình Node không bị crash..."
         sleep 10
-    done
+        for n in 0 1 2 3 4; do
+            if ! tmux ls 2>/dev/null | grep -q "go-master-$n"; then
+                echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $n đã Crash (Panic) ngay khi vừa khởi động!"
+                exit 1
+            fi
+        done
+        echo "⏳ Đợi thêm 15s cho toàn mạng kết nối và khôi phục hoạt động..."
+        sleep 15
+    else
+        echo -e "\n[2/8] 🛑 Dừng node $TARGET_NODE..."
+        $ORCH_SCRIPT stop-node $TARGET_NODE
 
-    # Dừng spam để node bắt kịp nhanh hơn, hoặc để nguyên tùy kịch bản. Ở đây tạm dừng spam trước khi restart.
-    stop_spam
+        echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
+        cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
+        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
 
-    echo -e "\n[5/8] 🔄 Khởi động lại node $NODE_ID..."
-    $ORCH_SCRIPT start-node $NODE_ID
-    
-    echo "⏳ Chờ 5s để xác nhận tiến trình Node không bị crash..."
-    sleep 5
-    if ! tmux ls 2>/dev/null | grep -q "go-master-$NODE_ID"; then
-        echo -e "\n❌ [FATAL ERROR]: Node $NODE_ID đã Crash (Panic) ngay khi vừa khởi động!"
-        echo "   👉 Tiến trình go-master-$NODE_ID không tồn tại trong tmux."
-        echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$NODE_ID/go-master-stdout.log"
-        exit 1
+        START_EPOCH=$(get_current_epoch)
+        TARGET_EPOCH=$((START_EPOCH + GAP_EPOCH))
+        echo -e "\n[4/8] ⏳ Đang ở Epoch $START_EPOCH. Chờ mạng chạy đến Epoch $TARGET_EPOCH..."
+
+        while true; do
+            CURRENT_EPOCH=$(get_current_epoch)
+            if [ "$CURRENT_EPOCH" -ge "$TARGET_EPOCH" ]; then
+                echo "✅ Đã đạt Epoch $CURRENT_EPOCH. (Gap đã tạo xong)"
+                break
+            fi
+            echo "   ... Hiện tại: $CURRENT_EPOCH / $TARGET_EPOCH"
+            sleep 10
+        done
+
+        # Dừng spam để node bắt kịp nhanh hơn, hoặc để nguyên tùy kịch bản. Ở đây tạm dừng spam trước khi restart.
+        stop_spam
+
+        echo -e "\n[5/8] 🔄 Khởi động lại node $TARGET_NODE..."
+        $ORCH_SCRIPT start-node $TARGET_NODE
+        
+        echo "⏳ Chờ 5s để xác nhận tiến trình Node không bị crash..."
+        sleep 5
+        if ! tmux ls 2>/dev/null | grep -q "go-master-$TARGET_NODE"; then
+            echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $TARGET_NODE đã Crash (Panic) ngay khi vừa khởi động!"
+            echo "   👉 Tiến trình go-master-$TARGET_NODE không tồn tại trong tmux."
+            echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$TARGET_NODE/go-master-stdout.log"
+            exit 1
+        fi
+        echo "⏳ Đợi 10s cho node khởi động và xin Recovery State..."
+        sleep 10
     fi
-echo "⏳ Đợi 10s cho node khởi động và xin Recovery State..."
-sleep 10
 
 
 
@@ -181,7 +218,7 @@ echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Time
     cd $HASH_CHECKER_DIR
     rm -f hash_mismatch_alert.log
 timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
-    analyze_mismatch
+    analyze_mismatch "$TARGET_NODE"
     echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
@@ -192,7 +229,7 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
     cd $HASH_CHECKER_DIR
     rm -f hash_mismatch_alert.log
     timeout 40s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
-    analyze_mismatch
+    analyze_mismatch "$TARGET_NODE"
 
     stop_spam
 
