@@ -156,7 +156,13 @@ def clean_old_logs():
         if os.path.exists(error_report):
             os.remove(error_report)
             print(f"[{datetime.datetime.now()}]   → Đã xóa: error_report.txt")
-            
+
+        # Xóa file sentinel lỗi nếu còn sót
+        sentinel = "/tmp/MTN_CHAIN_ERROR_STOP"
+        if os.path.exists(sentinel):
+            os.remove(sentinel)
+            print(f"[{datetime.datetime.now()}]   → Đã xóa: {sentinel}")
+
         if os.path.exists(LOGS_DIR):
             log_files = [
                 os.path.join(LOGS_DIR, f)
@@ -164,7 +170,7 @@ def clean_old_logs():
                 if f.endswith(".log")
             ]
             log_files.sort(key=os.path.getmtime, reverse=True)
-            
+
             if len(log_files) > 1:
                 files_to_delete = log_files[1:]
                 for f in files_to_delete:
@@ -179,6 +185,19 @@ def clean_old_logs():
                 print(f"[{datetime.datetime.now()}]   → Thư mục logs trống.")
     except Exception as e:
         print(f"[{datetime.datetime.now()}] ⚠️ Lỗi khi dọn dẹp logs cũ: {e}")
+
+
+def has_real_error(exit_code, log_file):
+    """Kiểm tra lỗi thực sự: exit_code > 0 HOẶC file sentinel tồn tại.
+    Lưu ý: simple_test.sh đã được fix để preserve exit code đúng.
+    Sentinel /tmp/MTN_CHAIN_ERROR_STOP chặt được lỗi từ monitor_error_flag (test-node-recovery-gap.sh).
+    """
+    if exit_code > 0:
+        return True
+    if os.path.exists("/tmp/MTN_CHAIN_ERROR_STOP"):
+        print(f"[{datetime.datetime.now()}] ⚠️ Exit code=0 nhưng phát hiện file sentinel /tmp/MTN_CHAIN_ERROR_STOP!")
+        return True
+    return False
 
 def main():
     os.makedirs(LOGS_DIR, exist_ok=True)
@@ -200,15 +219,19 @@ def main():
     
     current_process = None
     args = [TEST_SCRIPT] + sys.argv[1:]
+
+    # Dọn log cũ ngay cả trước lần chạy test đầu tiên
+    clean_old_logs()
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(LOGS_DIR, f"test_{last_commit[:8] if last_commit else 'init'}_{timestamp}.log")
-    
+
     print(f"[{datetime.datetime.now()}] Đang chạy bài test đầu tiên. Ghi log ra: {log_file}")
-    
+
     commit_short = last_commit[:8] if last_commit else "init"
     server_info = get_server_ip_info()
     send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
-    
+
     with open(log_file, "w") as f:
         current_process = subprocess.Popen(
             args,
@@ -226,28 +249,32 @@ def main():
                 if current_process and current_process.poll() is not None:
                     exit_code = current_process.poll()
                     print(f"[{datetime.datetime.now()}] Bài test hiện tại đã xong (Exit Code: {exit_code}). Đang chờ commit mới...")
-                    
-                    # Cảnh báo lỗi qua Telegram nếu script chết với mã lỗi > 0
-                    if exit_code > 0:
-                        commit_short = last_commit[:8] if last_commit else "N/A"
-                        
-                        # Đọc 20 dòng cuối của file log để gửi kèm
+
+                    commit_short = last_commit[:8] if last_commit else "N/A"
+                    # Cảnh báo lỗi qua Telegram nếu script chết với mã lỗi > 0 hoặc phát hiện lỗi qua sentinel/log
+                    if has_real_error(exit_code, log_file):
+                        # Đọc 25 dòng cuối của file log để gửi kèm
                         tail_logs = "Không thể đọc file log."
                         try:
                             if os.path.exists(log_file):
-                                with open(log_file, "r") as f:
+                                with open(log_file, "r", errors="replace") as f:
                                     lines = f.readlines()
-                                    tail_logs = "".join(lines[-20:])
+                                    tail_logs = "".join(lines[-25:])
                                     # Giới hạn số lượng ký tự để không vượt quá giới hạn của Telegram
                                     if len(tail_logs) > 3000:
                                         tail_logs = tail_logs[-3000:]
                         except Exception as e:
                             print(f"Lỗi đọc log: {e}")
-                            
+
                         server_info = get_server_ip_info()
-                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI với Exit Code: {exit_code}.\n\n📄 **Trích xuất 20 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
+                        real_code = exit_code if exit_code > 0 else "0 (lỗi phát hiện qua log/sentinel)"
+                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI (Exit Code: {real_code}).\n\n📄 **Trích xuất 25 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
                         send_telegram_message(msg)
-                    
+                    else:
+                        server_info = get_server_ip_info()
+                        msg = f"✅ [CI Monitor] HOÀN TẤT THÀNH CÔNG!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) chạy mượt mà không gặp lỗi phân nhánh hay lệch hash."
+                        send_telegram_message(msg)
+
                     current_process = None
                     
                 current_commit = get_remote_commit()

@@ -241,19 +241,31 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 	return blockNum, err
 }
 
-func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, waitBlocks uint64) bool {
+// runHistoryCheck kiểm tra tính toàn vẹn của lịch sử state.
+//
+// Tham số waitTxCount (flag -wait):
+//   - 0 hoặc 1 → gửi 1 tx thêm, block receipt của tx đó = Block B
+//   - N > 1    → gửi thêm N tx, block receipt của tx cuối cùng = Block B
+//
+// Block A = block của giao dịch đầu tiên (mốc lịch sử cần kiểm tra).
+// Block B = block của giao dịch cuối cùng (mốc "hiện tại" để so sánh).
+// Mỗi tx đều chờ receipt → checker tự kiểm soát block tăng,
+// không bị ảnh hưởng bởi spam giao dịch từ bên ngoài.
+func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, waitTxCount uint64) bool {
 	var blockA, blockB uint64
 	var savedBalanceA *big.Int
 	var savedNonceA uint64
 
+	// ── Tx 1: đánh dấu Block A ───────────────────────────────────────────────
 	bA, err := sendTxAndWait(fc, fromAddress, toAddress)
 	if err != nil {
-		fmt.Printf("Gửi Tx thất bại: %v\n", err)
+		fmt.Printf("Gửi Tx 1 thất bại: %v\n", err)
 		return false
 	}
 	blockA = bA
-	fmt.Printf("✅ Giao dịch đã được mine tại Block A: %d\n", blockA)
+	fmt.Printf("✅ Giao dịch 1 đã được mine tại Block A: %d\n", blockA)
 
+	// Lưu snapshot state tại Block A ngay sau khi có receipt
 	blockAHex := hexutil.EncodeUint64(blockA)
 	err = fc.execute(func(ethCli *ethclient.Client, rpcClient *rpc.Client) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -280,43 +292,25 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	}
 	fmt.Printf("   [Saved] Tiền lúc Block A: %v | Nonce: %d\n", savedBalanceA, savedNonceA)
 
-	if waitBlocks > 0 {
-		blockB = blockA + waitBlocks
-		fmt.Printf("\n⏳ Chế độ Test Pruning: Đang đợi mạng lưới chạy tới Block B (%d)...\n", blockB)
-		for {
-			var latestBlockHex string
-			err = fc.execute(func(ethCli *ethclient.Client, rpcClient *rpc.Client) error {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				return rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
-			})
-			if err == nil {
-				latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
-				if latestBlock >= blockB {
-					fmt.Printf("✅ Mạng lưới đã đạt Block %d!\n", latestBlock)
-					break
-				}
-				fmt.Printf("   Đang ở block %d, cần đợi tới %d (Đang bắn Tx để kích block)...\n", latestBlock, blockB)
-
-				_, errTx := sendTxAndWait(fc, fromAddress, toAddress)
-				if errTx != nil {
-					fmt.Printf("   ⚠️ Lỗi khi bắn Tx kích block: %v\n", errTx)
-					time.Sleep(2 * time.Second)
-				}
-			} else {
-				time.Sleep(2 * time.Second)
-			}
-		}
-	} else {
-		fmt.Println("\n2. Đang tạo giao dịch (Tx 2) để làm thay đổi số dư so với Block A...")
-		bB, err := sendTxAndWait(fc, fromAddress, toAddress)
-		if err != nil {
-			fmt.Printf("Gửi Tx 2 thất bại: %v\n", err)
+	// ── Gửi thêm N giao dịch, block receipt của tx cuối = Block B ────────────
+	// Tối thiểu 1 tx để đảm bảo Block B > Block A (hoặc ít nhất nonce khác).
+	extraTxCount := waitTxCount
+	if extraTxCount < 1 {
+		extraTxCount = 1
+	}
+	fmt.Printf("\n⏳ Đang gửi thêm %d giao dịch để tạo mốc Block B...\n", extraTxCount)
+	blockB = blockA
+	for i := uint64(1); i <= extraTxCount; i++ {
+		fmt.Printf("   📤 Giao dịch thêm %d/%d...\n", i, extraTxCount)
+		bB, errTx := sendTxAndWait(fc, fromAddress, toAddress)
+		if errTx != nil {
+			fmt.Printf("   ⚠️ Giao dịch %d thất bại: %v\n", i, errTx)
 			return false
 		}
 		blockB = bB
-		fmt.Printf("✅ Tx 2 đã được mine tại Block B: %d\n", blockB)
+		fmt.Printf("   ✅ Giao dịch %d mined tại Block: %d\n", i, bB)
 	}
+	fmt.Printf("\n📍 Block A (mốc lịch sử): %d | Block B (mốc hiện tại): %d\n", blockA, blockB)
 
 	fmt.Println("\n=====================================================")
 	fmt.Println("BẮT ĐẦU KIỂM TRA LỊCH SỬ BẰNG RPC TẠI 2 MỐC BLOCK KHÁC NHAU")
@@ -468,7 +462,7 @@ func getTargetNodeURL(cfg *Config, targetNode string) (string, error) {
 
 func main() {
 	configFlag := flag.String("config", "config-local.json", "Đường dẫn file cấu hình (ví dụ: config-server.json)")
-	waitBlocksFlag := flag.Uint64("wait", 0, "Số block cần đợi mạng lưới sinh ra trước khi test mốc B (để test Pruning)")
+	waitBlocksFlag := flag.Uint64("wait", 5, "Số giao dịch gửi thêm sau Tx đầu tiên trước khi kiểm tra lịch sử (mặc định 5). Block receipt của tx cuối = Block B. Tránh phụ thuộc vào spam ngoài để block tăng.")
 	loopFlag := flag.Bool("loop", false, "Chạy lặp vô hạn để kiểm tra liên tục (chỉ chạy trong chế độ loop mặc định)")
 	excludeFlag := flag.String("exclude", "", "Danh sách node ID hoặc cổng RPC cần loại trừ (ngăn cách bởi dấu phẩy, VD: 1,2 hoặc 8547)")
 	

@@ -164,7 +164,19 @@ echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
 ) &
 HISTORY_PID=$!
 
-trap "disown $CHECKER_PID $HISTORY_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true; pkill -f 'config-local.json.*-loop' || true; pkill -f 'config-local.json.*-wait' || true" EXIT
+_simple_test_cleanup() {
+    local _exit_code=$?
+    # Preserve exit code trước khi kill background processes
+    disown $CHECKER_PID $HISTORY_PID 2>/dev/null
+    kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null
+    pkill -f 'go run main.go --watch' || true
+    pkill -f 'exe/main --watch' || true
+    pkill -f 'test-rpc/test-history' || true
+    pkill -f 'config-local.json.*-loop' || true
+    pkill -f 'config-local.json.*-wait' || true
+    exit $_exit_code
+}
+trap _simple_test_cleanup EXIT
 
 
 # ----------------------------------------------------
