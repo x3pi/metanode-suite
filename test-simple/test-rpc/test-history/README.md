@@ -82,7 +82,9 @@ go run main.go -config config-local.json -wait 50
 Chạy lặp lại liên tục vô hạn, tự động cập nhật nhật ký và ghi cờ lỗi dừng hệ thống khi phát hiện sai số.
 
 ```bash
-go run main.go -config config-local.json -wait 5 -loop
+go run main.go -config config-local.json -wait 5 -loop 
+go run main.go -config config-local.json -wait 5 -target-node 1
+
 ```
 
 ### 4. Kiểm tra lưu và xác minh lịch sử động (Test Recovery & Snapshot)

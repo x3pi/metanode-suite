@@ -502,6 +502,20 @@ func main() {
 		log.Fatalf("Không tìm thấy địa chỉ RPC nào trong cấu hình")
 	}
 
+	// Nếu người dùng truyền target-node, đưa nó lên vị trí ưu tiên số 1 trong danh sách kết nối
+	if *targetNodeFlag != "" {
+		targetURL, err := getTargetNodeURL(cfg, *targetNodeFlag)
+		if err == nil {
+			orderedUrls := []string{targetURL}
+			for _, u := range urls {
+				if u != targetURL {
+					orderedUrls = append(orderedUrls, u)
+				}
+			}
+			urls = orderedUrls
+		}
+	}
+
 	// Xử lý action "save"
 	if *actionFlag == "save" {
 		fmt.Println("=====================================================")
@@ -751,22 +765,30 @@ func main() {
 
 				// 3. Số dư lịch sử phải khác số dư hiện tại (để chứng minh không rò rỉ state mới)
 				if balanceA.Cmp(balanceB) == 0 {
+					// Tính delta: từ savedBalance → balanceB để biết mong đợi balanceA phải là gì
+					savedBalBigCmp, _ := new(big.Int).SetString(cp.SavedBalanceA, 10)
+					deltaBalance := new(big.Int).Sub(balanceB, savedBalBigCmp)
 					errDetails = append(errDetails, fmt.Sprintf(
-						"Số dư tại Block A (%s) và Block B (%s) GIỐNG HỆT NHAU. "+
-							"Mong đợi: Số dư lịch sử Block A (Lần đầu) phải là %s và Số dư hiện tại Block B (Lần cuối) phải thay đổi (khác %s) do có giao dịch trong quá trình đó. "+
-							"(Lỗi: Có thể do rò rỉ State mới nhất về Block A, hoặc giao dịch phát sinh không thành công/chưa sync)",
-						balanceA.String(), balanceB.String(), cp.SavedBalanceA, cp.SavedBalanceA,
+						"[ROI RI STATE] Số dư lịch sử tại Block A (%d) = %s, trùng với số dư hiện tại Block B (%d) = %s. "+
+							"Số dư gốc lưu lúc save = %s, Số dư hiện tại đã thay đổi %s (delta) so với lúc save. "+
+							"→ Mong đợi: eth_getBalance(Block A) phải trả về đúng %s (giá trị lúc Block A), KHÔNG phải %s (giá trị hiện tại Block B)",
+						cp.BlockA, balanceA.String(), latestBlock, balanceB.String(),
+						cp.SavedBalanceA, deltaBalance.String(),
+						cp.SavedBalanceA, balanceB.String(),
 					))
 					hasError = true
 				}
 
 				// 4. Nonce lịch sử phải khác nonce hiện tại
 				if nonceA == nonceB {
+					txCount := int64(nonceB) - int64(cp.SavedNonceA)
 					errDetails = append(errDetails, fmt.Sprintf(
-						"Nonce tại Block A (%d) và Block B (%d) GIỐNG HỆT NHAU. "+
-							"Mong đợi: Nonce lịch sử Block A (Lần đầu) phải là %d và Nonce hiện tại Block B (Lần cuối) phải lớn hơn %d do có giao dịch trong quá trình đó. "+
-							"(Lỗi: Có thể do trôi State/chưa phân tách lịch sử, hoặc giao dịch phát sinh không thành công/chưa sync)",
-						nonceA, nonceB, cp.SavedNonceA, cp.SavedNonceA,
+						"[TROI STATE] Nonce lịch sử tại Block A (%d) = %d, trùng với nonce hiện tại Block B (%d) = %d. "+
+							"Nonce gốc lưu lúc save = %d, hiện tại đã tăng thêm %d Tx (từ %d lên %d). "+
+							"→ Mong đợi: eth_getTransactionCount(Block A) phải trả về đúng %d (nonce lúc Block A), KHÔNG phải %d (nonce hiện tại Block B)",
+						cp.BlockA, nonceA, latestBlock, nonceB,
+						cp.SavedNonceA, txCount, cp.SavedNonceA, nonceB,
+						cp.SavedNonceA, nonceB,
 					))
 					hasError = true
 				}
