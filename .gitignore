@@ -10,3 +10,4 @@ scripts/error_report.txt
 # ===== Certificates and Private Keys =====
 **/*.pem
 **/*.key
+test-simple/test-rpc/test-history/history_records.json

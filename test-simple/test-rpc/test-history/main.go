@@ -37,20 +37,6 @@ type SavedCheckpoint struct {
 	ChainID       int64  `json:"chain_id"`
 }
 
-type HistoryRecord struct {
-	Timestamp       string `json:"timestamp"`
-	BlockA          uint64 `json:"block_a"`
-	SavedBalanceA   string `json:"saved_balance_a"`
-	QueriedBalanceA string `json:"queried_balance_a"`
-	SavedNonceA     uint64 `json:"saved_nonce_a"`
-	QueriedNonceA   uint64 `json:"queried_nonce_a"`
-	BlockB          uint64 `json:"block_b"`
-	BalanceB        string `json:"balance_b"`
-	NonceB          uint64 `json:"nonce_b"`
-	IsValid         bool   `json:"is_valid"`
-	ErrorDetails    string `json:"error_details,omitempty"`
-}
-
 type FailoverClient struct {
 	urls        []string
 	activeIdx   int
@@ -207,27 +193,6 @@ func loadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
-}
-
-func saveRecord(record HistoryRecord) {
-	filename := "history_records.json"
-	var records []HistoryRecord
-
-	data, err := os.ReadFile(filename)
-	if err == nil {
-		json.Unmarshal(data, &records)
-	}
-
-	records = append(records, record)
-
-	if len(records) > 1000 {
-		records = records[len(records)-1000:]
-	}
-
-	updatedData, err := json.MarshalIndent(records, "", "  ")
-	if err == nil {
-		os.WriteFile(filename, updatedData, 0644)
-	}
 }
 
 func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress common.Address) (uint64, error) {
@@ -429,29 +394,37 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		hasError = true
 	}
 
-	record := HistoryRecord{
-		Timestamp:       time.Now().Format(time.RFC3339),
-		BlockA:          blockA,
-		SavedBalanceA:   savedBalanceA.String(),
-		QueriedBalanceA: balanceA.String(),
-		SavedNonceA:     savedNonceA,
-		QueriedNonceA:   nonceA,
-		BlockB:          blockB,
-		BalanceB:        balanceB.String(),
-		NonceB:          nonceB,
-		IsValid:         !hasError,
-	}
-
 	if hasError {
-		record.ErrorDetails = strings.Join(errDetails, "; ")
-		reason := fmt.Sprintf("LỖI LỊCH SỬ STATE tại Block %d: %s", blockA, record.ErrorDetails)
+		var sb strings.Builder
+		sb.WriteString("==================================================\n")
+		sb.WriteString("🚨 LỖI LỊCH SỬ STATE (CHẾ ĐỘ CHẠY LIÊN TỤC)\n")
+		sb.WriteString(fmt.Sprintf("⏰ Thời gian: %s\n", time.Now().Format(time.RFC3339)))
+		sb.WriteString(fmt.Sprintf("📍 Mốc Block A: %d\n", blockA))
+		sb.WriteString(fmt.Sprintf("📍 Mốc Block B: %d\n", blockB))
+		sb.WriteString("==================================================\n")
+		for _, det := range errDetails {
+			sb.WriteString(fmt.Sprintf("- %s\n", det))
+		}
+		sb.WriteString("==================================================\n")
+		reason := sb.String()
 		os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+		
+		// Ghi đè/thêm vào log file riêng của checker
+		appendLocalErrorLog(reason)
+		
 		fmt.Printf("\n🚨 %s\n", reason)
 	}
 
-	saveRecord(record)
-
 	return !hasError
+}
+
+func appendLocalErrorLog(reason string) {
+	f, err := os.OpenFile("history_errors.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.WriteString(reason + "\n")
 }
 
 func getTargetNodeURL(cfg *Config, targetNode string) (string, error) {
@@ -571,9 +544,26 @@ func main() {
 			ChainID:       cfg.ChainID,
 		}
 
-		data, err := json.MarshalIndent(checkpoint, "", "  ")
+		var checkpoints []SavedCheckpoint
+		existingData, errRead := os.ReadFile(*fileFlag)
+		if errRead == nil {
+			errArr := json.Unmarshal(existingData, &checkpoints)
+			if errArr != nil {
+				var singleCheckpoint SavedCheckpoint
+				if errSingle := json.Unmarshal(existingData, &singleCheckpoint); errSingle == nil {
+					checkpoints = append(checkpoints, singleCheckpoint)
+				}
+			}
+		}
+
+		checkpoints = append(checkpoints, checkpoint)
+		if len(checkpoints) > 1000 {
+			checkpoints = checkpoints[len(checkpoints)-1000:]
+		}
+
+		data, err := json.MarshalIndent(checkpoints, "", "  ")
 		if err != nil {
-			log.Fatalf("Lỗi serialize checkpoint JSON: %v", err)
+			log.Fatalf("Lỗi serialize checkpoints JSON: %v", err)
 		}
 
 		err = os.WriteFile(*fileFlag, data, 0644)
@@ -581,7 +571,7 @@ func main() {
 			log.Fatalf("Lỗi ghi file lưu trạng thái: %v", err)
 		}
 
-		fmt.Printf("🎉 Đã lưu thành công trạng thái vào file %s:\n", *fileFlag)
+		fmt.Printf("🎉 Đã lưu thành công trạng thái vào file %s (Tổng số checkpoints: %d):\n", *fileFlag, len(checkpoints))
 		fmt.Printf("   - Block A: %d\n", checkpoint.BlockA)
 		fmt.Printf("   - Balance A: %s\n", checkpoint.SavedBalanceA)
 		fmt.Printf("   - Nonce A: %d\n", checkpoint.SavedNonceA)
@@ -605,146 +595,191 @@ func main() {
 			log.Fatalf("Lỗi đọc file trạng thái %s: %v", *fileFlag, err)
 		}
 
-		var checkpoint SavedCheckpoint
-		if err := json.Unmarshal(data, &checkpoint); err != nil {
-			log.Fatalf("Lỗi parse file trạng thái: %v", err)
-		}
-
-		targetURL, err := getTargetNodeURL(cfg, *targetNodeFlag)
-		if err != nil {
-			log.Fatalf("Lỗi xác định target node: %v", err)
-		}
-
-		fmt.Printf("🔌 Đang kết nối trực tiếp (Strict) tới RPC Node: %s...\n", targetURL)
-		
-		// Đợi node online và đồng bộ vượt qua Block A
-		var rpcClient *rpc.Client
-		
-		maxRetries := 30
-		for r := 1; r <= maxRetries; r++ {
-			rpcClient, err = rpc.Dial(targetURL)
-			if err == nil {
-				
-				// Kiểm tra chiều cao block hiện tại của node
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				var latestBlockHex string
-				errBlock := rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
-				cancel()
-				
-				if errBlock == nil {
-					latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
-					if latestBlock > checkpoint.BlockA {
-						fmt.Printf("✅ Node đã online và đồng bộ tới Block %d (vượt qua Block A %d)\n", latestBlock, checkpoint.BlockA)
-						break
-					} else {
-						fmt.Printf("⏳ Node đã online nhưng chiều cao block (%d) chưa vượt qua Block A (%d). Đang đợi...\n", latestBlock, checkpoint.BlockA)
-					}
-				} else {
-					fmt.Printf("⏳ Kết nối RPC thành công nhưng lỗi eth_blockNumber: %v. Đang thử lại...\n", errBlock)
-				}
-				rpcClient.Close()
+		var checkpoints []SavedCheckpoint
+		if errArr := json.Unmarshal(data, &checkpoints); errArr != nil {
+			var singleCheckpoint SavedCheckpoint
+			if errSingle := json.Unmarshal(data, &singleCheckpoint); errSingle == nil {
+				checkpoints = append(checkpoints, singleCheckpoint)
 			} else {
-				fmt.Printf("⏳ Lần thử %d/%d: Node %s chưa online (Error: %v). Đang đợi...\n", r, maxRetries, targetURL, err)
-			}
-			time.Sleep(2 * time.Second)
-			if r == maxRetries {
-				log.Fatalf("🛑 LỖI: Node %s không online hoặc không đồng bộ kịp sau %d giây!", targetURL, maxRetries*2)
+				log.Fatalf("Lỗi parse file trạng thái: %v", errArr)
 			}
 		}
-		defer rpcClient.Close()
 
-		// Thực hiện truy vấn lịch sử tại Block A trên Node này
-		blockAHex := hexutil.EncodeUint64(checkpoint.BlockA)
-		fromAddr := common.HexToAddress(checkpoint.FromAddress)
+		if len(checkpoints) == 0 {
+			fmt.Println("⚠️ Không có checkpoint nào cần xác minh.")
+			os.Remove(*fileFlag)
+			fmt.Println("🔄 Đã verify xong, tiếp tục chuyển sang chế độ chạy kiểm tra lịch sử...")
+		} else {
+			targetURL, err := getTargetNodeURL(cfg, *targetNodeFlag)
+			if err != nil {
+				log.Fatalf("Lỗi xác định target node: %v", err)
+			}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+			// Tìm BlockA lớn nhất
+			var maxBlockA uint64
+			for _, cp := range checkpoints {
+				if cp.BlockA > maxBlockA {
+					maxBlockA = cp.BlockA
+				}
+			}
 
-		var balanceAHex string
-		err = rpcClient.CallContext(ctx, &balanceAHex, "eth_getBalance", fromAddr, blockAHex)
-		if err != nil {
-			log.Fatalf("Lỗi lấy Balance tại Block A: %v", err)
+			fmt.Printf("🔌 Đang kết nối trực tiếp (Strict) tới RPC Node: %s...\n", targetURL)
+			
+			// Đợi node online và đồng bộ vượt qua Block A lớn nhất
+			var rpcClient *rpc.Client
+			
+			maxRetries := 30
+			for r := 1; r <= maxRetries; r++ {
+				rpcClient, err = rpc.Dial(targetURL)
+				if err == nil {
+					
+					// Kiểm tra chiều cao block hiện tại của node
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					var latestBlockHex string
+					errBlock := rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
+					cancel()
+					
+					if errBlock == nil {
+						latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
+						if latestBlock > maxBlockA {
+							fmt.Printf("✅ Node đã online và đồng bộ tới Block %d (vượt qua Block A lớn nhất %d)\n", latestBlock, maxBlockA)
+							break
+						} else {
+							fmt.Printf("⏳ Node đã online nhưng chiều cao block (%d) chưa vượt qua Block A lớn nhất (%d). Đang đợi...\n", latestBlock, maxBlockA)
+						}
+					} else {
+						fmt.Printf("⏳ Kết nối RPC thành công nhưng lỗi eth_blockNumber: %v. Đang thử lại...\n", errBlock)
+					}
+					rpcClient.Close()
+				} else {
+					fmt.Printf("⏳ Lần thử %d/%d: Node %s chưa online (Error: %v). Đang đợi...\n", r, maxRetries, targetURL, err)
+				}
+				time.Sleep(2 * time.Second)
+				if r == maxRetries {
+					log.Fatalf("🛑 LỖI: Node %s không online hoặc không đồng bộ kịp sau %d giây!", targetURL, maxRetries*2)
+				}
+			}
+			defer rpcClient.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Lấy block mới nhất (Block B) của node hiện tại
+			var latestBlockHex string
+			err = rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
+			if err != nil {
+				log.Fatalf("Lỗi lấy block mới nhất: %v", err)
+			}
+			latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
+			latestBlockHex = hexutil.EncodeUint64(latestBlock)
+
+			hasGlobalError := false
+			var allErrDetails []string
+
+			for idx, cp := range checkpoints {
+				fmt.Printf("\n🔍 Đang đối chiếu checkpoint %d/%d (Block A: %d, Address: %s)...\n", idx+1, len(checkpoints), cp.BlockA, cp.FromAddress)
+				
+				blockAHex := hexutil.EncodeUint64(cp.BlockA)
+				fromAddr := common.HexToAddress(cp.FromAddress)
+
+				var balanceAHex string
+				err = rpcClient.CallContext(ctx, &balanceAHex, "eth_getBalance", fromAddr, blockAHex)
+				if err != nil {
+					log.Fatalf("Lỗi lấy Balance tại Block A: %v", err)
+				}
+				balanceA, _ := hexutil.DecodeBig(balanceAHex)
+
+				var nonceAHex string
+				err = rpcClient.CallContext(ctx, &nonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
+				if err != nil {
+					log.Fatalf("Lỗi lấy Nonce tại Block A: %v", err)
+				}
+				nonceA, _ := hexutil.DecodeUint64(nonceAHex)
+
+				var balanceBHex string
+				err = rpcClient.CallContext(ctx, &balanceBHex, "eth_getBalance", fromAddr, latestBlockHex)
+				if err != nil {
+					log.Fatalf("Lỗi lấy Balance hiện tại: %v", err)
+				}
+				balanceB, _ := hexutil.DecodeBig(balanceBHex)
+
+				var nonceBHex string
+				err = rpcClient.CallContext(ctx, &nonceBHex, "eth_getTransactionCount", fromAddr, latestBlockHex)
+				if err != nil {
+					log.Fatalf("Lỗi lấy Nonce hiện tại: %v", err)
+				}
+				nonceB, _ := hexutil.DecodeUint64(nonceBHex)
+
+				fmt.Printf("Mốc lịch sử Block A (%d):\n", cp.BlockA)
+				fmt.Printf("   - Số dư lưu trước: %s | Thực tế get lại: %v\n", cp.SavedBalanceA, balanceA)
+				fmt.Printf("   - Nonce lưu trước: %d | Thực tế get lại: %d\n", cp.SavedNonceA, nonceA)
+				fmt.Printf("Mốc hiện tại Block B (%d):\n", latestBlock)
+				fmt.Printf("   - Số dư hiện tại: %v\n", balanceB)
+				fmt.Printf("   - Nonce hiện tại: %d\n", nonceB)
+
+				hasError := false
+				var errDetails []string
+
+				// 1. Số dư lịch sử get lại phải bằng số dư lưu trước
+				savedBalBig, _ := new(big.Int).SetString(cp.SavedBalanceA, 10)
+				if balanceA.Cmp(savedBalBig) != 0 {
+					errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử get lại (%v) KHÁC với số dư thực tế lúc đó (%v)", balanceA, savedBalBig))
+					hasError = true
+				}
+
+				// 2. Nonce lịch sử get lại phải bằng nonce lưu trước
+				if nonceA != cp.SavedNonceA {
+					errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử (%d) KHÁC với Nonce thực tế lúc đó (%d)", nonceA, cp.SavedNonceA))
+					hasError = true
+				}
+
+				// 3. Số dư lịch sử phải khác số dư hiện tại (để chứng minh không rò rỉ state mới)
+				if balanceA.Cmp(balanceB) == 0 {
+					errDetails = append(errDetails, "Số dư lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU (Rò rỉ State mới!)")
+					hasError = true
+				}
+
+				// 4. Nonce lịch sử phải khác nonce hiện tại
+				if nonceA == nonceB {
+					errDetails = append(errDetails, "Nonce lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU")
+					hasError = true
+				}
+
+				if hasError {
+					var errStr strings.Builder
+					errStr.WriteString(fmt.Sprintf("Checkpoint Block %d (Wallet: %s):\n", cp.BlockA, cp.FromAddress))
+					for _, det := range errDetails {
+						errStr.WriteString(fmt.Sprintf("    * %s\n", det))
+					}
+					allErrDetails = append(allErrDetails, errStr.String())
+					hasGlobalError = true
+				}
+			}
+
+			if hasGlobalError {
+				var sb strings.Builder
+				sb.WriteString("==================================================\n")
+				sb.WriteString(fmt.Sprintf("🚨 LỖI LỊCH SỬ STATE TRÊN NODE %s (XÁC MINH SNAPSHOT/RECOVERY)\n", *targetNodeFlag))
+				sb.WriteString(fmt.Sprintf("⏰ Thời gian: %s\n", time.Now().Format(time.RFC3339)))
+				sb.WriteString("==================================================\n")
+				for _, errDetail := range allErrDetails {
+					sb.WriteString(errDetail)
+				}
+				sb.WriteString("==================================================\n")
+				reason := sb.String()
+				os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+				
+				// Ghi đè/thêm vào log file riêng của checker
+				appendLocalErrorLog(reason)
+
+				fmt.Printf("\n🚨 %s\n", reason)
+				os.Exit(1)
+			}
+
+			fmt.Printf("🎉 XÁC MINH THÀNH CÔNG: Node %s trả về toàn bộ dữ liệu lịch sử của %d checkpoints hoàn toàn chính xác!\n", *targetNodeFlag, len(checkpoints))
+			os.Remove(*fileFlag)
+			fmt.Println("🔄 Đã verify xong, tiếp tục chuyển sang chế độ chạy kiểm tra lịch sử...")
 		}
-		balanceA, _ := hexutil.DecodeBig(balanceAHex)
-
-		var nonceAHex string
-		err = rpcClient.CallContext(ctx, &nonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
-		if err != nil {
-			log.Fatalf("Lỗi lấy Nonce tại Block A: %v", err)
-		}
-		nonceA, _ := hexutil.DecodeUint64(nonceAHex)
-
-		// Lấy block mới nhất (Block B) của node hiện tại
-		var latestBlockHex string
-		err = rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
-		if err != nil {
-			log.Fatalf("Lỗi lấy block mới nhất: %v", err)
-		}
-		latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
-		latestBlockHex = hexutil.EncodeUint64(latestBlock)
-
-		var balanceBHex string
-		err = rpcClient.CallContext(ctx, &balanceBHex, "eth_getBalance", fromAddr, latestBlockHex)
-		if err != nil {
-			log.Fatalf("Lỗi lấy Balance hiện tại: %v", err)
-		}
-		balanceB, _ := hexutil.DecodeBig(balanceBHex)
-
-		var nonceBHex string
-		err = rpcClient.CallContext(ctx, &nonceBHex, "eth_getTransactionCount", fromAddr, latestBlockHex)
-		if err != nil {
-			log.Fatalf("Lỗi lấy Nonce hiện tại: %v", err)
-		}
-		nonceB, _ := hexutil.DecodeUint64(nonceBHex)
-
-		fmt.Println("\n=====================================================")
-		fmt.Printf("KẾT QUẢ ĐỐI CHIẾU LỊCH SỬ TRÊN NODE %s:\n", *targetNodeFlag)
-		fmt.Printf("Mốc lịch sử Block A (%d):\n", checkpoint.BlockA)
-		fmt.Printf("   - Số dư lưu trước: %s | Thực tế get lại: %v\n", checkpoint.SavedBalanceA, balanceA)
-		fmt.Printf("   - Nonce lưu trước: %d | Thực tế get lại: %d\n", checkpoint.SavedNonceA, nonceA)
-		fmt.Printf("Mốc hiện tại Block B (%d):\n", latestBlock)
-		fmt.Printf("   - Số dư hiện tại: %v\n", balanceB)
-		fmt.Printf("   - Nonce hiện tại: %d\n", nonceB)
-		fmt.Println("=====================================================")
-
-		hasError := false
-		var errDetails []string
-
-		// 1. Số dư lịch sử get lại phải bằng số dư lưu trước
-		savedBalBig, _ := new(big.Int).SetString(checkpoint.SavedBalanceA, 10)
-		if balanceA.Cmp(savedBalBig) != 0 {
-			errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử get lại (%v) KHÁC với số dư thực tế lúc đó (%v)", balanceA, savedBalBig))
-			hasError = true
-		}
-
-		// 2. Nonce lịch sử get lại phải bằng nonce lưu trước
-		if nonceA != checkpoint.SavedNonceA {
-			errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử (%d) KHÁC với Nonce thực tế lúc đó (%d)", nonceA, checkpoint.SavedNonceA))
-			hasError = true
-		}
-
-		// 3. Số dư lịch sử phải khác số dư hiện tại (để chứng minh không rò rỉ state mới)
-		if balanceA.Cmp(balanceB) == 0 {
-			errDetails = append(errDetails, "Số dư lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU (Rò rỉ State mới!)")
-			hasError = true
-		}
-
-		// 4. Nonce lịch sử phải khác nonce hiện tại
-		if nonceA == nonceB {
-			errDetails = append(errDetails, "Nonce lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU")
-			hasError = true
-		}
-
-		if hasError {
-			reason := fmt.Sprintf("LỖI LỊCH SỬ STATE TRÊN NODE %s tại Block %d: %s", *targetNodeFlag, checkpoint.BlockA, strings.Join(errDetails, "; "))
-			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
-			fmt.Printf("\n🚨 %s\n", reason)
-			os.Exit(1)
-		}
-
-		fmt.Printf("🎉 XÁC MINH THÀNH CÔNG: Node %s trả về dữ liệu lịch sử hoàn toàn chính xác!\n", *targetNodeFlag)
-		os.Remove(*fileFlag)
-		os.Exit(0)
 	}
 
 	// Chế độ Loop mặc định (chạy liên tục gửi Tx và verify)

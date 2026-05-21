@@ -6,6 +6,8 @@
 # Tự động lấy thư mục gốc của project tool-test
 TOOL_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rm -f /tmp/MTN_CHAIN_ERROR_STOP
+pkill -f "test-rpc/test-history" || true
+pkill -f "block_hash_checker" || true
 # Thư mục gốc của metanode (cùng cấp với tool-test)
 METANODE_DIR="$(cd "$TOOL_TEST_DIR/../metanode" && pwd)"
 
@@ -162,7 +164,7 @@ echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
 ) &
 HISTORY_PID=$!
 
-trap "disown $CHECKER_PID $HISTORY_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true" EXIT
+trap "disown $CHECKER_PID $HISTORY_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true; pkill -f 'config-local.json.*-loop' || true; pkill -f 'config-local.json.*-wait' || true" EXIT
 
 
 # ----------------------------------------------------

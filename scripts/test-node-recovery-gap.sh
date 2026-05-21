@@ -235,11 +235,6 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo "⏳ Đợi 10s cho node khởi động và xin Recovery State..."
         sleep 10
 
-        echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
-        (
-            cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
-            go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
-        )
     fi
 
 
@@ -250,6 +245,14 @@ echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Time
 timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
     analyze_mismatch "$TARGET_NODE"
     echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
+
+    if [ "$TARGET_NODE" != "all" ]; then
+        echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
+        (
+            cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
+            go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
+        )
+    fi
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
     cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"

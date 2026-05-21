@@ -129,8 +129,26 @@ for ((i=1; i<=LOOPS; i++)); do
     fi
     echo "   ✅ Chạy TPS hoàn tất."
 
-    # 3. Chờ các node đồng bộ block (dựa theo log CHÊNH)
-    echo "👉 Bước 3: Chờ các node đồng bộ block (theo dõi 'CHÊNH' trong log)..."
+    # 3. Restore Node
+    echo "👉 Bước 3: Restore Node $NODE_ID từ snapshot của Node 4..."
+    echo "📥 Lưu trạng thái lịch sử trước khi restore Node $NODE_ID..."
+    (
+        cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
+        go run main.go -config config-local.json -action save -file "/tmp/pending_check_${NODE_ID}.json"
+    )
+    cd "$METANODE_SCRIPT_DIR" || exit 1
+    # Tự động gửi phím "y" liên tục để vượt qua các prompt xác nhận của restore_node.sh
+    yes | ./restore_node.sh "$NODE_ID" "" 4
+    RESTORE_EXIT_CODE=$?
+    if [ $RESTORE_EXIT_CODE -ne 0 ]; then
+        echo "❌ LỖI (Đang test Node $NODE_ID): Thao tác restore_node.sh thất bại!"
+        kill -9 $CHECKER_PID 2>/dev/null
+        exit 1
+    fi
+    echo "   ✅ Restore Node $NODE_ID hoàn tất."
+
+    # 4. Chờ các node đồng bộ block (dựa theo log CHÊNH)
+    echo "👉 Bước 4: Chờ các node đồng bộ block (theo dõi 'CHÊNH' trong log)..."
     MAX_WAIT=20  # Tối đa 20 lần * 5s = 100 s
     PREV_DIFF=9999999
     STALL_COUNT=0
@@ -183,23 +201,11 @@ for ((i=1; i<=LOOPS; i++)); do
         exit 1
     fi
 
-    # 4. Restore Node
-    echo "👉 Bước 4: Restore Node $NODE_ID từ snapshot của Node 4..."
-    echo "📥 Lưu trạng thái lịch sử trước khi restore Node $NODE_ID..."
+    echo "📤 Xác minh trạng thái lịch sử trên node $NODE_ID..."
     (
         cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-        go run main.go -config config-local.json -action save -file "/tmp/pending_check_${NODE_ID}.json"
+        go run main.go -config config-local.json -action verify -file "/tmp/pending_check_${NODE_ID}.json" -target-node "$NODE_ID"
     )
-    cd "$METANODE_SCRIPT_DIR" || exit 1
-    # Tự động gửi phím "y" liên tục để vượt qua các prompt xác nhận của restore_node.sh
-    yes | ./restore_node.sh "$NODE_ID" "" 4
-    RESTORE_EXIT_CODE=$?
-    if [ $RESTORE_EXIT_CODE -ne 0 ]; then
-        echo "❌ LỖI (Đang test Node $NODE_ID): Thao tác restore_node.sh thất bại!"
-        kill -9 $CHECKER_PID 2>/dev/null
-        exit 1
-    fi
-    echo "   ✅ Restore Node $NODE_ID hoàn tất."
 
     # 5. Chạy test giao dịch
     echo "👉 Bước 5: Chạy giao dịch kiểm tra trên node vừa khôi phục..."
@@ -247,12 +253,6 @@ for ((i=1; i<=LOOPS; i++)); do
     else
         echo "   ✅ Khớp Hash! Không phát hiện lỗi phân nhánh."
     fi
-
-    echo "📤 Xác minh trạng thái lịch sử trên node $NODE_ID..."
-    (
-        cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-        go run main.go -config config-local.json -action verify -file "/tmp/pending_check_${NODE_ID}.json" -target-node "$NODE_ID"
-    )
 
     # 7. Dọn dẹp tiến trình checker cho vòng lặp hiện tại
     echo "👉 Bước 7: Dọn dẹp tiến trình block_hash_checker cho vòng lặp hiện tại..."
