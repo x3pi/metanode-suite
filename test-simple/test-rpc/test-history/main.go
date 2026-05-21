@@ -374,8 +374,14 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	hasError := false
 	var errDetails []string
 
+	// 1. Số dư lịch sử tại Block A và số dư hiện tại tại Block B không được giống nhau (vì có giao dịch phát sinh)
 	if balanceA.Cmp(balanceB) == 0 {
-		errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử tại Block A (%s) và số dư hiện tại tại Block B (%s) GIỐNG HỆT NHAU. Mong đợi Số dư lịch sử phải là %s (Lỗi rò rỉ State mới nhất!)", balanceA.String(), balanceB.String(), savedBalanceA.String()))
+		errDetails = append(errDetails, fmt.Sprintf(
+			"Số dư tại Block A (%s) và Block B (%s) GIỐNG HỆT NHAU. "+
+				"Mong đợi: Số dư lịch sử Block A (Lần đầu) phải là %s và Số dư hiện tại Block B (Lần cuối) phải thay đổi (khác %s) do có giao dịch trong quá trình đó. "+
+				"(Lỗi: Có thể do rò rỉ State mới nhất về Block A, hoặc giao dịch phát sinh không thành công/chưa sync)",
+			balanceA.String(), balanceB.String(), savedBalanceA.String(), savedBalanceA.String(),
+		))
 		hasError = true
 	}
 
@@ -385,8 +391,14 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		hasError = true
 	}
 
+	// 2. Nonce lịch sử tại Block A và nonce hiện tại tại Block B không được giống nhau (vì có giao dịch phát sinh)
 	if nonceA == nonceB {
-		errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử tại Block A (%d) và nonce hiện tại tại Block B (%d) GIỐNG HỆT NHAU. Mong đợi Nonce lịch sử phải là %d (Lỗi trôi State!)", nonceA, nonceB, savedNonceA))
+		errDetails = append(errDetails, fmt.Sprintf(
+			"Nonce tại Block A (%d) và Block B (%d) GIỐNG HỆT NHAU. "+
+				"Mong đợi: Nonce lịch sử Block A (Lần đầu) phải là %d và Nonce hiện tại Block B (Lần cuối) phải lớn hơn %d do có giao dịch trong quá trình đó. "+
+				"(Lỗi: Có thể do trôi State/chưa phân tách lịch sử, hoặc giao dịch phát sinh không thành công/chưa sync)",
+			nonceA, nonceB, savedNonceA, savedNonceA,
+		))
 		hasError = true
 	}
 
@@ -739,13 +751,23 @@ func main() {
 
 				// 3. Số dư lịch sử phải khác số dư hiện tại (để chứng minh không rò rỉ state mới)
 				if balanceA.Cmp(balanceB) == 0 {
-					errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử tại Block A (%s) và số dư hiện tại tại Block B (%s) GIỐNG HỆT NHAU. Mong đợi Số dư lịch sử phải là %s (Lỗi rò rỉ State mới nhất!)", balanceA.String(), balanceB.String(), cp.SavedBalanceA))
+					errDetails = append(errDetails, fmt.Sprintf(
+						"Số dư tại Block A (%s) và Block B (%s) GIỐNG HỆT NHAU. "+
+							"Mong đợi: Số dư lịch sử Block A (Lần đầu) phải là %s và Số dư hiện tại Block B (Lần cuối) phải thay đổi (khác %s) do có giao dịch trong quá trình đó. "+
+							"(Lỗi: Có thể do rò rỉ State mới nhất về Block A, hoặc giao dịch phát sinh không thành công/chưa sync)",
+						balanceA.String(), balanceB.String(), cp.SavedBalanceA, cp.SavedBalanceA,
+					))
 					hasError = true
 				}
 
 				// 4. Nonce lịch sử phải khác nonce hiện tại
 				if nonceA == nonceB {
-					errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử tại Block A (%d) và nonce hiện tại tại Block B (%d) GIỐNG HỆT NHAU. Mong đợi Nonce lịch sử phải là %d (Lỗi trôi State!)", nonceA, nonceB, cp.SavedNonceA))
+					errDetails = append(errDetails, fmt.Sprintf(
+						"Nonce tại Block A (%d) và Block B (%d) GIỐNG HỆT NHAU. "+
+							"Mong đợi: Nonce lịch sử Block A (Lần đầu) phải là %d và Nonce hiện tại Block B (Lần cuối) phải lớn hơn %d do có giao dịch trong quá trình đó. "+
+							"(Lỗi: Có thể do trôi State/chưa phân tách lịch sử, hoặc giao dịch phát sinh không thành công/chưa sync)",
+						nonceA, nonceB, cp.SavedNonceA, cp.SavedNonceA,
+					))
 					hasError = true
 				}
 
