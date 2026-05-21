@@ -256,6 +256,7 @@ func main() {
 		loadBalance    bool
 		verify         bool
 		epochWait      int
+		targetNode     int
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -274,6 +275,7 @@ func main() {
 	flag.BoolVar(&loadBalance, "load_balance", false, "Round-robin transactions across all connection_node_* in config")
 	flag.BoolVar(&verify, "verify", false, "After each round, check recipient balance to confirm TXs landed")
 	flag.IntVar(&epochWait, "epoch-wait", 300, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
+	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
@@ -292,6 +294,28 @@ func main() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 	config := configIface.(*c_config.ClientConfig)
+
+	// Override config based on target-node if specified
+	if raw, err := os.ReadFile(configPath); err == nil {
+		var rawCfg map[string]interface{}
+		if json.Unmarshal(raw, &rawCfg) == nil {
+			tcpKey := "parent_connection_address"
+			if targetNode > 0 {
+				tcpKey = fmt.Sprintf("connection_node_%d", targetNode)
+			}
+			if v, ok := rawCfg[tcpKey].(string); ok && v != "" {
+				config.ParentConnectionAddress = v
+				fmt.Printf("🎯 [CONFIG OVERRIDE] Target Node: %d (TCP: %s)\n", targetNode, v)
+			}
+			if !loadBalance {
+				rpcKey := fmt.Sprintf("rpc_%d", targetNode)
+				if v, ok := rawCfg[rpcKey].(string); ok && v != "" {
+					rpcAddr = v
+					fmt.Printf("🎯 [CONFIG OVERRIDE] Target RPC: %s\n", v)
+				}
+			}
+		}
+	}
 
 	var pKey p_common.PrivateKey
 	copy(pKey[:], config.PrivateKey())
@@ -496,10 +520,14 @@ func main() {
 	nonceWg.Wait()
 	fmt.Printf("\n  ✅ Nonces fetched: %d ok, %d errors\n", nonceFetched, nonceErrors)
 	if nonceErrors > 0 {
-		fmt.Printf("  ⚠️  [NONCE ERRORS SUMMARY] %d lỗi xảy ra khi fetch nonce:\n", nonceErrors)
-		for errMsg, cnt := range nonceErrSamples {
-			fmt.Printf("      × %dx → %s\n", cnt, errMsg)
+		var activeRPCEndpoints []string
+		for _, rc := range rpcPool {
+			activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
 		}
+		errMsg := fmt.Sprintf("Thất bại khi lấy nonce từ các RPC Node (%s). Số lỗi: %d. Không thể tiếp tục!", strings.Join(activeRPCEndpoints, ", "), nonceErrors)
+		fmt.Printf("\n❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: %s\n", config.ParentConnectionAddress, activeRPCEndpoints, errMsg)
+		logErrorToFile(errMsg)
+		os.Exit(1)
 	}
 
 	// Build lockAndBridge ABI
@@ -725,7 +753,11 @@ func main() {
 			fmt.Printf("[%s]   ✅ Connected to %s and InitConnection sent\n", ts(), targetAddr)
 			return rw
 		}
-		fmt.Printf("[%s]   ❌ Lỗi: Server %s bị hỏng (không thể kết nối sau 30s). Dừng chương trình!\n", ts(), targetAddr)
+		var activeRPCEndpoints []string
+		for _, rc := range rpcPool {
+			activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
+		}
+		fmt.Printf("\n[%s] ❌ [ERROR] Đang kết nối tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Không thể kết nối sau 30 lần thử (Node bị hỏng/tắt). Dừng chương trình ngay lập tức!\n", ts(), targetAddr, activeRPCEndpoints)
 		os.Exit(1)
 		return nil
 	}
@@ -951,7 +983,6 @@ func main() {
 		}
 
 		blastStart := time.Now()
-		writeErrors := 0
 
 		for i, batchBytes := range batchedMsgs {
 			// Check for STOP flag from block_hash_checker
@@ -976,15 +1007,22 @@ func main() {
 
 			err := c.rw.sendRaw(command.SendTransactions, batchBytes)
 			if err != nil {
-				writeErrors++
-				fmt.Printf("\n[%s]   ⚠️  Write error on %s at Batch %d: %v — reconnecting...\n", ts(), c.addr, i, err)
+				var activeRPCEndpoints []string
+				for _, rc := range rpcPool {
+					activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
+				}
+				fmt.Printf("\n[%s] ⚠️  Gặp lỗi ghi (write error) lên Node TCP: %s tại Batch %d: %v — Đang kết nối lại...\n", ts(), c.addr, i, err)
 				c.rw.close()
 				c.rw = reconnectNode(c.addr)
 				if c.rw != nil {
-					c.rw.sendRaw(command.SendTransactions, batchBytes)
+					errRetry := c.rw.sendRaw(command.SendTransactions, batchBytes)
+					if errRetry != nil {
+						fmt.Printf("\n[%s] ❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Gửi Batch %d thất bại sau khi reconnect. Chi tiết: %v. Dừng chương trình!\n", ts(), c.addr, activeRPCEndpoints, i, errRetry)
+						os.Exit(1)
+					}
 				} else {
-					fmt.Printf("\n[%s]   ❌ Skipping batch %d due to reconnect failure on %s\n", ts(), i, c.addr)
-					continue
+					fmt.Printf("\n[%s] ❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Kết nối lại thất bại tại Batch %d. Dừng chương trình!\n", ts(), c.addr, activeRPCEndpoints, i)
+					os.Exit(1)
 				}
 			}
 
@@ -1179,8 +1217,16 @@ func main() {
 		}
 
 		if totalTxsInBlocks < uint64(len(allTxs)) {
-			errMsg := fmt.Sprintf("ERROR: Not all transactions were processed! (%d/%d)", totalTxsInBlocks, len(allTxs))
-			fmt.Printf("\n❌ %s\n", errMsg)
+			var activeRPCEndpoints []string
+			for _, rc := range rpcPool {
+				activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
+			}
+			var activeTCPs []string
+			for _, cl := range clients {
+				activeTCPs = append(activeTCPs, cl.addr)
+			}
+			errMsg := fmt.Sprintf("Không thể xử lý hết tất cả giao dịch (%d/%d) trên các node TCP: %v và RPC: %v!", totalTxsInBlocks, len(allTxs), activeTCPs, activeRPCEndpoints)
+			fmt.Printf("\n❌ [ERROR] Đang gửi giao dịch tới Node TCP: %v, RPC: %v nhưng gặp lỗi: %s\n", activeTCPs, activeRPCEndpoints, errMsg)
 			logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 			os.Exit(1)
 		}

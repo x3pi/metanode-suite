@@ -95,6 +95,12 @@ handle_error() {
 }
 
 run_and_capture() {
+    if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+        echo -e "\n🛑 PHÁT HIỆN CỜ DỪNG HỆ THỐNG (/tmp/MTN_CHAIN_ERROR_STOP):"
+        cat /tmp/MTN_CHAIN_ERROR_STOP
+        echo -e "\n"
+        exit 1
+    fi
     local step_name="$1"
     shift
     local log_file="/tmp/auto_test_current_step.log"
@@ -102,6 +108,12 @@ run_and_capture() {
     local status=${PIPESTATUS[0]}
     if [ $status -ne 0 ]; then
         handle_error "$step_name" "$log_file"
+    fi
+    if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+        echo -e "\n🛑 PHÁT HIỆN CỜ DỪNG HỆ THỐNG (/tmp/MTN_CHAIN_ERROR_STOP) SAU BƯỚC $step_name:"
+        cat /tmp/MTN_CHAIN_ERROR_STOP
+        echo -e "\n"
+        exit 1
     fi
 }
 
@@ -128,7 +140,7 @@ if should_run 1 || should_run 2; then
 fi
 
 # ----------------------------------------------------
-# BẬT GIÁM SÁT LỆCH HASH (CHẠY NGẦM)
+# BẬT GIÁM SÁT LỆCH HASH & LỊCH SỬ STATE (CHẠY NGẦM)
 # ----------------------------------------------------
 echo ""
 echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
@@ -142,7 +154,15 @@ echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
     fi
 ) &
 CHECKER_PID=$!
-trap "kill -9 $CHECKER_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true" EXIT
+
+echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
+(
+    cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
+    go run main.go -config=config-local.json -wait 5 -loop > history_checker_simple.log 2>&1
+) &
+HISTORY_PID=$!
+
+trap "disown $CHECKER_PID $HISTORY_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true" EXIT
 
 
 # ----------------------------------------------------
@@ -191,9 +211,14 @@ fi
 # ----------------------------------------------------
 if should_run 7; then
     echo ""
-    echo "📌 BƯỚC 7: Test History RPC..."
-    cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-    run_and_capture "Test History RPC (Bước 7)" go run main.go -config=config-local.json -wait 5
+    echo "📌 BƯỚC 7: Test History RPC (Đang chạy ngầm)..."
+    if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+        echo -e "\n🛑 PHÁT HIỆN LỖI LỊCH SỬ STATE TỪ BẢN CHẠY NGẦM:"
+        cat /tmp/MTN_CHAIN_ERROR_STOP
+        echo -e "\n"
+        exit 1
+    fi
+    echo "  -> Giám sát lịch sử state đã được bật ở chế độ chạy ngầm."
 fi
 # ----------------------------------------------------
 # BƯỚC 8: Load Test TPS

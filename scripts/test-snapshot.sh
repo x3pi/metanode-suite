@@ -45,7 +45,7 @@ SCRIPTS_DIR="$TOOL_TEST_DIR/scripts"
 METANODE_SCRIPT_DIR="$(cd "$TOOL_TEST_DIR/../metanode" && pwd)/consensus/metanode/scripts/node"
 
 # Xóa cờ lỗi cũ trước khi chạy
-rm -f /tmp/MTN_CHAIN_ERROR_STOP
+rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
 
 # Theo dõi cờ lỗi từ Hash Checker ngầm
 monitor_error_flag() {
@@ -68,7 +68,7 @@ monitor_error_flag &
 MONITOR_PID=$!
 
 # Xử lý tín hiệu Ctrl+C (SIGINT) để kill sạch các tiến trình chạy ngầm
-trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
+trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; rm -f /tmp/pending_check_*.json; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
 
 echo "====================================================================="
 echo "🚀 BƯỚC 0: CHẠY SIMPLE TEST ĐỂ KHỞI TẠO VÀ TEST MẠNG CƠ BẢN"
@@ -185,6 +185,11 @@ for ((i=1; i<=LOOPS; i++)); do
 
     # 4. Restore Node
     echo "👉 Bước 4: Restore Node $NODE_ID từ snapshot của Node 4..."
+    echo "📥 Lưu trạng thái lịch sử trước khi restore Node $NODE_ID..."
+    (
+        cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
+        go run main.go -config config-local.json -action save -file "/tmp/pending_check_${NODE_ID}.json"
+    )
     cd "$METANODE_SCRIPT_DIR" || exit 1
     # Tự động gửi phím "y" liên tục để vượt qua các prompt xác nhận của restore_node.sh
     yes | ./restore_node.sh "$NODE_ID" "" 4
@@ -197,15 +202,38 @@ for ((i=1; i<=LOOPS; i++)); do
     echo "   ✅ Restore Node $NODE_ID hoàn tất."
 
     # 5. Chạy test giao dịch
-    echo "👉 Bước 5: Chạy rpc-tcp-simple.sh để kiểm tra giao dịch (trigger block mới)..."
-    cd "$SCRIPTS_DIR" || exit 1
-    ./rpc-tcp-simple.sh
-    RPC_EXIT=$?
-    if [ $RPC_EXIT -ne 0 ]; then
-        echo "❌ LỖI (Đang test Node $NODE_ID): rpc-tcp-simple.sh thất bại (exit code $RPC_EXIT). Dừng pipeline!"
+    echo "👉 Bước 5: Chạy giao dịch kiểm tra trên node vừa khôi phục..."
+    echo "   ⏳ Đợi 10s cho node $NODE_ID ổn định sau khi restore..."
+    sleep 10
+    
+    local SPAM_NODE=0
+    if [ "$NODE_ID" = "0" ]; then
+        SPAM_NODE=1
+    fi
+    
+    cd "$TPS_DIR" || exit 1
+    echo "👉 Chạy giao dịch lên chính node vừa khôi phục ($NODE_ID)..."
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $NODE_ID > blast_restore_node.log 2>&1
+    local TPS_REC_EXIT=$?
+    if [ $TPS_REC_EXIT -ne 0 ]; then
+        echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $NODE_ID thất bại (exit code $TPS_REC_EXIT)!"
+        echo "--- LOG CHI TIẾT ---"
+        cat blast_restore_node.log
         kill -9 $CHECKER_PID 2>/dev/null
         exit 1
     fi
+    
+    echo "👉 Đổi sang chạy giao dịch qua node khác ($SPAM_NODE)..."
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_other_node.log 2>&1
+    local TPS_OTH_EXIT=$?
+    if [ $TPS_OTH_EXIT -ne 0 ]; then
+        echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $SPAM_NODE thất bại (exit code $TPS_OTH_EXIT)!"
+        echo "--- LOG CHI TIẾT ---"
+        cat blast_other_node.log
+        kill -9 $CHECKER_PID 2>/dev/null
+        exit 1
+    fi
+    echo "   ✅ Các giao dịch kiểm tra hoàn tất thành công!"
 
     # 6. Chờ để kiểm tra hash cuối cùng
     echo "👉 Bước 6: Chờ 10s để block_hash_checker xác minh các node có cùng hash block không..."
@@ -219,6 +247,12 @@ for ((i=1; i<=LOOPS; i++)); do
     else
         echo "   ✅ Khớp Hash! Không phát hiện lỗi phân nhánh."
     fi
+
+    echo "📤 Xác minh trạng thái lịch sử trên node $NODE_ID..."
+    (
+        cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
+        go run main.go -config config-local.json -action verify -file "/tmp/pending_check_${NODE_ID}.json" -target-node "$NODE_ID"
+    )
 
     # 7. Dọn dẹp tiến trình checker cho vòng lặp hiện tại
     echo "👉 Bước 7: Dọn dẹp tiến trình block_hash_checker cho vòng lặp hiện tại..."

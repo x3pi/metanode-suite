@@ -23,7 +23,7 @@ pkill -f "test-tcp.*main-no-none.go" || true
 pkill -f "main.go --count 20000" || true
 
 # Xóa cờ lỗi cũ trước khi chạy
-rm -f /tmp/MTN_CHAIN_ERROR_STOP
+rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
 
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
@@ -49,7 +49,8 @@ stop_spam() {
     pkill -f "rpc-tcp-simple.sh" || true
     pkill -f "test-rpc.*main.go" || true
     pkill -f "test-tcp.*main-no-none.go" || true
-    pkill -f "main.go --count 20000" || true
+    pkill -f "tps_blast_cc.*main.go" || true
+    pkill -f "main.go --count" || true
     pkill -f "go run main.go --watch" || true
     pkill -f "exe/main --watch" || true
     sleep 2
@@ -61,6 +62,7 @@ cleanup() {
     trap - EXIT INT TERM
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
+    rm -f /tmp/pending_check_*.json
     kill ${MONITOR_PID:-0} 2>/dev/null || true
     exit $err
 }
@@ -184,12 +186,22 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo "⏳ Đợi thêm 15s cho toàn mạng kết nối và khôi phục hoạt động..."
         sleep 15
     else
+        echo "📥 Lưu trạng thái lịch sử trước khi dừng node $TARGET_NODE..."
+        (
+            cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
+            go run main.go -config config-local.json -action save -file /tmp/pending_check_${TARGET_NODE}.json
+        )
         echo -e "\n[2/8] 🛑 Dừng node $TARGET_NODE..."
         $ORCH_SCRIPT stop-node $TARGET_NODE
 
         echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
         cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
-        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
+        local SPAM_NODE=0
+        if [ "$TARGET_NODE" = "0" ]; then
+            SPAM_NODE=1
+        fi
+        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_gap.log 2>&1 &
+        PID_GAP=$!
 
         START_EPOCH=$(get_current_epoch)
         TARGET_EPOCH=$((START_EPOCH + GAP_EPOCH))
@@ -207,6 +219,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
 
         # Dừng spam để node bắt kịp nhanh hơn, hoặc để nguyên tùy kịch bản. Ở đây tạm dừng spam trước khi restart.
         stop_spam
+        wait $PID_GAP 2>/dev/null || true
 
         echo -e "\n[5/8] 🔄 Khởi động lại node $TARGET_NODE..."
         $ORCH_SCRIPT start-node $TARGET_NODE
@@ -221,6 +234,12 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         fi
         echo "⏳ Đợi 10s cho node khởi động và xin Recovery State..."
         sleep 10
+
+        echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
+        (
+            cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
+            go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
+        )
     fi
 
 
@@ -234,7 +253,17 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
     cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 > /dev/null 2>&1 &
+    local SPAM_NODE=0
+    if [ "$TARGET_NODE" = "0" ]; then
+        SPAM_NODE=1
+    fi
+    echo "👉 Bắn giao dịch lên Node vừa hồi phục ($TARGET_NODE)..."
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $TARGET_NODE > blast_recovered_node.log 2>&1 &
+    PID_REC=$!
+    
+    echo "👉 Đổi sang bắn giao dịch qua node khác ($SPAM_NODE)..."
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_other_node.log 2>&1 &
+    PID_OTH=$!
 
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
     cd $HASH_CHECKER_DIR
@@ -243,8 +272,23 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
     analyze_mismatch "$TARGET_NODE"
 
     stop_spam
+    wait $PID_REC 2>/dev/null || true
+    wait $PID_OTH 2>/dev/null || true
 
-
+    # Kiểm tra log xem có lỗi không
+    if grep -q "❌ \[ERROR\]" "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_recovered_node.log" 2>/dev/null || grep -q "panic" "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_recovered_node.log" 2>/dev/null; then
+        echo "❌ LỖI: TPS blast lên Node $TARGET_NODE gặp lỗi!"
+        echo "--- LOG CHI TIẾT ---"
+        cat "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_recovered_node.log"
+        exit 1
+    fi
+    if grep -q "❌ \[ERROR\]" "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_other_node.log" 2>/dev/null || grep -q "panic" "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_other_node.log" 2>/dev/null; then
+        echo "❌ LỖI: TPS blast lên Node $SPAM_NODE gặp lỗi!"
+        echo "--- LOG CHI TIẾT ---"
+        cat "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_other_node.log"
+        exit 1
+    fi
+    echo "✅ Toàn bộ tiến trình TPS blast hoàn tất ổn định!"
 done
 
 echo -e "\n🎉 HOÀN TẤT TOÀN BỘ CÁC VÒNG LẶP TEST NODE RECOVERY!"

@@ -131,36 +131,46 @@ fi
 sleep 5
 
 # ----------------------------------------------------
-# BƯỚC 2.5: Bật RPC Proxy
+# BƯỚC 2.5: Bật RPC Proxy (Cả 5 node)
 # ----------------------------------------------------
 echo ""
-echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy..."
-if ! curl -s http://127.0.0.1:8545 > /dev/null; then
-    echo "  -> RPC Proxy chưa bật, đang tiến hành khởi động qua tmux session 'rpc-proxy'..."
-    cd "$RPC_CLIENT_DIR"
-    
-    # Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
-    echo "  -> Khởi tạo lại TLS cert/key..."
-    rm -f certificate.pem private.key certificate.csr
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
+echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node..."
+cd "$RPC_CLIENT_DIR"
 
-    tmux kill-session -t rpc-proxy 2>/dev/null || true
-    tmux new-session -d -s rpc-proxy 'go run main.go'
-    
-    echo "  -> Đang chờ RPC proxy khởi động (tối đa 15s)..."
-    for i in {1..15}; do
-        if curl -s http://127.0.0.1:8545 -m 1 > /dev/null; then
-            break
+# Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
+echo "  -> Khởi tạo lại TLS cert/key..."
+rm -f certificate.pem private.key certificate.csr
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
+
+# Dọn dẹp session cũ nếu có
+tmux kill-session -t rpc-proxy 2>/dev/null || true
+
+# Khởi động từng RPC Proxy cho 5 node
+declare -A NODE_PORTS=( [0]=8545 [1]=8547 [2]=8548 [3]=8549 [4]=8550 )
+
+for node_id in 0 1 2 3 4; do
+    port=${NODE_PORTS[$node_id]}
+    echo "  -> Đang kiểm tra RPC Proxy Node $node_id ở port $port..."
+    if ! curl -s http://127.0.0.1:$port > /dev/null; then
+        echo "     -> RPC Proxy Node $node_id chưa bật, đang khởi động..."
+        tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
+        tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
+        
+        # Đợi khởi động
+        for i in {1..15}; do
+            if curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
+                break
+            fi
+            sleep 1
+        done
+
+        if ! curl -s http://127.0.0.1:$port -m 2 > /dev/null; then
+            echo "     ❌ Khởi động RPC Proxy Node $node_id thất bại!"
+            exit 1
+        else
+            echo "     ✅ RPC Proxy Node $node_id đã khởi động thành công."
         fi
-        sleep 1
-    done
-    
-    if ! curl -s http://127.0.0.1:8545 -m 2 > /dev/null; then
-        echo "  ❌ Khởi động RPC Proxy thất bại!"
-        exit 1
     else
-        echo "  ✅ RPC Proxy đã khởi động thành công ở port 8545."
+        echo "     ✅ RPC Proxy Node $node_id đã hoạt động."
     fi
-else
-    echo "  ✅ RPC Proxy đã hoạt động ở port 8545."
-fi
+done

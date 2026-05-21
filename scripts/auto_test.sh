@@ -102,6 +102,12 @@ handle_error() {
 }
 
 run_and_capture() {
+    if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+        echo -e "\n🛑 PHÁT HIỆN CỜ DỪNG HỆ THỐNG (/tmp/MTN_CHAIN_ERROR_STOP):"
+        cat /tmp/MTN_CHAIN_ERROR_STOP
+        echo -e "\n"
+        exit 1
+    fi
     local step_name="$1"
     shift
     local log_file="/tmp/auto_test_current_step.log"
@@ -109,6 +115,12 @@ run_and_capture() {
     local status=${PIPESTATUS[0]}
     if [ $status -ne 0 ]; then
         handle_error "$step_name" "$log_file"
+    fi
+    if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+        echo -e "\n🛑 PHÁT HIỆN CỜ DỪNG HỆ THỐNG (/tmp/MTN_CHAIN_ERROR_STOP) SAU BƯỚC $step_name:"
+        cat /tmp/MTN_CHAIN_ERROR_STOP
+        echo -e "\n"
+        exit 1
     fi
 }
 
@@ -182,58 +194,66 @@ fi
 # ----------------------------------------------------
 if should_run 2; then
     echo ""
-    echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy..."
-    if ! curl -s http://127.0.0.1:8545 > /dev/null; then
-        echo "  -> RPC Proxy chưa bật, đang tiến hành khởi động qua tmux session 'rpc-proxy'..."
-        cd "$RPC_CLIENT_DIR"
-        
-        # Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
-        echo "  -> Khởi tạo lại TLS cert/key..."
-        rm -f certificate.pem private.key certificate.csr
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
+    echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node..."
+    cd "$RPC_CLIENT_DIR"
+    
+    # Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
+    echo "  -> Khởi tạo lại TLS cert/key..."
+    rm -f certificate.pem private.key certificate.csr
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
 
-        # Nếu session đã tồn tại thì tắt đi trước khi tạo mới
-        tmux kill-session -t rpc-proxy 2>/dev/null || true
-        # tmux new-session -d -s rpc-proxy 'go run main.go --config config-rpc-node0.json --tcp-config config-client-tcp-node0.json'
-        tmux new-session -d -s rpc-proxy 'go run main.go'
-        
-        echo "  -> Đang chờ RPC proxy khởi động (tối đa 15s)..."
-        for i in {1..15}; do
-            if curl -s http://127.0.0.1:8545 -m 1 > /dev/null; then
-                break
-            fi
-            sleep 1
-        done
-        
-        # Kiểm tra lại xem đã lên chưa
-        if ! curl -s http://127.0.0.1:8545 -m 2 > /dev/null; then
-            echo "  ❌ Khởi động RPC Proxy thất bại!"
-            echo "  📄 Tmux Pane Output:"
-            echo "--------------------------------------------------"
-            tmux capture-pane -p -t rpc-proxy || echo "Cannot capture tmux pane"
-            echo "--------------------------------------------------"
+    # Dọn dẹp session cũ nếu có
+    tmux kill-session -t rpc-proxy 2>/dev/null || true
+
+    # Khởi động từng RPC Proxy cho 5 node
+    declare -A NODE_PORTS=( [0]=8545 [1]=8547 [2]=8548 [3]=8549 [4]=8550 )
+
+    for node_id in 0 1 2 3 4; do
+        port=${NODE_PORTS[$node_id]}
+        echo "  -> Đang kiểm tra RPC Proxy Node $node_id ở port $port..."
+        if ! curl -s http://127.0.0.1:$port > /dev/null; then
+            echo "     -> RPC Proxy Node $node_id chưa bật, đang khởi động..."
+            tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
+            tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
             
-            # Tìm file log mới nhất trong node0_data/logs
-            LATEST_LOG=$(find "$RPC_CLIENT_DIR" -maxdepth 3 -path "*/node0_data/logs/*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
-            if [ -n "$LATEST_LOG" ]; then
-                echo "  📄 File log: $LATEST_LOG"
+            # Đợi khởi động
+            for i in {1..15}; do
+                if curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
+                    break
+                fi
+                sleep 1
+            done
+            
+            # Kiểm tra lại xem đã lên chưa
+            if ! curl -s http://127.0.0.1:$port -m 2 > /dev/null; then
+                echo "     ❌ Khởi động RPC Proxy Node $node_id thất bại!"
+                echo "     📄 Tmux Pane Output:"
                 echo "--------------------------------------------------"
-                tail -n 30 "$LATEST_LOG"
+                tmux capture-pane -p -t rpc-proxy-$node_id || echo "Cannot capture tmux pane"
                 echo "--------------------------------------------------"
+                
+                # Tìm file log mới nhất trong node{node_id}_data/logs
+                LATEST_LOG=$(find "$RPC_CLIENT_DIR" -maxdepth 3 -path "*/node${node_id}_data/logs/*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
+                if [ -n "$LATEST_LOG" ]; then
+                    echo "     📄 File log: $LATEST_LOG"
+                    echo "--------------------------------------------------"
+                    tail -n 30 "$LATEST_LOG"
+                    echo "--------------------------------------------------"
+                else
+                    echo "     ⚠️ Không tìm thấy file log nào trong $RPC_CLIENT_DIR/node${node_id}_data/logs/"
+                fi
+                exit 1
             else
-                echo "  ⚠️ Không tìm thấy file log nào trong $RPC_CLIENT_DIR/node0_data/logs/"
+                echo "     ✅ RPC Proxy Node $node_id đã khởi động thành công ở port $port."
             fi
-            exit 1
         else
-            echo "  ✅ RPC Proxy đã khởi động thành công ở port 8545."
+            echo "     ✅ RPC Proxy Node $node_id đã hoạt động ở port $port."
         fi
-    else
-        echo "  ✅ RPC Proxy đã hoạt động ở port 8545."
-    fi
+    done
 fi
 
 # ----------------------------------------------------
-# BẬT GIÁM SÁT LỆCH HASH (CHẠY NGẦM)
+# BẬT GIÁM SÁT LỆCH HASH & LỊCH SỬ STATE (CHẠY NGẦM)
 # ----------------------------------------------------
 echo ""
 echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
@@ -247,7 +267,15 @@ echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
     fi
 ) &
 CHECKER_PID=$!
-trap "kill -9 $CHECKER_PID 2>/dev/null" EXIT
+
+echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
+(
+    cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
+    go run main.go -config=config-local.json -wait 5 -loop > history_checker_auto.log 2>&1
+) &
+HISTORY_PID=$!
+
+trap "disown $CHECKER_PID $HISTORY_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true" EXIT
 
 
 # ----------------------------------------------------
@@ -293,13 +321,18 @@ if should_run 6; then
 fi
 
 # ----------------------------------------------------
-# BƯỚC 7: Test History RPC
+# BƯỚC 7: Test History RPC (Đang chạy ngầm)
 # ----------------------------------------------------
 if should_run 7; then
     echo ""
-    echo "📌 BƯỚC 7: Test History RPC..."
-    cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-    run_and_capture "Test History RPC (Bước 8)" go run main.go -config=config-local.json -wait 5
+    echo "📌 BƯỚC 7: Test History RPC (Đang chạy ngầm)..."
+    if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+        echo -e "\n🛑 PHÁT HIỆN LỖI LỊCH SỬ STATE TỪ BẢN CHẠY NGẦM:"
+        cat /tmp/MTN_CHAIN_ERROR_STOP
+        echo -e "\n"
+        exit 1
+    fi
+    echo "  -> Giám sát lịch sử state đã được bật ở chế độ chạy ngầm."
 fi
 # ----------------------------------------------------
 # BƯỚC 8: Load Test TPS

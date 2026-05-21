@@ -20,73 +20,46 @@
 | `--load_balance` | `false` | Nếu bật `true`, giao dịch sẽ được chia đều xoay vòng (round-robin) qua tất cả các `connection_node_*` có trong cấu hình. |
 | `--verify` | `false` | Xác minh số dư tài khoản nhận tiền sau khi hoàn thành mỗi vòng để đảm bảo giao dịch thực tế đã thành công. |
 | `--epoch-wait` | `600` | Thời gian tối đa (giây) chờ cho hệ thống chuyển dịch sang Epoch mới trước khi bắt đầu tính timeout giao dịch. Gán `0` để tắt chức năng này. |
+| `--target-node` | `0` | Chỉ định ID của node đích (từ `0` đến `3`) để gửi giao dịch. Công cụ tự động cấu hình TCP & RPC tương ứng từ `config.json`. |
 
+## ⚙️ Cơ chế định tuyến tự động & xử lý lỗi nghiêm ngặt (Strict Error Handling)
+
+Từ phiên bản nâng cấp, công cụ hỗ trợ cơ chế định tuyến và kiểm soát lỗi toàn diện phục vụ kiểm thử khôi phục hệ thống (Recovery & Snapshot Tests):
+- **Tự động cấu hình theo Node ID**: Khi truyền flag `--target-node <ID>`, công cụ sẽ đọc `config.json` để tự động chọn đúng cổng TCP (`connection_node_<ID>`) và cổng HTTP RPC (`rpc_<ID>`). Đối với Node 0, nó sử dụng `parent_connection_address` và `rpc_0`.
+- **Dừng ngay lập tức khi gặp lỗi (Crash-on-Error)**: Khi bất kỳ bước nào trong quy trình gửi giao dịch gặp sự cố, tiến trình sẽ **thoát ngay lập tức với mã lỗi 1** kèm thông tin chẩn đoán chi tiết:
+  - *Lỗi lấy nonce*: In rõ danh sách địa chỉ RPC và thoát, không gửi giao dịch lỗi.
+  - *Lỗi kết nối TCP*: Nếu node bị tắt hoặc hỏng, tiến trình thoát ngay sau 30 lần thử kết nối lại thất bại.
+  - *Lỗi ghi dữ liệu (Write error)*: Nếu mất kết nối khi đang gửi batch, tiến trình sẽ thử reconnect đúng 1 lần; nếu vẫn lỗi, nó sẽ dừng chương trình lập tức thay vì bỏ qua như trước.
+  - *Lỗi xác nhận khối (Timeout)*: Nếu hết thời gian chờ mà giao dịch chưa được đóng gói hoàn toàn, tiến trình báo lỗi cụ thể kèm danh sách node RPC/TCP đang kết nối.
 
 ## 💡 Ví dụ chạy lệnh (Examples)
 
-### 1. Chạy cơ bản với Epoch Wait (Mặc định 10 phút / 600 giây):
+### 1. Chỉ định bắn giao dịch vào Node 2:
 ```bash
-go run main.go --count 10000 --epoch-wait 600
+go run main.go --count 5000 --target-node 2
 ```
 
-### 2. Tắt cơ chế chờ chuyển epoch (Bắn TX và tính giờ timeout luôn không cần đợi epoch):
+### 2. Chạy tải song song với cơ chế Epoch Wait (Mặc định 10 phút / 600 giây):
 ```bash
-go run main.go --count 20000 --parallel_native=true --epoch-wait 0 --batch 500
+go run main.go --count 10000 --epoch-wait 600 --target-node 0
 ```
 
-### 3. Cấu hình thời gian chờ epoch ngắn hơn (Ví dụ: Chờ tối đa 30 giây):
+### 3. Tắt cơ chế chờ chuyển epoch (Bắn TX và tính giờ timeout luôn):
 ```bash
-go run main.go --count 5000 --parallel_native=true --epoch-wait 30 --rounds 3 --batch 100 --verify
+go run main.go --count 20000 --parallel_native=true --epoch-wait 0 --batch 500 --target-node 1
 ```
 
-### 4. Các kịch bản chạy benchmark khác:
+### 4. Chạy tải nặng song song (Parallel Native) chia đều qua nhiều node (Load Balancing):
 ```bash
-# Chạy single node kiểm tra kết quả giao dịch
-go run main.go --count 1000 --parallel_native=true --rounds 1 --load_balance=false --batch 5 --verify --epoch-wait 120
-
-# Chạy tải nặng song song (Parallel Native) chia đều qua nhiều node
 go run main.go --count 50000 --parallel_native=true --rounds 5 --load_balance=true --batch 10000 --sleep 0 --epoch-wait 300
 ```
 
-``` bash
-./generate_reports.sh 0 1 2 3
+### 5. Kết hợp trong script Node Recovery / Snapshot:
+Trong quá trình node đang dừng hoặc vừa khôi phục, chúng ta định tuyến tải tới các node cụ thể:
+```bash
+# Gửi giao dịch ngầm tạo GAP lên Node 1 khi Node 0 đang tắt
+go run main.go --count 20000 --parallel_native=true --target-node 1 > blast_gap.log 2>&1 &
+
+# Kiểm tra sức chịu tải cụ thể trên Node vừa khôi phục (Ví dụ Node 2)
+go run main.go --count 5000 --parallel_native=true --target-node 2 > blast_restore.log 2>&1
 ```
-
-# get logs
-
-grep -rn "\[MVM CLEANUP\]" /home/abc/nhat/con-chain-v2/mtn-consensus/metanode/logs/node_0
-
-grep -rn " Hoàn thành đồng bộ (Lưu" /home/abc/nhat/consensus-chain/mtn-consensus/metanode/logs/node_1
-
-# Check master (phải trả nonce cao)
-
-curl -s <http://192.168.1.234:8646> -X POST -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["0x4474E7E565E684bE0f054322431F5273817e696A","latest"],"id":1}'
-
-# Check sub-node 233 (đang trả nonce=1, PHẢI bằng master)
-
-curl -s <http://192.168.1.233:10650> -X POST -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["0x4474E7E565E684bE0f054322431F5273817e696A","latest"],"id":1}'
-
-# Check sub-node 231
-
-curl -s <http://192.168.1.234:10747> -X POST -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["0x4474E7E565E684bE0f054322431F5273817e696A","latest"],"id":1}'
-
-
-╔═══════════════════════════════════════════════════╗
-║  📊 BENCHMARK SUMMARY
-╠═══════════════════════════════════════════════════╣
-║  🔄 Rounds         : 5
-║  📤 TXs per round  : 50000
-║  ─────────────────────────────────────────────────
-║  Round 1  TPS      : ~6508 tx/s
-║  Round 2  TPS      : ~6856 tx/s
-║  Round 3  TPS      : ~6715 tx/s
-║  Round 4  TPS      : ~7006 tx/s
-║  Round 5  TPS      : ~7077 tx/s
-║  ─────────────────────────────────────────────────
-║  📉 Min TPS        : ~6508 tx/s
-║  📈 Max TPS        : ~7077 tx/s
-║  📊 Avg TPS        : ~6832 tx/s
-╚═══════════════════════════════════════════════════╝
