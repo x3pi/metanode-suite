@@ -13,6 +13,15 @@ ORCH_SCRIPT="$ROOT_DIR/metanode/consensus/metanode/scripts/mtn-orchestrator.sh"
 RPC_TCP_SCRIPT="$SCRIPT_DIR/rpc-tcp-simple.sh"
 HASH_CHECKER_DIR="$(dirname "$SCRIPT_DIR")/block/block_hash_checker"
 
+# Dọn dẹp tiến trình giám sát hoặc spam cũ đang chạy ngầm để tránh xung đột
+echo "🧹 Đang dọn dẹp các tiến trình nền cũ..."
+pkill -f "go run main.go --watch" || true
+pkill -f "exe/main --watch" || true
+pkill -f "rpc-tcp-simple.sh" || true
+pkill -f "test-rpc.*main.go" || true
+pkill -f "test-tcp.*main-no-none.go" || true
+pkill -f "main.go --count 20000" || true
+
 # Xóa cờ lỗi cũ trước khi chạy
 rm -f /tmp/MTN_CHAIN_ERROR_STOP
 
@@ -36,11 +45,13 @@ get_current_epoch() {
 
 # Hàm dọn dẹp tiến trình spam
 stop_spam() {
-    echo "🛑 Dừng các tiến trình spam giao dịch..."
+    echo "🛑 Dừng các tiến trình spam giao dịch và giám sát..."
     pkill -f "rpc-tcp-simple.sh" || true
     pkill -f "test-rpc.*main.go" || true
     pkill -f "test-tcp.*main-no-none.go" || true
     pkill -f "main.go --count 20000" || true
+    pkill -f "go run main.go --watch" || true
+    pkill -f "exe/main --watch" || true
     sleep 2
 }
 

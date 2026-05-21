@@ -142,7 +142,7 @@ echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
     fi
 ) &
 CHECKER_PID=$!
-trap "kill -9 $CHECKER_PID 2>/dev/null" EXIT
+trap "kill -9 $CHECKER_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true" EXIT
 
 
 # ----------------------------------------------------
