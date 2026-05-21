@@ -60,7 +60,39 @@ for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc"; do
     fi
 done
 
-echo "   ✅ Đã dọn sạch tiến trình."
+# Kill all master nodes and legacy metanode tmux sessions
+echo "   → Tìm và tắt các tmux sessions go-master, metanode, rpc-proxy..."
+for session in $(tmux list-sessions -F '#S' 2>/dev/null | grep -E '^(go-master-|metanode-|rpc-proxy)'); do
+    echo "     - Tắt tmux session: $session"
+    tmux kill-session -t "$session" 2>/dev/null || true
+done
+
+# Force terminate any simple_chain or metanode processes directly
+echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client..."
+pkill -9 -f "simple_chain" 2>/dev/null || true
+pkill -9 -f "metanode" 2>/dev/null || true
+pkill -9 -f "rpc-client" 2>/dev/null || true
+
+# Force free ports
+echo "   → Giải phóng các port của cluster (8545, 8757, 10747-10750)..."
+for port in 8545 8757 10747 10748 10749 10750; do
+    PIDS_PORT=$(lsof -t -i :$port 2>/dev/null)
+    if [ -z "$PIDS_PORT" ]; then
+        PIDS_PORT=$(ss -tlnp 2>/dev/null | grep -E ":$port " | grep -oP 'pid=\K[0-9]+' | sort -u)
+    fi
+    if [ -n "$PIDS_PORT" ]; then
+        for p in $PIDS_PORT; do
+            echo "     - Port $port đang bị giữ bởi PID $p. Đang kill..."
+            kill -9 "$p" 2>/dev/null || true
+        done
+    fi
+done
+
+# Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm
+rm -f /tmp/MTN_CHAIN_ERROR_STOP
+
+echo "   ✅ Đã dọn sạch toàn bộ tiến trình và giải phóng các port."
+
 
 # ─── Bước 2: Xóa logs cũ ─────────────────────────────────────
 echo ""
