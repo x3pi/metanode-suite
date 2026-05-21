@@ -396,6 +396,20 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 			for _, node := range nodes {
 				bi, err := getBlockInfo(client, node.URL, blockNum)
+				if err == nil && bi.Error == "(block không tồn tại)" {
+					latest, errLatest := getLatestBlockNumber(client, node.URL)
+					if errLatest == nil && blockNum <= latest {
+						logger.Info("⏳ Detected transient write lag on node %s for block %d (latest: %d). Retrying...", node.Name, blockNum, latest)
+						for retries := 1; retries <= 10; retries++ {
+							time.Sleep(500 * time.Millisecond)
+							bi, err = getBlockInfo(client, node.URL, blockNum)
+							if err == nil && !bi.IsError() {
+								logger.Info("✅ Node %s caught up on block %d after %d retries", node.Name, blockNum, retries)
+								break
+							}
+						}
+					}
+				}
 				if err != nil || (bi.IsError() && bi.Error != "(block không tồn tại)") {
 					// Retry logic: allow lagging nodes to catch up on async LevelDB writes
 					for retries := 1; retries <= 3; retries++ {
@@ -457,6 +471,10 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			if len(validBlocks) == 0 && missingResponseCount > 0 {
 				nilBlocks = append(nilBlocks, r.blockNum)
 				logBlockEvent("NIL_BLOCK", r.blockNum, "")
+				// Crucial: delete from prevBlockHashes for all nodes since this block is a gap/nil block
+				for _, node := range nodes {
+					delete(prevBlockHashes, node.Name)
+				}
 				continue
 			}
 
@@ -466,6 +484,8 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				bi := r.blocks[node.Name]
 				if !bi.IsError() {
 					prevBlockHashes[node.Name] = bi.Hash
+				} else {
+					delete(prevBlockHashes, node.Name)
 				}
 			}
 			continue

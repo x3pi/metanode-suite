@@ -37,6 +37,24 @@ type SavedCheckpoint struct {
 	ChainID       int64  `json:"chain_id"`
 }
 
+func callContextWithRetry(ctx context.Context, rpcClient *rpc.Client, result interface{}, method string, args ...interface{}) error {
+	var err error
+	for i := 0; i < 15; i++ {
+		err = rpcClient.CallContext(ctx, result, method, args...)
+		if err == nil {
+			return nil
+		}
+		errStr := err.Error()
+		if strings.Contains(errStr, "block not found") || strings.Contains(errStr, "not found") || strings.Contains(errStr, "database") {
+			fmt.Printf("   ⚠️ Lần thử %d/15: Lỗi RPC %s (%v). Đang thử lại sau 500ms...\n", i+1, method, err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		return err
+	}
+	return err
+}
+
 type FailoverClient struct {
 	urls        []string
 	activeIdx   int
@@ -133,7 +151,7 @@ func (fc *FailoverClient) reconnect() error {
 			ethCli := ethclient.NewClient(rpcClient)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			var latestBlockHex string
-			errBlock := rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
+			errBlock := callContextWithRetry(ctx, rpcClient, &latestBlockHex, "eth_blockNumber")
 			cancel()
 			if errBlock == nil {
 				fc.rpcCli = rpcClient
@@ -272,14 +290,14 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		defer cancel()
 
 		var savedBalanceAHex string
-		err := rpcClient.CallContext(ctx, &savedBalanceAHex, "eth_getBalance", fromAddress, blockAHex)
+		err := callContextWithRetry(ctx, rpcClient, &savedBalanceAHex, "eth_getBalance", fromAddress, blockAHex)
 		if err != nil {
 			return err
 		}
 		savedBalanceA, _ = hexutil.DecodeBig(savedBalanceAHex)
 
 		var savedNonceAHex string
-		err = rpcClient.CallContext(ctx, &savedNonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
+		err = callContextWithRetry(ctx, rpcClient, &savedNonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
 		if err != nil {
 			return err
 		}
@@ -326,28 +344,28 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		defer cancel()
 
 		var balanceAHex string
-		err := rpcClient.CallContext(ctx, &balanceAHex, "eth_getBalance", fromAddress, blockAHex)
+		err := callContextWithRetry(ctx, rpcClient, &balanceAHex, "eth_getBalance", fromAddress, blockAHex)
 		if err != nil {
 			return err
 		}
 		balanceA, _ = hexutil.DecodeBig(balanceAHex)
 
 		var balanceBHex string
-		err = rpcClient.CallContext(ctx, &balanceBHex, "eth_getBalance", fromAddress, blockBHex)
+		err = callContextWithRetry(ctx, rpcClient, &balanceBHex, "eth_getBalance", fromAddress, blockBHex)
 		if err != nil {
 			return err
 		}
 		balanceB, _ = hexutil.DecodeBig(balanceBHex)
 
 		var nonceAHex string
-		err = rpcClient.CallContext(ctx, &nonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
+		err = callContextWithRetry(ctx, rpcClient, &nonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
 		if err != nil {
 			return err
 		}
 		nonceA, _ = hexutil.DecodeUint64(nonceAHex)
 
 		var nonceBHex string
-		err = rpcClient.CallContext(ctx, &nonceBHex, "eth_getTransactionCount", fromAddress, blockBHex)
+		err = callContextWithRetry(ctx, rpcClient, &nonceBHex, "eth_getTransactionCount", fromAddress, blockBHex)
 		if err != nil {
 			return err
 		}
@@ -541,14 +559,14 @@ func main() {
 			defer cancel()
 
 			var savedBalanceAHex string
-			err := rpcClient.CallContext(ctx, &savedBalanceAHex, "eth_getBalance", fromAddress, blockAHex)
+			err := callContextWithRetry(ctx, rpcClient, &savedBalanceAHex, "eth_getBalance", fromAddress, blockAHex)
 			if err != nil {
 				return err
 			}
 			savedBalanceA, _ = hexutil.DecodeBig(savedBalanceAHex)
 
 			var savedNonceAHex string
-			err = rpcClient.CallContext(ctx, &savedNonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
+			err = callContextWithRetry(ctx, rpcClient, &savedNonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
 			if err != nil {
 				return err
 			}
@@ -660,7 +678,7 @@ func main() {
 					// Kiểm tra chiều cao block hiện tại của node
 					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 					var latestBlockHex string
-					errBlock := rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
+					errBlock := callContextWithRetry(ctx, rpcClient, &latestBlockHex, "eth_blockNumber")
 					cancel()
 					
 					if errBlock == nil {
@@ -690,7 +708,7 @@ func main() {
 
 			// Lấy block mới nhất (Block B) của node hiện tại
 			var latestBlockHex string
-			err = rpcClient.CallContext(ctx, &latestBlockHex, "eth_blockNumber")
+			err = callContextWithRetry(ctx, rpcClient, &latestBlockHex, "eth_blockNumber")
 			if err != nil {
 				log.Fatalf("Lỗi lấy block mới nhất: %v", err)
 			}
@@ -707,28 +725,28 @@ func main() {
 				fromAddr := common.HexToAddress(cp.FromAddress)
 
 				var balanceAHex string
-				err = rpcClient.CallContext(ctx, &balanceAHex, "eth_getBalance", fromAddr, blockAHex)
+				err = callContextWithRetry(ctx, rpcClient, &balanceAHex, "eth_getBalance", fromAddr, blockAHex)
 				if err != nil {
 					log.Fatalf("Lỗi lấy Balance tại Block A: %v", err)
 				}
 				balanceA, _ := hexutil.DecodeBig(balanceAHex)
 
 				var nonceAHex string
-				err = rpcClient.CallContext(ctx, &nonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
+				err = callContextWithRetry(ctx, rpcClient, &nonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
 				if err != nil {
 					log.Fatalf("Lỗi lấy Nonce tại Block A: %v", err)
 				}
 				nonceA, _ := hexutil.DecodeUint64(nonceAHex)
 
 				var balanceBHex string
-				err = rpcClient.CallContext(ctx, &balanceBHex, "eth_getBalance", fromAddr, latestBlockHex)
+				err = callContextWithRetry(ctx, rpcClient, &balanceBHex, "eth_getBalance", fromAddr, latestBlockHex)
 				if err != nil {
 					log.Fatalf("Lỗi lấy Balance hiện tại: %v", err)
 				}
 				balanceB, _ := hexutil.DecodeBig(balanceBHex)
 
 				var nonceBHex string
-				err = rpcClient.CallContext(ctx, &nonceBHex, "eth_getTransactionCount", fromAddr, latestBlockHex)
+				err = callContextWithRetry(ctx, rpcClient, &nonceBHex, "eth_getTransactionCount", fromAddr, latestBlockHex)
 				if err != nil {
 					log.Fatalf("Lỗi lấy Nonce hiện tại: %v", err)
 				}
