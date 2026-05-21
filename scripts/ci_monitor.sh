@@ -1,97 +1,127 @@
 #!/bin/bash
 # =============================================================
-# start_ci.sh — Khởi động CI Monitor sạch sẽ
+# ci_monitor.sh — Quản lý và Khởi động các CI Monitor của Metanode
 #
 # Chức năng:
-#   1. Kill TẤT CẢ tiến trình ci_monitor.py + auto_test.sh cũ
-#   2. Xóa toàn bộ logs cũ (ci_monitor.log + auto_test_logs/)
-#   3. Khởi động ci_monitor.py mới trong nền (nohup)
+#   1. Kill TẤT CẢ các loại monitor và test scripts cũ đang chạy ngầm
+#      (ci_monitor.py, ci_recovery_monitor.py, ci_snapshot_monitor.py,
+#       auto_test.sh, test-node-recovery-gap.sh, test-snapshot.sh)
+#   2. Dọn dẹp triệt để các tiến trình cluster và giải phóng port
+#   3. Khởi động loại Monitor được chỉ định (mặc định: spam)
 #
 # Cách dùng:
-#   ./start_ci.sh                  # Chạy mặc định (mode single)
-#   ./start_ci.sh --mode single    # Tường minh chỉ định mode
-#   ./ci_monitor.sh                  # Chạy mặc định (giữ lại logs cũ)
-#   ./ci_monitor.sh --mode single    # Tường minh chỉ định mode
-#   ./ci_monitor.sh --clean-logs     # Xóa logs cũ khi khởi động
+#   ./ci_monitor.sh --type spam [--clean-logs] [--mode single]
+#   ./ci_monitor.sh --type recovery [--clean-logs]
+#   ./ci_monitor.sh --type snapshot [--clean-logs]
 # =============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CI_MONITOR="$SCRIPT_DIR/ci_monitor.py"
-CI_LOG="$SCRIPT_DIR/ci_monitor.log"
-AUTO_TEST_LOGS="$SCRIPT_DIR/auto_test_logs"
+
+# Mặc định các thông số
+TYPE="spam"
 CLEAN_LOGS=false
 CI_ARGS=()
 
 # Parse arguments
-for arg in "$@"; do
-    if [ "$arg" = "--clean-logs" ]; then
-        CLEAN_LOGS=true
-    else
-        CI_ARGS+=("$arg")
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --type)
+            TYPE="$2"
+            shift
+            ;;
+        --clean-logs)
+            CLEAN_LOGS=true
+            ;;
+        *)
+            CI_ARGS+=("$1")
+            ;;
+    esac
+    shift
+done
+
+# Kiểm tra tính hợp lệ của Type
+if [[ "$TYPE" != "spam" && "$TYPE" != "recovery" && "$TYPE" != "snapshot" ]]; then
+    echo "❌ Lỗi: Loại monitor không hợp lệ. Chỉ chấp nhận: spam, recovery, snapshot."
+    exit 1
+fi
+
+# Thiết lập file tương ứng với từng loại
+if [ "$TYPE" = "spam" ]; then
+    MONITOR_NAME="ci_monitor"
+    TEST_SCRIPT="auto_test.sh"
+    LOGS_DIR_NAME="auto_test_logs"
+    # Default mode cho spam nếu không truyền gì
+    if [ ${#CI_ARGS[@]} -eq 0 ]; then
+        CI_ARGS=("--mode" "single")
+    fi
+elif [ "$TYPE" = "recovery" ]; then
+    MONITOR_NAME="ci_recovery_monitor"
+    TEST_SCRIPT="test-node-recovery-gap.sh"
+    LOGS_DIR_NAME="recovery_test_logs"
+else
+    MONITOR_NAME="ci_snapshot_monitor"
+    TEST_SCRIPT="test-snapshot.sh"
+    LOGS_DIR_NAME="snapshot_test_logs"
+fi
+
+CI_MONITOR="$SCRIPT_DIR/${MONITOR_NAME}.py"
+CI_LOG="$SCRIPT_DIR/${MONITOR_NAME}.log"
+AUTO_TEST_LOGS="$SCRIPT_DIR/${LOGS_DIR_NAME}"
+
+echo "======================================================="
+echo "🧹 KHỞI ĐỘNG HỆ THỐNG GIÁM SÁT CI: [${TYPE^^}]"
+echo "======================================================="
+
+# ─── Bước 1: Kill TẤT CẢ tiến trình cũ để tránh đè cổng ───────
+echo ""
+echo "🔪 [1/3] Dọn dẹp TOÀN BỘ tiến trình cũ đang chạy ngầm..."
+
+# 1. Kill tất cả Python monitors
+for m in "ci_monitor.py" "ci_recovery_monitor.py" "ci_snapshot_monitor.py"; do
+    PIDS_M=$(pgrep -f "$m" 2>/dev/null)
+    if [ -n "$PIDS_M" ]; then
+        echo "   → Tìm thấy $m (PIDs: $PIDS_M). Đang kill..."
+        pkill -f "$m" 2>/dev/null
+        sleep 0.5
+        pkill -9 -f "$m" 2>/dev/null || true
     fi
 done
 
-# Default mode nếu không truyền gì
-if [ ${#CI_ARGS[@]} -eq 0 ]; then
-    CI_ARGS=("--mode" "single")
-fi
-
-echo "======================================================="
-echo "🧹 KHỞI ĐỘNG LẠI CI MONITOR (Clean Start)"
-echo "======================================================="
-
-# ─── Bước 1: Kill tất cả tiến trình cũ ───────────────────────
-echo ""
-echo "🔪 [1/3] Dọn dẹp tiến trình cũ..."
-
-# Kill ci_monitor.py
-PIDS_MONITOR=$(pgrep -f "ci_monitor.py" 2>/dev/null)
-if [ -n "$PIDS_MONITOR" ]; then
-    echo "   → Tìm thấy ci_monitor.py (PIDs: $PIDS_MONITOR). Đang kill..."
-    pkill -f "ci_monitor.py" 2>/dev/null
-    sleep 1
-    # Force kill nếu vẫn còn sống
-    PIDS_REMAIN=$(pgrep -f "ci_monitor.py" 2>/dev/null)
-    if [ -n "$PIDS_REMAIN" ]; then
-        echo "   → Tiến trình ngoan cố, dùng SIGKILL..."
-        pkill -9 -f "ci_monitor.py" 2>/dev/null
+# 2. Kill tất cả Shell test runners
+for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh"; do
+    PIDS_T=$(pgrep -f "$t" 2>/dev/null)
+    if [ -n "$PIDS_T" ]; then
+        echo "   → Tìm thấy $t (PIDs: $PIDS_T). Đang kill..."
+        pkill -f "$t" 2>/dev/null
+        sleep 0.5
+        pkill -9 -f "$t" 2>/dev/null || true
     fi
-else
-    echo "   → Không có ci_monitor.py nào đang chạy."
-fi
+done
 
-# Kill auto_test.sh (tiến trình con mà ci_monitor spawn ra)
-PIDS_TEST=$(pgrep -f "auto_test.sh" 2>/dev/null)
-if [ -n "$PIDS_TEST" ]; then
-    echo "   → Tìm thấy auto_test.sh (PIDs: $PIDS_TEST). Đang kill..."
-    pkill -f "auto_test.sh" 2>/dev/null
-    sleep 1
-    pkill -9 -f "auto_test.sh" 2>/dev/null
-else
-    echo "   → Không có auto_test.sh nào đang chạy."
-fi
+# 3. Kill các tiến trình phụ trợ
+for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc"; do
+    if pgrep -f "$proc" >/dev/null; then
+        echo "   → Tìm thấy $proc. Đang kill..."
+        pkill -f "$proc" 2>/dev/null
+        sleep 0.5
+        pkill -9 -f "$proc" 2>/dev/null || true
+    fi
+done
 
-# Kill block_hash_checker (ci_monitor cũng spawn cái này)
-PIDS_BHC=$(pgrep -f "block_hash_checker" 2>/dev/null)
-if [ -n "$PIDS_BHC" ]; then
-    echo "   → Tìm thấy block_hash_checker (PIDs: $PIDS_BHC). Đang kill..."
-    pkill -f "block_hash_checker" 2>/dev/null
-fi
-
-# Kill all master nodes and legacy metanode tmux sessions
+# 4. Kill các session tmux liên quan đến cluster
 echo "   → Tìm và tắt các tmux sessions go-master, metanode, rpc-proxy..."
 for session in $(tmux list-sessions -F '#S' 2>/dev/null | grep -E '^(go-master-|metanode-|rpc-proxy)'); do
     echo "     - Tắt tmux session: $session"
     tmux kill-session -t "$session" 2>/dev/null || true
 done
 
-# Force terminate any simple_chain or metanode processes directly
+# 5. Tắt triệt để các tiến trình Go/Rust
 echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client..."
 pkill -9 -f "simple_chain" 2>/dev/null || true
 pkill -9 -f "metanode" 2>/dev/null || true
 pkill -9 -f "rpc-client" 2>/dev/null || true
 
-# Force free ports
+# 6. Giải phóng port của cluster
 echo "   → Giải phóng các port của cluster (8545, 8757, 10747-10750)..."
 for port in 8545 8757 10747 10748 10749 10750; do
     PIDS_PORT=$(lsof -t -i :$port 2>/dev/null)
@@ -112,29 +142,29 @@ rm -f /tmp/MTN_CHAIN_ERROR_STOP
 echo "   ✅ Đã dọn sạch toàn bộ tiến trình và giải phóng các port."
 
 
-# ─── Bước 2: Xóa logs cũ ─────────────────────────────────────
+# ─── Bước 2: Xóa logs cũ theo từng loại ─────────────────────────
 echo ""
 if [ "$CLEAN_LOGS" = true ]; then
-    echo "🗑️  [2/3] Xóa logs cũ (--clean-logs)..."
+    echo "🗑️  [2/3] Xóa logs cũ (--clean-logs) của loại [${TYPE}]..."
 
     if [ -f "$CI_LOG" ]; then
         rm -f "$CI_LOG"
-        echo "   → Đã xóa: ci_monitor.log"
+        echo "   → Đã xóa: ${MONITOR_NAME}.log"
     fi
 
     if [ -d "$AUTO_TEST_LOGS" ]; then
-        # Keep the newest log file, delete the rest
+        # Giữ lại 1 file log mới nhất, xóa các file cũ
         LOG_FILES=($(ls -t "$AUTO_TEST_LOGS"/*.log 2>/dev/null))
         FILE_COUNT=${#LOG_FILES[@]}
         
         if [ "$FILE_COUNT" -gt 1 ]; then
             FILES_TO_DELETE=("${LOG_FILES[@]:1}")
             rm -f "${FILES_TO_DELETE[@]}"
-            echo "   → Đã xóa $((${FILE_COUNT}-1)) files cũ trong auto_test_logs/, giữ lại 1 file mới nhất."
+            echo "   → Đã xóa $((${FILE_COUNT}-1)) files cũ trong ${LOGS_DIR_NAME}/, giữ lại 1 file mới nhất."
         elif [ "$FILE_COUNT" -eq 1 ]; then
-            echo "   → Chỉ có 1 file log trong auto_test_logs/, đã giữ lại."
+            echo "   → Chỉ có 1 file log trong ${LOGS_DIR_NAME}/, đã giữ lại."
         else
-            echo "   → Thư mục auto_test_logs/ trống."
+            echo "   → Thư mục ${LOGS_DIR_NAME}/ trống."
         fi
     fi
 
@@ -148,13 +178,13 @@ else
     echo "📁 [2/3] Giữ lại logs cũ (mặc định)."
 fi
 
-# ─── Bước 3: Khởi động ci_monitor mới ────────────────────────
+# ─── Bước 3: Khởi động Monitor mới ────────────────────────
 echo ""
-echo "🚀 [3/3] Khởi động ci_monitor.py mới..."
+echo "🚀 [3/3] Khởi động ${MONITOR_NAME}.py mới..."
 echo "   → Args: ${CI_ARGS[*]}"
 echo "   → Log:  $CI_LOG"
 
-# Đợi 2 giây để các port cũ đóng hoàn toàn
+# Đợi 2 giây để port cũ đóng hoàn toàn
 sleep 2
 
 nohup "$CI_MONITOR" "${CI_ARGS[@]}" > "$CI_LOG" 2>&1 &
@@ -176,5 +206,5 @@ echo "📋 THÔNG TIN TIỆN ÍCH"
 echo "======================================================="
 echo "  Xem log realtime:  tail -f $CI_LOG"
 echo "  Xem log test:      ls $AUTO_TEST_LOGS/"
-echo "  Kill CI Monitor:   pkill -f ci_monitor.py"
+echo "  Kill CI Monitor:   pkill -f ${MONITOR_NAME}.py"
 echo "======================================================="

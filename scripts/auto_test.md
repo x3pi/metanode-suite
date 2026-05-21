@@ -116,6 +116,9 @@ Any arguments passed to `ci_monitor.py` are forwarded directly to `auto_test.sh`
 ```bash
 nohup ./ci_monitor.py --mode single --steps "2,4,5" > ci_monitor.log 2>&1 &
 nohup ./ci_monitor.py --mode single > ci_monitor.log 2>&1 &
+./ci_monitor.sh --type spam
+./ci_monitor.sh --type recovery
+./ci_monitor.sh --type snapshot
 ```
 
 **To stop the monitor:**

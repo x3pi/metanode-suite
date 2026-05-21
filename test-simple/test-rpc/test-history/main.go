@@ -375,22 +375,24 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	var errDetails []string
 
 	if balanceA.Cmp(balanceB) == 0 {
-		errDetails = append(errDetails, "Số dư lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU")
+		errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử tại Block A (%s) và số dư hiện tại tại Block B (%s) GIỐNG HỆT NHAU. Mong đợi Số dư lịch sử phải là %s (Lỗi rò rỉ State mới nhất!)", balanceA.String(), balanceB.String(), savedBalanceA.String()))
 		hasError = true
 	}
 
 	if balanceA.Cmp(savedBalanceA) != 0 {
-		errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử get lại (%v) KHÁC với số dư thực tế lúc đó (%v)", balanceA, savedBalanceA))
+		diff := new(big.Int).Sub(balanceA, savedBalanceA)
+		errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử get lại (%s) KHÁC với số dư thực tế lưu trữ trước đó (%s). Sai lệch: %s", balanceA.String(), savedBalanceA.String(), diff.String()))
 		hasError = true
 	}
 
 	if nonceA == nonceB {
-		errDetails = append(errDetails, "Nonce lịch sử và hiện tại GIỐNG HỆT NHAU")
+		errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử tại Block A (%d) và nonce hiện tại tại Block B (%d) GIỐNG HỆT NHAU. Mong đợi Nonce lịch sử phải là %d (Lỗi trôi State!)", nonceA, nonceB, savedNonceA))
 		hasError = true
 	}
 
 	if nonceA != savedNonceA {
-		errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử (%d) KHÁC với Nonce thực tế lúc đó (%d)", nonceA, savedNonceA))
+		diff := int64(nonceA) - int64(savedNonceA)
+		errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử get lại (%d) KHÁC với nonce thực tế lưu trữ trước đó (%d). Sai lệch: %+d", nonceA, savedNonceA, diff))
 		hasError = true
 	}
 
@@ -723,25 +725,27 @@ func main() {
 				// 1. Số dư lịch sử get lại phải bằng số dư lưu trước
 				savedBalBig, _ := new(big.Int).SetString(cp.SavedBalanceA, 10)
 				if balanceA.Cmp(savedBalBig) != 0 {
-					errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử get lại (%v) KHÁC với số dư thực tế lúc đó (%v)", balanceA, savedBalBig))
+					diff := new(big.Int).Sub(balanceA, savedBalBig)
+					errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử get lại (%s) KHÁC với số dư thực tế lưu trữ trước đó (%s). Sai lệch: %s", balanceA.String(), savedBalBig.String(), diff.String()))
 					hasError = true
 				}
 
 				// 2. Nonce lịch sử get lại phải bằng nonce lưu trước
 				if nonceA != cp.SavedNonceA {
-					errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử (%d) KHÁC với Nonce thực tế lúc đó (%d)", nonceA, cp.SavedNonceA))
+					diff := int64(nonceA) - int64(cp.SavedNonceA)
+					errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử get lại (%d) KHÁC với nonce thực tế lưu trữ trước đó (%d). Sai lệch: %+d", nonceA, cp.SavedNonceA, diff))
 					hasError = true
 				}
 
 				// 3. Số dư lịch sử phải khác số dư hiện tại (để chứng minh không rò rỉ state mới)
 				if balanceA.Cmp(balanceB) == 0 {
-					errDetails = append(errDetails, "Số dư lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU (Rò rỉ State mới!)")
+					errDetails = append(errDetails, fmt.Sprintf("Số dư lịch sử tại Block A (%s) và số dư hiện tại tại Block B (%s) GIỐNG HỆT NHAU. Mong đợi Số dư lịch sử phải là %s (Lỗi rò rỉ State mới nhất!)", balanceA.String(), balanceB.String(), cp.SavedBalanceA))
 					hasError = true
 				}
 
 				// 4. Nonce lịch sử phải khác nonce hiện tại
 				if nonceA == nonceB {
-					errDetails = append(errDetails, "Nonce lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU")
+					errDetails = append(errDetails, fmt.Sprintf("Nonce lịch sử tại Block A (%d) và nonce hiện tại tại Block B (%d) GIỐNG HỆT NHAU. Mong đợi Nonce lịch sử phải là %d (Lỗi trôi State!)", nonceA, nonceB, cp.SavedNonceA))
 					hasError = true
 				}
 
