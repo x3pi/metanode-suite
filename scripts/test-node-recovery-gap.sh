@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Unset exported cd function to avoid environment conflicts
+unset -f cd 2>/dev/null || true
+
+
 # Tham số (mặc định: node=1, gap=3, loop=1)
 NODE_ID=${1:-1}
 GAP_EPOCH=${2:-1}
