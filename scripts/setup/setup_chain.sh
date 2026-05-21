@@ -139,10 +139,10 @@ if ! curl -s http://127.0.0.1:8545 > /dev/null; then
     echo "  -> RPC Proxy chưa bật, đang tiến hành khởi động qua tmux session 'rpc-proxy'..."
     cd "$RPC_CLIENT_DIR"
     
-    if [ ! -f "certificate.pem" ] || [ ! -f "private.key" ]; then
-        echo "  -> Không tìm thấy TLS cert/key, đang tự động khởi tạo..."
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
-    fi
+    # Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
+    echo "  -> Khởi tạo lại TLS cert/key..."
+    rm -f certificate.pem private.key certificate.csr
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
 
     tmux kill-session -t rpc-proxy 2>/dev/null || true
     tmux new-session -d -s rpc-proxy 'go run main.go'
