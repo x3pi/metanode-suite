@@ -184,8 +184,11 @@ func main() {
 	fmt.Printf("💰 eth_getBalance tại Block A (Lịch sử: %d): %v\n", blockA, balanceA)
 	fmt.Printf("💰 eth_getBalance tại Block B (Hiện tại: %d): %v\n", blockB, balanceB)
 
+	hasError := false
+
 	if balanceA.Cmp(balanceB) == 0 {
 		fmt.Println("⚠️  LỖI: Số dư lịch sử (A) và hiện tại (B) GIỐNG HỆT NHAU. Bị lỗi rò rỉ state hiện tại!")
+		hasError = true
 	} else {
 		fmt.Println("✅ Số dư có sự khác biệt rõ ràng -> State lịch sử và hiện tại đã tách biệt!")
 	}
@@ -194,6 +197,7 @@ func main() {
 		fmt.Println("✅ Số dư lịch sử get lại KHỚP HOÀN TOÀN với số dư đã lưu lúc Block A mới sinh ra!")
 	} else {
 		fmt.Printf("⚠️  LỖI NGHIÊM TRỌNG: Số dư lịch sử get lại (%v) KHÁC với số dư thực tế lúc đó (%v)!\n", balanceA, savedBalanceA)
+		hasError = true
 	}
 
 	// Kiểm tra Nonce (TransactionCount)
@@ -210,6 +214,7 @@ func main() {
 
 	if nonceA == nonceB {
 		fmt.Println("⚠️  LỖI: Nonce lịch sử và hiện tại GIỐNG HỆT NHAU.")
+		hasError = true
 	} else {
 		fmt.Println("✅ Nonce có sự khác biệt rõ ràng!")
 	}
@@ -218,5 +223,13 @@ func main() {
 		fmt.Println("✅ Nonce lịch sử KHỚP HOÀN TOÀN với Nonce đã lưu lúc Block A mới sinh ra!")
 	} else {
 		fmt.Printf("⚠️  LỖI NGHIÊM TRỌNG: Nonce lịch sử (%d) KHÁC với Nonce thực tế lúc đó (%d)!\n", nonceA, savedNonceA)
+		hasError = true
+	}
+
+	if hasError {
+		fmt.Println("\n❌ THẤT BẠI: Phát hiện có lỗi nghiêm trọng trong lịch sử state!")
+		os.Exit(1)
+	} else {
+		fmt.Println("\n🎉 THÀNH CÔNG: Tất cả các kiểm tra lịch sử state đều vượt qua!")
 	}
 }

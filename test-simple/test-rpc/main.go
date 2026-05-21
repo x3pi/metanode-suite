@@ -51,6 +51,8 @@ func main() {
 	urlFlag := flag.String("url", "", "Ghi đè RPC URL (Override)")
 	pkFlag := flag.String("pk", "", "Ghi đè Private Key (Override)")
 	chainFlag := flag.Int64("chain", 0, "Ghi đè Chain ID (Override, ví dụ: 991)")
+	loopFlag := flag.Bool("loop", false, "Lặp vô hạn tất cả tasks cho đến khi Ctrl+C")
+	delayFlag := flag.Int("delay", 2, "Thời gian chờ (giây) giữa các vòng lặp khi dùng -loop")
 	flag.Parse()
 
 	fmt.Println("==================================================")
@@ -91,141 +93,169 @@ func main() {
 	publicKey := privateKey.Public()
 	fromAddress := crypto.PubkeyToAddress(*publicKey.(*ecdsa.PublicKey))
 
-	var lastDeployedAddress *common.Address
-	var summary []string
-	hasError := false
+	// Handle Ctrl+C gracefully in loop mode
+	if *loopFlag {
+		fmt.Printf("🔁 [LOOP MODE] Sẽ lặp vô hạn với delay %ds giữa các vòng. Nhấn Ctrl+C để dừng.\n", *delayFlag)
+	}
 
-	// Lặp qua từng task cấu hình
-	for idx, d := range dataList {
-		taskTitle := fmt.Sprintf("Task %d: %s", idx+1, d.Method)
-		if strings.ToLower(d.Action) == "deploy" {
-			taskTitle = fmt.Sprintf("Task %d: DEPLOY", idx+1)
+	iteration := 0
+	for {
+		iteration++
+		if *loopFlag {
+			fmt.Printf("\n══════════════════════════════════════════════════\n")
+			fmt.Printf("🔁 [LOOP] Vòng lặp #%d\n", iteration)
+			fmt.Printf("══════════════════════════════════════════════════\n")
 		}
 
-		fmt.Printf("\n--- THỰC THI TASK %d: %s ---\n", idx+1, d.Method)
+		var lastDeployedAddress *common.Address
+		var summary []string
+		hasError := false
 
-		var contractAddress common.Address
-		action := strings.ToLower(d.Action)
+		// Lặp qua từng task cấu hình
+		for idx, d := range dataList {
+			taskTitle := fmt.Sprintf("Task %d: %s", idx+1, d.Method)
+			if strings.ToLower(d.Action) == "deploy" {
+				taskTitle = fmt.Sprintf("Task %d: DEPLOY", idx+1)
+			}
 
-		if d.Contract != "" {
-			contractAddress = common.HexToAddress(d.Contract)
-		} else if lastDeployedAddress != nil {
-			contractAddress = *lastDeployedAddress
-		} else if action != "deploy" {
-			log.Fatalf("❌ Task %d không có thuộc tính 'contract' và cũng không có contract nào được deploy trước đó!", idx+1)
-		}
+			fmt.Printf("\n--- THỰC THI TASK %d: %s ---\n", idx+1, d.Method)
 
-		// 4. Đọc ABI (Không bắt buộc nếu chỉ dùng InputData)
-		var contractAbi abi.ABI
-		var hasAbi bool
+			var contractAddress common.Address
+			action := strings.ToLower(d.Action)
 
-		if d.AbiPath != "" {
-			abiFile, err := os.Open(d.AbiPath)
-			if err != nil {
-				fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Lỗi mở file %s\n", d.AbiPath)
-			} else {
-				contractAbi, err = abi.JSON(abiFile)
-				abiFile.Close()
-				if err == nil {
-					hasAbi = true
+			if d.Contract != "" {
+				contractAddress = common.HexToAddress(d.Contract)
+			} else if lastDeployedAddress != nil {
+				contractAddress = *lastDeployedAddress
+			} else if action != "deploy" {
+				log.Fatalf("❌ Task %d không có thuộc tính 'contract' và cũng không có contract nào được deploy trước đó!", idx+1)
+			}
+
+			// 4. Đọc ABI (Không bắt buộc nếu chỉ dùng InputData)
+			var contractAbi abi.ABI
+			var hasAbi bool
+
+			if d.AbiPath != "" {
+				abiFile, err := os.Open(d.AbiPath)
+				if err != nil {
+					fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Lỗi mở file %s\n", d.AbiPath)
 				} else {
-					fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Parse JSON lỗi\n")
+					contractAbi, err = abi.JSON(abiFile)
+					abiFile.Close()
+					if err == nil {
+						hasAbi = true
+					} else {
+						fmt.Printf("   ⚠️ Bỏ qua đọc ABI: Parse JSON lỗi\n")
+					}
 				}
 			}
-		}
 
-		var payloadData []byte
+			var payloadData []byte
 
-		// 5. Tương tác chọn InputData hay Method (nếu có cả hai)
-		useInputData := false
-		if d.Method != "" && d.InputData != "" && hasAbi {
-			fmt.Printf("⚠️ Task có CẢ Method (%s) VÀ InputData (%s).\n", d.Method, d.InputData)
-			fmt.Print("👉 Bạn muốn dùng cái nào? (1: Pack theo Method+Args, 2: Dùng InputData trực tiếp): ")
-			var choice string
-			fmt.Scanln(&choice)
-			if choice == "2" {
+			// 5. Tương tác chọn InputData hay Method (nếu có cả hai)
+			useInputData := false
+			if d.Method != "" && d.InputData != "" && hasAbi {
+				fmt.Printf("⚠️ Task có CẢ Method (%s) VÀ InputData (%s).\n", d.Method, d.InputData)
+				fmt.Print("👉 Bạn muốn dùng cái nào? (1: Pack theo Method+Args, 2: Dùng InputData trực tiếp): ")
+				var choice string
+				fmt.Scanln(&choice)
+				if choice == "2" {
+					useInputData = true
+				}
+			} else if d.InputData != "" {
 				useInputData = true
 			}
-		} else if d.InputData != "" {
-			useInputData = true
-		}
 
-		if useInputData {
-			if !strings.HasPrefix(d.InputData, "0x") {
-				d.InputData = "0x" + d.InputData
-			}
-			payloadData, err = hexutil.Decode(d.InputData)
-			if err != nil {
-				log.Fatalf("❌ Lỗi giải mã InputData: %v", err)
-			}
-			fmt.Println("   📝 Đang sử dụng raw InputData Hex...")
-			// Nếu không có ABI thì tự động xóa Method để tránh lỗi cố gắng Unpack kết quả
-			if !hasAbi {
-				d.Method = ""
-			}
-		} else {
-			if !hasAbi {
-				log.Fatalf("❌ Task giao dịch bằng Method+Args BẮT BUỘC phải đọc được ABI hợp lệ!")
-			}
-			method, ok := contractAbi.Methods[d.Method]
-			if !ok && d.Method != "" {
-				log.Fatalf("❌ Hàm '%s' không tồn tại trong file ABI!", d.Method)
-			}
-			parsedArgs := prepareArgs(method, d.Args)
-			payloadData, err = contractAbi.Pack(d.Method, parsedArgs...)
-			if err != nil {
-				log.Fatalf("❌ Lỗi Pack tham số %s: %v", d.Method, err)
-			}
-		}
-
-		// 6. Thực thi
-		var taskErr error
-		if action == "deploy" {
-			if len(payloadData) == 0 {
-				taskErr = fmt.Errorf("Action Deploy yêu cầu phải có Bytecode truyền vào biến 'input_data'")
-			} else {
-				newAddr, err := executeDeploy(client, privateKey, cfg.ChainID, fromAddress, payloadData)
+			if useInputData {
+				if !strings.HasPrefix(d.InputData, "0x") {
+					d.InputData = "0x" + d.InputData
+				}
+				payloadData, err = hexutil.Decode(d.InputData)
 				if err != nil {
-					taskErr = err
-				} else if newAddr != nil {
-					lastDeployedAddress = newAddr
-				} else {
-					taskErr = fmt.Errorf("Tx Reverted (Lỗi hợp đồng)")
+					log.Fatalf("❌ Lỗi giải mã InputData: %v", err)
+				}
+				fmt.Println("   📝 Đang sử dụng raw InputData Hex...")
+				// Nếu không có ABI thì tự động xóa Method để tránh lỗi cố gắng Unpack kết quả
+				if !hasAbi {
+					d.Method = ""
+				}
+			} else {
+				if !hasAbi {
+					log.Fatalf("❌ Task giao dịch bằng Method+Args BẮT BUỘC phải đọc được ABI hợp lệ!")
+				}
+				method, ok := contractAbi.Methods[d.Method]
+				if !ok && d.Method != "" {
+					log.Fatalf("❌ Hàm '%s' không tồn tại trong file ABI!", d.Method)
+				}
+				parsedArgs := prepareArgs(method, d.Args)
+				payloadData, err = contractAbi.Pack(d.Method, parsedArgs...)
+				if err != nil {
+					log.Fatalf("❌ Lỗi Pack tham số %s: %v", d.Method, err)
 				}
 			}
-		} else if action == "call" || action == "read" {
-			taskErr = executeCall(client, contractAddress, contractAbi, d.Method, payloadData)
-		} else if action == "send" || action == "write" {
-			taskErr = executeSend(client, privateKey, cfg.ChainID, fromAddress, contractAddress, payloadData, d.Method, contractAbi, hasAbi, d.ExpectedEvents)
-		} else {
-			taskErr = fmt.Errorf("Action không hợp lệ: %s", d.Action)
-		}
 
-		if taskErr != nil {
-			fmt.Printf("\n❌ Dừng pipeline tại Task %d do lỗi: %v\n", idx+1, taskErr)
-			summary = append(summary, fmt.Sprintf("❌ %s -> THẤT BẠI: %v", taskTitle, taskErr))
-			hasError = true
-			break
-		} else {
-			if len(d.ExpectedEvents) > 0 {
-				summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (Pass %d verify)", taskTitle, len(d.ExpectedEvents)))
+			// 6. Thực thi
+			var taskErr error
+			if action == "deploy" {
+				if len(payloadData) == 0 {
+					taskErr = fmt.Errorf("Action Deploy yêu cầu phải có Bytecode truyền vào biến 'input_data'")
+				} else {
+					newAddr, err := executeDeploy(client, privateKey, cfg.ChainID, fromAddress, payloadData)
+					if err != nil {
+						taskErr = err
+					} else if newAddr != nil {
+						lastDeployedAddress = newAddr
+					} else {
+						taskErr = fmt.Errorf("Tx Reverted (Lỗi hợp đồng)")
+					}
+				}
+			} else if action == "call" || action == "read" {
+				taskErr = executeCall(client, contractAddress, contractAbi, d.Method, payloadData)
+			} else if action == "send" || action == "write" {
+				taskErr = executeSend(client, privateKey, cfg.ChainID, fromAddress, contractAddress, payloadData, d.Method, contractAbi, hasAbi, d.ExpectedEvents)
 			} else {
-				summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG", taskTitle))
+				taskErr = fmt.Errorf("Action không hợp lệ: %s", d.Action)
+			}
+
+			if taskErr != nil {
+				fmt.Printf("\n❌ Dừng pipeline tại Task %d do lỗi: %v\n", idx+1, taskErr)
+				summary = append(summary, fmt.Sprintf("❌ %s -> THẤT BẠI: %v", taskTitle, taskErr))
+				hasError = true
+				break
+			} else {
+				if len(d.ExpectedEvents) > 0 {
+					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (Pass %d verify)", taskTitle, len(d.ExpectedEvents)))
+				} else {
+					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG", taskTitle))
+				}
 			}
 		}
-	}
 
-	fmt.Println("\n==================================================")
-	fmt.Println("📊 BẢNG TỔNG HỢP KẾT QUẢ THỰC THI:")
-	fmt.Println("==================================================")
-	for _, s := range summary {
-		fmt.Println("  " + s)
-	}
-	fmt.Println("==================================================")
-	fmt.Println("🎉 HOÀN THẤT THỰC THI!")
-	fmt.Println("==================================================")
-	if hasError {
-		os.Exit(1)
+		fmt.Println("\n==================================================")
+		fmt.Println("📊 BẢNG TỔNG HỢP KẾT QUẢ THỰC THI:")
+		fmt.Println("==================================================")
+		for _, s := range summary {
+			fmt.Println("  " + s)
+		}
+		fmt.Println("==================================================")
+		if hasError {
+			fmt.Println("❌ KẾT THÚC VỚI LỖI!")
+		} else {
+			fmt.Println("🎉 HOÀN TẤT THỰC THI!")
+		}
+		fmt.Println("==================================================")
+
+		// Nếu không loop thì thoát
+		if !*loopFlag {
+			if hasError {
+				os.Exit(1)
+			}
+			break
+		}
+
+		// Loop mode: chờ rồi lặp lại
+		fmt.Printf("⏳ [LOOP] Chờ %ds trước vòng tiếp theo...\n", *delayFlag)
+		time.Sleep(time.Duration(*delayFlag) * time.Second)
 	}
 }
 

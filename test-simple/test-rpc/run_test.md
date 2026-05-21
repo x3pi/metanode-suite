@@ -8,7 +8,23 @@ go run main.go -config=config-local.json -data=data-test.json
 
 go run main.go -config=config-local.json -data=data.json
 
+go run main.go -config=config-local.json -data=data.json -loop
+
+
 go run main.go -config=config-local.json -data=data.json -url=http://localhost:8545
+
+# Chạy 1 lần (như cũ)
+go run main.go -config=config-local.json -data=data.json
+
+# Lặp vô hạn, delay 2s mặc định giữa các vòng
+go run main.go -config=config-local.json -data=data.json -loop
+
+# Lặp vô hạn, delay 5s
+go run main.go -config=config-local.json -data=data.json -loop -delay=5
+
+# Lặp với URL khác
+go run main.go -config=config-local.json -data=data.json -loop -url=http://127.0.0.1:8550
+
 ```
 
 # Xapiant read write (server)
