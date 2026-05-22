@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -224,6 +226,23 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+func sendTelegramMessage(message string) {
+	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	chatID := "-1003867050625"
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+
+	data := url.Values{}
+	data.Set("chat_id", chatID)
+	data.Set("text", message)
+
+	resp, err := http.PostForm(apiURL, data)
+	if err != nil {
+		fmt.Printf("⚠️ Lỗi gửi Telegram message: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+}
+
 func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress common.Address) (uint64, error) {
 	var blockNum uint64
 	err := fc.execute(func(ethCli *ethclient.Client, rpcCli *rpc.Client) error {
@@ -254,7 +273,16 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 		waitStartTime := time.Now()
 		for {
 			if time.Since(waitStartTime) > 60*time.Second {
-				return fmt.Errorf("timeout waiting for receipt after 50s")
+				txHash := signedTx.Hash().Hex()
+				var curls []string
+				for _, u := range fc.urls {
+					curls = append(curls, fmt.Sprintf("      curl -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"%s\"],\"id\":1}' %s", txHash, u))
+				}
+				timeoutMsg := fmt.Sprintf("   🚨 Timeout khi chờ receipt cho Tx %s. Dùng lệnh curl sau để kiểm tra trên từng RPC:\n%s", txHash, strings.Join(curls, "\n"))
+				fmt.Println(timeoutMsg)
+				sendTelegramMessage(timeoutMsg)
+
+				return fmt.Errorf("timeout waiting for receipt after 60s")
 			}
 			ctxReceipt, cancelReceipt := context.WithTimeout(context.Background(), 10*time.Second)
 			receipt, errReceipt := ethCli.TransactionReceipt(ctxReceipt, signedTx.Hash())
