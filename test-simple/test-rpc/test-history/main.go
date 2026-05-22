@@ -251,7 +251,11 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 		}
 		fmt.Printf("   🚀 Đã gửi Tx. Hash: %s\n", signedTx.Hash().Hex())
 
+		waitStartTime := time.Now()
 		for {
+			if time.Since(waitStartTime) > 60*time.Second {
+				return fmt.Errorf("timeout waiting for receipt after 50s")
+			}
 			ctxReceipt, cancelReceipt := context.WithTimeout(context.Background(), 10*time.Second)
 			receipt, errReceipt := ethCli.TransactionReceipt(ctxReceipt, signedTx.Hash())
 			cancelReceipt()
