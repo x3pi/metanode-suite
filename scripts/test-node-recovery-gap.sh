@@ -183,7 +183,27 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         sleep 10
         for n in 0 1 2 3 4; do
             if ! tmux ls 2>/dev/null | grep -q "go-master-$n"; then
+                if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
+                    echo -e "\n🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                    echo "❌ [DATA INTEGRITY FAILURE] (Đang test mục tiêu: $TARGET_NODE)"
+                    echo "   Node $n KHÔNG THỂ KHỞI ĐỘNG do DỮ LIỆU BỊ HỎNG!"
+                    echo ""
+                    echo "   📋 Chi tiết lỗi từ startup integrity check:"
+                    cat /tmp/MTN_INTEGRITY_FAILED
+                    echo ""
+                    echo "   🔧 HƯỚNG DẪN KHẮC PHỤC:"
+                    echo "   1. Restore từ snapshot mới nhất:"
+                    echo "      ./mtn-orchestrator.sh restore-node $n"
+                    echo "   2. Hoặc re-sync từ các node khác:"
+                    echo "      ./mtn-orchestrator.sh resync-node $n"
+                    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                    echo "DATA_INTEGRITY_FAILED: Node $n dữ liệu bị hỏng, cần restore snapshot" > /tmp/MTN_CHAIN_ERROR_STOP
+                    rm -f /tmp/MTN_INTEGRITY_FAILED
+                    exit 1
+                fi
                 echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $n đã Crash (Panic) ngay khi vừa khởi động!"
+                echo "   👉 Tiến trình go-master-$n không tồn tại trong tmux."
+                echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$n/go-master-stdout.log"
                 exit 1
             fi
         done
@@ -231,6 +251,32 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo "⏳ Chờ 5s để xác nhận tiến trình Node không bị crash..."
         sleep 5
         if ! tmux ls 2>/dev/null | grep -q "go-master-$TARGET_NODE"; then
+            # ═══════════════════════════════════════════════════════════
+            # DATA INTEGRITY DETECTION (May 2026):
+            # Check if the node exited due to data integrity failure
+            # (exit code 78) vs regular crash (panic, OOM).
+            # The Go startup_integrity_check writes /tmp/MTN_INTEGRITY_FAILED
+            # with detailed error info when data is corrupted.
+            # ═══════════════════════════════════════════════════════════
+            if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
+                echo -e "\n🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                echo "❌ [DATA INTEGRITY FAILURE] (Đang test mục tiêu: $TARGET_NODE)"
+                echo "   Node $TARGET_NODE KHÔNG THỂ KHỞI ĐỘNG do DỮ LIỆU BỊ HỎNG!"
+                echo ""
+                echo "   📋 Chi tiết lỗi từ startup integrity check:"
+                cat /tmp/MTN_INTEGRITY_FAILED
+                echo ""
+                echo "   🔧 HƯỚNG DẪN KHẮC PHỤC:"
+                echo "   1. Restore từ snapshot mới nhất:"
+                echo "      ./mtn-orchestrator.sh restore-node $TARGET_NODE"
+                echo "   2. Hoặc re-sync từ các node khác:"
+                echo "      ./mtn-orchestrator.sh resync-node $TARGET_NODE"
+                echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                # Ghi vào file sentinel dừng toàn bộ test
+                echo "DATA_INTEGRITY_FAILED: Node $TARGET_NODE dữ liệu bị hỏng, cần restore snapshot" > /tmp/MTN_CHAIN_ERROR_STOP
+                rm -f /tmp/MTN_INTEGRITY_FAILED
+                exit 1
+            fi
             echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $TARGET_NODE đã Crash (Panic) ngay khi vừa khởi động!"
             echo "   👉 Tiến trình go-master-$TARGET_NODE không tồn tại trong tmux."
             echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$TARGET_NODE/go-master-stdout.log"
