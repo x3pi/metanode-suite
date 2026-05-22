@@ -180,8 +180,8 @@ for node_id in 0 1 2 3 4; do
         tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
         tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
         
-        # Đợi khởi động (thăm dò nhanh 200ms mỗi lần, tối đa 15s)
-        for i in {1..75}; do
+        # Đợi khởi động (thăm dò nhanh 200ms mỗi lần, tối đa 50s để tránh lỗi timeout do biên dịch 'go run')
+        for i in {1..250}; do
             if curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
                 break
             fi
@@ -190,6 +190,21 @@ for node_id in 0 1 2 3 4; do
 
         if ! curl -s http://127.0.0.1:$port -m 2 > /dev/null; then
             echo "     ❌ Khởi động RPC Proxy Node $node_id thất bại!"
+            echo "     📄 Tmux Pane Output:"
+            echo "--------------------------------------------------"
+            tmux capture-pane -p -t rpc-proxy-$node_id || echo "Cannot capture tmux pane"
+            echo "--------------------------------------------------"
+            
+            # Tìm file log mới nhất trong node{node_id}_data/logs
+            LATEST_LOG=$(find "$RPC_CLIENT_DIR" -maxdepth 3 -path "*/node${node_id}_data/logs/*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
+            if [ -n "$LATEST_LOG" ]; then
+                echo "     📄 File log: $LATEST_LOG"
+                echo "--------------------------------------------------"
+                tail -n 30 "$LATEST_LOG"
+                echo "--------------------------------------------------"
+            else
+                echo "     ⚠️ Không tìm thấy file log nào trong $RPC_CLIENT_DIR/node${node_id}_data/logs/"
+            fi
             exit 1
         else
             echo "     ✅ RPC Proxy Node $node_id đã khởi động thành công."
