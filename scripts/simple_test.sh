@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Giới hạn tài nguyên biên dịch để tránh OOM trong môi trường tài nguyên hạn chế
+export GOMAXPROCS=2
+export CARGO_BUILD_JOBS=2
+
 # Dừng pipeline nếu có bất kỳ lệnh nào bị lỗi
 # set -e
 

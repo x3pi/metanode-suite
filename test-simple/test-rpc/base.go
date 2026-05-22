@@ -42,7 +42,14 @@ type RPCError struct {
 }
 
 type AccountStateResult struct {
-	Nonce uint64 `json:"nonce"`
+	Address        string `json:"address"`
+	Balance        string `json:"balance"`
+	PendingBalance string `json:"pendingBalance"`
+	LastHash       string `json:"lastHash"`
+	DeviceKey      string `json:"deviceKey"`
+	Nonce          uint64 `json:"nonce"`
+	PublicKeyBls   string `json:"publicKeyBls"`
+	AccountType    int32  `json:"accountType"`
 }
 
 func main() {
@@ -198,12 +205,17 @@ func runAccountState(url string, cfg Config) (string, error) {
 		return "", err
 	}
 
+	if string(result) == "null" {
+		return "null (tài khoản chưa tồn tại/không có state)", nil
+	}
+
 	var state AccountStateResult
 	if err := json.Unmarshal(result, &state); err != nil {
 		return "", fmt.Errorf("failed to parse account state result: %w", err)
 	}
 
-	return fmt.Sprintf("nonce=%d", state.Nonce), nil
+	return fmt.Sprintf("balance=%s | pending_balance=%s | nonce=%d | last_hash=%s | device_key=%s | account_type=%d",
+		state.Balance, state.PendingBalance, state.Nonce, state.LastHash, state.DeviceKey, state.AccountType), nil
 }
 
 func runGetChainID(url string, cfg Config) (string, error) {

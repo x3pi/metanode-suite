@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Giới hạn tài nguyên biên dịch để tránh OOM trong môi trường tài nguyên hạn chế
+export GOMAXPROCS=2
+export CARGO_BUILD_JOBS=2
+
 # Unset exported cd function to avoid environment conflicts
 unset -f cd 2>/dev/null || true
 
@@ -45,6 +49,82 @@ get_current_epoch() {
     fi
 }
 
+# Hàm chờ mạng thiết lập đồng thuận và bắt đầu tăng trưởng block
+wait_for_consensus() {
+    echo "⏳ Đang chờ hệ thống mạng thiết lập lại đồng thuận và tiến triển chiều cao block..."
+    local last_block=""
+    # Thử tối đa 60 giây (300 lần thử, mỗi lần cách nhau 200ms)
+    for ((r=1; r<=300; r++)); do
+        local block_hex
+        block_hex=$(curl -s --max-time 1 -X POST http://127.0.0.1:8757 \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
+        
+        if [ -n "$block_hex" ]; then
+            local current_block
+            current_block=$(printf "%d\n" "$block_hex")
+            if [ -n "$last_block" ] && [ "$current_block" -gt "$last_block" ]; then
+                echo "✅ Đồng thuận đã phục hồi! Chiều cao block đang tăng trưởng: $last_block -> $current_block"
+                return 0
+            fi
+            last_block=$current_block
+        fi
+        sleep 0.2
+    done
+    echo "⚠️ Cảnh báo: Đồng thuận chưa phục hồi rõ rệt sau 60 giây, tiếp tục chạy..."
+    return 1
+}
+
+# Hàm chờ và kiểm tra trạng thái khởi động chính xác của từng node (không dựa vào timeout 2s mù)
+wait_for_node_startup() {
+    local node_id=$1
+    local log_file="$ROOT_DIR/metanode/consensus/metanode/logs/node_${node_id}/go-master-stdout.log"
+    echo "🔍 Đang kiểm tra trạng thái khởi động chính xác của Node ${node_id}..."
+    
+    # Thăm dò tối đa 50 lần, mỗi lần cách nhau 100ms (tổng tối đa 5 giây)
+    for ((r=1; r<=50; r++)); do
+        # 1. Nếu sentinel file báo lỗi integrity xuất hiện, báo lỗi ngay lập tức
+        if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
+            echo "❌ [ERROR] Phát hiện lỗi integrity check của Node ${node_id}!"
+            return 1
+        fi
+        
+        # 2. Nếu tmux session biến mất, nghĩa là process đã crash trước cả khi ghi log hoặc tmux bị lỗi
+        if ! tmux ls 2>/dev/null | grep -q "go-master-${node_id}"; then
+            echo "❌ [ERROR] Tmux session go-master-${node_id} không tồn tại!"
+            return 1
+        fi
+        
+        # 3. Nếu log file tồn tại, kiểm tra xem có dấu hiệu khởi động thành công hoặc lỗi nghiêm trọng không
+        if [ -f "$log_file" ]; then
+            if grep -E -q "All checks passed|NOMT account_state not initialized yet|Indexing process initiated|Consensus core started|Starting consensus|Starting peer synchronization" "$log_file"; then
+                echo "✅ [SUCCESS] Node ${node_id} đã khởi động và vượt qua integrity check thành công sau $((r * 100))ms!"
+                return 0
+            fi
+            if grep -E -q "CRITICAL ERROR|CRITICAL:" "$log_file"; then
+                echo "❌ [ERROR] Node ${node_id} báo lỗi CRITICAL trong log!"
+                return 1
+            fi
+        fi
+        
+        # 4. Kiểm tra xem tiến trình thực sự có chạy không
+        if ! pgrep -f "simple_chain.*config-master-node${node_id}" >/dev/null; then
+            # Đợi thêm một tí xem có ghi log lỗi gì không
+            sleep 0.1
+            if ! pgrep -f "simple_chain.*config-master-node${node_id}" >/dev/null; then
+                echo "❌ [ERROR] Tiến trình simple_chain cho Node ${node_id} không chạy!"
+                return 1
+            fi
+        fi
+        
+        sleep 0.1
+    done
+    
+    echo "⚠️ Cảnh báo: Hết thời gian chờ 5s nhưng chưa xác định được trạng thái Node ${node_id}"
+    return 0
+}
+
 
 
 # Hàm dọn dẹp tiến trình spam
@@ -57,7 +137,16 @@ stop_spam() {
     pkill -f "main.go --count" || true
     pkill -f "go run main.go --watch" || true
     pkill -f "exe/main --watch" || true
-    sleep 2
+    
+    # Chờ động các tiến trình trên thực sự dừng hẳn (tối đa 5 giây, thăm dò mỗi 100ms)
+    local elapsed=0
+    while [ $elapsed -lt 50 ]; do
+        if ! pgrep -f "rpc-tcp-simple.sh|test-rpc.*main.go|test-tcp.*main-no-none.go|tps_blast_cc.*main.go|main.go --count|go run main.go --watch|exe/main --watch" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.1
+        elapsed=$((elapsed + 1))
+    done
 }
 
 # Đảm bảo dọn dẹp khi script bị ngắt
@@ -66,7 +155,11 @@ cleanup() {
     trap - EXIT INT TERM
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
-    rm -f /tmp/pending_check_*.json
+    if [ $err -eq 0 ]; then
+        rm -f /tmp/pending_check_*.json
+    else
+        echo "💡 [DEBUG] Giữ lại file checkpoint /tmp/pending_check_*.json để debug offline!"
+    fi
     kill ${MONITOR_PID:-0} 2>/dev/null || true
     exit $err
 }
@@ -85,7 +178,7 @@ monitor_error_flag() {
             kill -TERM -$$
             exit 1
         fi
-        sleep 2
+        sleep 0.2
     done
 }
 monitor_error_flag &
@@ -166,7 +259,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
             break
         fi
         echo "   ... Hiện tại: Epoch $CURRENT_EPOCH. Đang chờ mạng lên ít nhất Epoch 1..."
-        sleep 5
+        sleep 0.5
     done
 
     if [ "$TARGET_NODE" == "all" ]; then
@@ -179,16 +272,34 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại toàn bộ mạng..."
         $ORCH_SCRIPT start
         
-        echo "⏳ Chờ 10s để xác nhận tiến trình Node không bị crash..."
-        sleep 10
+        echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của toàn mạng..."
         for n in 0 1 2 3 4; do
-            if ! tmux ls 2>/dev/null | grep -q "go-master-$n"; then
-                echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $n đã Crash (Panic) ngay khi vừa khởi động!"
+            if ! wait_for_node_startup "$n"; then
+                if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
+                    echo -e "\n🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                    echo "❌ [DATA INTEGRITY FAILURE] (Đang test mục tiêu: $TARGET_NODE)"
+                    echo "   Node $n KHÔNG THỂ KHỞI ĐỘNG do DỮ LIỆU BỊ HỎNG!"
+                    echo ""
+                    echo "   📋 Chi tiết lỗi từ startup integrity check:"
+                    cat /tmp/MTN_INTEGRITY_FAILED
+                    echo ""
+                    echo "   🔧 HƯỚNG DẪN KHẮC PHỤC:"
+                    echo "   1. Restore từ snapshot mới nhất:"
+                    echo "      ./mtn-orchestrator.sh restore-node $n"
+                    echo "   2. Hoặc re-sync từ các node khác:"
+                    echo "      ./mtn-orchestrator.sh resync-node $n"
+                    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                    echo "DATA_INTEGRITY_FAILED: Node $n dữ liệu bị hỏng, cần restore snapshot" > /tmp/MTN_CHAIN_ERROR_STOP
+                    rm -f /tmp/MTN_INTEGRITY_FAILED
+                    exit 1
+                fi
+                echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $n đã Crash ngay khi vừa khởi động!"
+                echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$n/go-master-stdout.log"
                 exit 1
             fi
         done
-        echo "⏳ Đợi thêm 15s cho toàn mạng kết nối và khôi phục hoạt động..."
-        sleep 15
+        # Chờ mạng phục hồi đồng thuận hoàn toàn bằng active polling thay vì sleep 15s cứng
+        wait_for_consensus
     else
         echo "📥 Lưu trạng thái lịch sử trước khi dừng node $TARGET_NODE..."
         (
@@ -218,7 +329,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
                 break
             fi
             echo "   ... Hiện tại: $CURRENT_EPOCH / $TARGET_EPOCH"
-            sleep 10
+            sleep 0.5
         done
 
         # Dừng spam để node bắt kịp nhanh hơn, hoặc để nguyên tùy kịch bản. Ở đây tạm dừng spam trước khi restart.
@@ -228,28 +339,38 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại node $TARGET_NODE..."
         $ORCH_SCRIPT start-node $TARGET_NODE
         
-        echo "⏳ Chờ 5s để xác nhận tiến trình Node không bị crash..."
-        sleep 5
-        if ! tmux ls 2>/dev/null | grep -q "go-master-$TARGET_NODE"; then
-            echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $TARGET_NODE đã Crash (Panic) ngay khi vừa khởi động!"
-            echo "   👉 Tiến trình go-master-$TARGET_NODE không tồn tại trong tmux."
+        echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của Node $TARGET_NODE..."
+        if ! wait_for_node_startup "$TARGET_NODE"; then
+            # ═══════════════════════════════════════════════════════════
+            # DATA INTEGRITY DETECTION (May 2026):
+            # Check if the node exited due to data integrity failure
+            # ═══════════════════════════════════════════════════════════
+            if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
+                echo -e "\n🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                echo "❌ [DATA INTEGRITY FAILURE] (Đang test mục tiêu: $TARGET_NODE)"
+                echo "   Node $TARGET_NODE KHÔNG THỂ KHỞI ĐỘNG do DỮ LIỆU BỊ HỎNG!"
+                echo ""
+                echo "   📋 Chi tiết lỗi từ startup integrity check:"
+                cat /tmp/MTN_INTEGRITY_FAILED
+                echo ""
+                echo "   🔧 HƯỚNG DẪN KHẮC PHỤC:"
+                echo "   1. Restore từ snapshot mới nhất:"
+                echo "      ./mtn-orchestrator.sh restore-node $TARGET_NODE"
+                echo "   2. Hoặc re-sync từ các node khác:"
+                echo "      ./mtn-orchestrator.sh resync-node $TARGET_NODE"
+                echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+                # Ghi vào file sentinel dừng toàn bộ test
+                echo "DATA_INTEGRITY_FAILED: Node $TARGET_NODE dữ liệu bị hỏng, cần restore snapshot" > /tmp/MTN_CHAIN_ERROR_STOP
+                rm -f /tmp/MTN_INTEGRITY_FAILED
+                exit 1
+            fi
+            echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $TARGET_NODE đã Crash ngay khi vừa khởi động!"
             echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$TARGET_NODE/go-master-stdout.log"
             exit 1
         fi
-        echo "⏳ Đợi 10s cho node khởi động và xin Recovery State..."
-        sleep 10
-
     fi
 
-
-
-echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Timeout 30s)..."
-    cd $HASH_CHECKER_DIR
-    rm -f hash_mismatch_alert.log
-timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
-    analyze_mismatch "$TARGET_NODE"
-    echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
-
+    # 1. Chạy xác minh trạng thái lịch sử trước bằng active polling (cực kỳ nhanh và chính xác)
     if [ "$TARGET_NODE" != "all" ]; then
         echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
         (
@@ -257,6 +378,14 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
             go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
         )
     fi
+
+    # 2. Kiểm tra Hash Checker sau khi xác minh lịch sử thành công
+    echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Timeout 30s)..."
+    cd $HASH_CHECKER_DIR
+    rm -f hash_mismatch_alert.log
+    timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
+    analyze_mismatch "$TARGET_NODE"
+    echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
     cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"

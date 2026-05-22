@@ -1,0 +1,14 @@
+{
+    "type": "account_state",
+    "rpc_urls": [
+        "http://localhost:8757",
+        "http://localhost:10747",
+        "http://localhost:10749",
+        "http://localhost:10750",
+        "http://localhost:10748"
+    ],
+    "params": {
+        "address": "0x781e6ec6ebdca11be4b53865a34c0c7f10b6da6e",
+        "block_tag": "latest"
+    }
+}

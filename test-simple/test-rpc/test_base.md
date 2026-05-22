@@ -1,4 +1,3 @@
-
 ```bash
 go run -tags tool base.go -config=./base/config-getlogs.json
 go run -tags tool base.go -config=./base/config-blocktransactions.json
@@ -6,6 +5,7 @@ go run -tags tool base.go -config=./base/config-getblocknumber.json
 go run -tags tool base.go -config=./base/config-transactionbyhash.json
 go run -tags tool base.go -config=./base/config-systemtxsbyblock.json
 go run -tags tool base.go -config=./base/config-transactionreceipt.json
+go run -tags tool base.go -config=./base/config-accountstate.json
 ```
 
 # Tool check state all RPC (base.go)
@@ -90,7 +90,7 @@ Ví dụ:
 
 ### B. account_state
 
-Gọi method `mtn_getAccountState`, in ra `nonce` theo từng RPC.
+Gọi method `mtn_getAccountState`, in ra chi tiết trạng thái tài khoản bao gồm `balance`, `pending_balance`, `nonce`, `last_hash`, `device_key` và `account_type` theo từng RPC.
 
 Params:
 
@@ -150,7 +150,7 @@ Kết quả hiển thị:
 - Cột RPC URL
 - Cột Result:
   - Với `get_logs`: `raw_logs=... | filtered_logs=...`
-  - Với `account_state`: `nonce=...`
+  - Với `account_state`: `balance=... | pending_balance=... | nonce=... | last_hash=... | device_key=... | account_type=...`
   - Với `get_chain_id`: `chain_id=...`
 
 ## 4) Cách mở rộng type mới

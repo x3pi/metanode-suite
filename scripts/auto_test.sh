@@ -217,8 +217,8 @@ if should_run 2; then
             tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
             tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
             
-            # Đợi khởi động
-            for i in {1..15}; do
+            # Đợi khởi động (tối đa 50s để tránh lỗi timeout do biên dịch 'go run')
+            for i in {1..50}; do
                 if curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
                     break
                 fi
