@@ -437,10 +437,10 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		sb.WriteString("==================================================\n")
 		reason := sb.String()
 		os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
-		
+
 		// Ghi đè/thêm vào log file riêng của checker
 		appendLocalErrorLog(reason)
-		
+
 		fmt.Printf("\n🚨 %s\n", reason)
 	}
 
@@ -459,21 +459,21 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi kết nối: %v\n", u, errDial))
 			continue
 		}
-		
+
 		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
 		var tempBalanceAHex string
 		errBal := tempClient.CallContext(ctxTemp, &tempBalanceAHex, "eth_getBalance", fromAddr, blockAHex)
-		
+
 		var tempNonceAHex string
 		errNon := tempClient.CallContext(ctxTemp, &tempNonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
 		cancelTemp()
 		tempClient.Close()
-		
+
 		if errBal != nil || errNon != nil {
 			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi RPC: bal_err=%v, nonce_err=%v\n", u, errBal, errNon))
 			continue
 		}
-		
+
 		tempBalance, _ := hexutil.DecodeBig(tempBalanceAHex)
 		tempNonce, _ := hexutil.DecodeUint64(tempNonceAHex)
 		sb.WriteString(fmt.Sprintf("       %-30s | balance=%-31s | nonce=%d\n", u, tempBalance.String(), tempNonce))
@@ -521,7 +521,7 @@ func main() {
 	waitBlocksFlag := flag.Uint64("wait", 5, "Số giao dịch gửi thêm sau Tx đầu tiên trước khi kiểm tra lịch sử (mặc định 5). Block receipt của tx cuối = Block B. Tránh phụ thuộc vào spam ngoài để block tăng.")
 	loopFlag := flag.Bool("loop", false, "Chạy lặp vô hạn để kiểm tra liên tục (chỉ chạy trong chế độ loop mặc định)")
 	excludeFlag := flag.String("exclude", "", "Danh sách node ID hoặc cổng RPC cần loại trừ (ngăn cách bởi dấu phẩy, VD: 1,2 hoặc 8547)")
-	
+
 	// Các flag mới cho cơ chế Save/Verify lịch sử
 	actionFlag := flag.String("action", "loop", "Hành động thực hiện: loop, save, verify")
 	fileFlag := flag.String("file", "pending_check.json", "Đường dẫn file JSON lưu trạng thái check")
@@ -702,21 +702,20 @@ func main() {
 			}
 
 			fmt.Printf("🔌 Đang kết nối trực tiếp (Strict) tới RPC Node: %s...\n", targetURL)
-			
+
 			// Đợi node online và đồng bộ vượt qua Block A lớn nhất
 			var rpcClient *rpc.Client
-			
+
 			maxRetries := 300
 			for r := 1; r <= maxRetries; r++ {
 				rpcClient, err = rpc.Dial(targetURL)
 				if err == nil {
-					
 					// Kiểm tra chiều cao block hiện tại của node
 					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 					var latestBlockHex string
 					errBlock := callContextWithRetry(ctx, rpcClient, &latestBlockHex, "eth_blockNumber")
 					cancel()
-					
+
 					if errBlock == nil {
 						latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
 						if latestBlock > maxBlockA {
@@ -725,14 +724,14 @@ func main() {
 
 							// Thăm dò chủ động (active polling) mỗi 200ms thay vì sleep 2s cứng
 							var ready bool
-							for checkRetries := 0; checkRetries < 50; checkRetries++ {
+							for checkRetries := 0; checkRetries < 100; checkRetries++ {
 								var checkBlock map[string]interface{}
-								ctxBlock, cancelBlock := context.WithTimeout(context.Background(), 1*time.Second)
+								ctxBlock, cancelBlock := context.WithTimeout(context.Background(), 2*time.Second)
 								errBlockCheck := rpcClient.CallContext(ctxBlock, &checkBlock, "eth_getBlockByNumber", hexutil.EncodeUint64(maxBlockA), false)
 								cancelBlock()
 
 								var checkNonceHex string
-								ctxNonce, cancelNonce := context.WithTimeout(context.Background(), 1*time.Second)
+								ctxNonce, cancelNonce := context.WithTimeout(context.Background(), 2*time.Second)
 								errNonceCheck := rpcClient.CallContext(ctxNonce, &checkNonceHex, "eth_getTransactionCount", common.HexToAddress(checkpoints[0].FromAddress), hexutil.EncodeUint64(maxBlockA))
 								cancelNonce()
 
@@ -749,7 +748,11 @@ func main() {
 							if ready {
 								break
 							} else {
-								fmt.Printf("⏳ Dữ liệu mốc Block A (%d) vẫn chưa sẵn sàng sau 10 giây thăm dò. Đang thử lại...\n", maxBlockA)
+								report := queryAllRPCsAndGenerateReport(urls, common.HexToAddress(checkpoints[0].FromAddress), maxBlockA)
+								reason := fmt.Sprintf("🛑 LỖI: Dữ liệu mốc Block A (%d) không sẵn sàng trên RPC %s sau 20 giây thăm dò mặc dù chiều cao node đã đạt %d!\n%s", maxBlockA, targetURL, latestBlock, report)
+								os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+								appendLocalErrorLog(reason)
+								log.Fatalf(reason)
 							}
 						} else {
 							fmt.Printf("⏳ Node đã online nhưng chiều cao block (%d) chưa vượt qua Block A lớn nhất (%d). Đang đợi...\n", latestBlock, maxBlockA)
@@ -789,7 +792,7 @@ func main() {
 
 			for idx, cp := range checkpoints {
 				fmt.Printf("\n🔍 Đang đối chiếu checkpoint %d/%d (Block A: %d, Address: %s)...\n", idx+1, len(checkpoints), cp.BlockA, cp.FromAddress)
-				
+
 				blockAHex := hexutil.EncodeUint64(cp.BlockA)
 				fromAddr := common.HexToAddress(cp.FromAddress)
 
@@ -915,7 +918,7 @@ func main() {
 				sb.WriteString("==================================================\n")
 				reason := sb.String()
 				os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
-				
+
 				// Ghi đè/thêm vào log file riêng của checker
 				appendLocalErrorLog(reason)
 
