@@ -23,6 +23,7 @@ CLEAN_LOGS=false
 CI_ARGS=()
 
 # Parse arguments
+DO_STOP=false
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --type)
@@ -32,6 +33,9 @@ while [[ "$#" -gt 0 ]]; do
         --clean-logs)
             CLEAN_LOGS=true
             ;;
+        stop|--stop|kill|--kill)
+            DO_STOP=true
+            ;;
         *)
             CI_ARGS+=("$1")
             ;;
@@ -39,8 +43,9 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-# Kiểm tra tính hợp lệ của Type
-if [[ "$TYPE" != "spam" && "$TYPE" != "recovery" && "$TYPE" != "snapshot" ]]; then
+if [ "$DO_STOP" = true ]; then
+    TYPE="all" # Skip type validation when stopping
+elif [[ "$TYPE" != "spam" && "$TYPE" != "recovery" && "$TYPE" != "snapshot" ]]; then
     echo "❌ Lỗi: Loại monitor không hợp lệ. Chỉ chấp nhận: spam, recovery, snapshot."
     exit 1
 fi
@@ -68,79 +73,92 @@ CI_MONITOR="$SCRIPT_DIR/${MONITOR_NAME}.py"
 CI_LOG="$SCRIPT_DIR/${MONITOR_NAME}.log"
 AUTO_TEST_LOGS="$SCRIPT_DIR/${LOGS_DIR_NAME}"
 
+cleanup_all_processes() {
+    echo ""
+    echo "🔪 Dọn dẹp TOÀN BỘ tiến trình cũ đang chạy ngầm..."
+
+    # 1. Kill tất cả Python monitors
+    for m in "ci_monitor.py" "ci_recovery_monitor.py" "ci_snapshot_monitor.py"; do
+        PIDS_M=$(pgrep -f "$m" 2>/dev/null)
+        if [ -n "$PIDS_M" ]; then
+            echo "   → Tìm thấy $m (PIDs: $PIDS_M). Đang kill..."
+            pkill -f "$m" 2>/dev/null
+            sleep 0.5
+            pkill -9 -f "$m" 2>/dev/null || true
+        fi
+    done
+
+    # 2. Kill tất cả Shell test runners
+    for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh"; do
+        PIDS_T=$(pgrep -f "$t" 2>/dev/null)
+        if [ -n "$PIDS_T" ]; then
+            echo "   → Tìm thấy $t (PIDs: $PIDS_T). Đang kill..."
+            pkill -f "$t" 2>/dev/null
+            sleep 0.5
+            pkill -9 -f "$t" 2>/dev/null || true
+        fi
+    done
+
+    # 3. Kill các tiến trình phụ trợ
+    for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc"; do
+        if pgrep -f "$proc" >/dev/null; then
+            echo "   → Tìm thấy $proc. Đang kill..."
+            pkill -f "$proc" 2>/dev/null
+            sleep 0.5
+            pkill -9 -f "$proc" 2>/dev/null || true
+        fi
+    done
+
+    # 4. Kill các session tmux liên quan đến cluster
+    echo "   → Tìm và tắt các tmux sessions go-master, metanode, rpc-proxy..."
+    for session in $(tmux list-sessions -F '#S' 2>/dev/null | grep -E '^(go-master-|metanode-|rpc-proxy)'); do
+        echo "     - Tắt tmux session: $session"
+        tmux kill-session -t "$session" 2>/dev/null || true
+    done
+
+    # 5. Tắt triệt để các tiến trình Go/Rust
+    echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client..."
+    pkill -9 -f "simple_chain" 2>/dev/null || true
+    pkill -9 -f "metanode" 2>/dev/null || true
+    pkill -9 -f "rpc-client" 2>/dev/null || true
+
+    # 6. Giải phóng port của cluster
+    echo "   → Giải phóng các port của cluster (8545, 8757, 10747-10750)..."
+    for port in 8545 8757 10747 10748 10749 10750; do
+        PIDS_PORT=$(lsof -t -i :$port 2>/dev/null)
+        if [ -z "$PIDS_PORT" ]; then
+            PIDS_PORT=$(ss -tlnp 2>/dev/null | grep -E ":$port " | grep -oP 'pid=\K[0-9]+' | sort -u)
+        fi
+        if [ -n "$PIDS_PORT" ]; then
+            for p in $PIDS_PORT; do
+                echo "     - Port $port đang bị giữ bởi PID $p. Đang kill..."
+                kill -9 "$p" 2>/dev/null || true
+            done
+        fi
+    done
+
+    # Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm
+    rm -f /tmp/MTN_CHAIN_ERROR_STOP
+
+    echo "   ✅ Đã dọn sạch toàn bộ tiến trình và giải phóng các port."
+}
+
+if [ "$DO_STOP" = true ]; then
+    echo "======================================================="
+    echo "🛑 YÊU CẦU DỪNG TẤT CẢ TIẾN TRÌNH"
+    echo "======================================================="
+    cleanup_all_processes
+    exit 0
+fi
+
 echo "======================================================="
 echo "🧹 KHỞI ĐỘNG HỆ THỐNG GIÁM SÁT CI: [${TYPE^^}]"
 echo "======================================================="
 
 # ─── Bước 1: Kill TẤT CẢ tiến trình cũ để tránh đè cổng ───────
 echo ""
-echo "🔪 [1/3] Dọn dẹp TOÀN BỘ tiến trình cũ đang chạy ngầm..."
-
-# 1. Kill tất cả Python monitors
-for m in "ci_monitor.py" "ci_recovery_monitor.py" "ci_snapshot_monitor.py"; do
-    PIDS_M=$(pgrep -f "$m" 2>/dev/null)
-    if [ -n "$PIDS_M" ]; then
-        echo "   → Tìm thấy $m (PIDs: $PIDS_M). Đang kill..."
-        pkill -f "$m" 2>/dev/null
-        sleep 0.5
-        pkill -9 -f "$m" 2>/dev/null || true
-    fi
-done
-
-# 2. Kill tất cả Shell test runners
-for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh"; do
-    PIDS_T=$(pgrep -f "$t" 2>/dev/null)
-    if [ -n "$PIDS_T" ]; then
-        echo "   → Tìm thấy $t (PIDs: $PIDS_T). Đang kill..."
-        pkill -f "$t" 2>/dev/null
-        sleep 0.5
-        pkill -9 -f "$t" 2>/dev/null || true
-    fi
-done
-
-# 3. Kill các tiến trình phụ trợ
-for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc"; do
-    if pgrep -f "$proc" >/dev/null; then
-        echo "   → Tìm thấy $proc. Đang kill..."
-        pkill -f "$proc" 2>/dev/null
-        sleep 0.5
-        pkill -9 -f "$proc" 2>/dev/null || true
-    fi
-done
-
-# 4. Kill các session tmux liên quan đến cluster
-echo "   → Tìm và tắt các tmux sessions go-master, metanode, rpc-proxy..."
-for session in $(tmux list-sessions -F '#S' 2>/dev/null | grep -E '^(go-master-|metanode-|rpc-proxy)'); do
-    echo "     - Tắt tmux session: $session"
-    tmux kill-session -t "$session" 2>/dev/null || true
-done
-
-# 5. Tắt triệt để các tiến trình Go/Rust
-echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client..."
-pkill -9 -f "simple_chain" 2>/dev/null || true
-pkill -9 -f "metanode" 2>/dev/null || true
-pkill -9 -f "rpc-client" 2>/dev/null || true
-
-# 6. Giải phóng port của cluster
-echo "   → Giải phóng các port của cluster (8545, 8757, 10747-10750)..."
-for port in 8545 8757 10747 10748 10749 10750; do
-    PIDS_PORT=$(lsof -t -i :$port 2>/dev/null)
-    if [ -z "$PIDS_PORT" ]; then
-        PIDS_PORT=$(ss -tlnp 2>/dev/null | grep -E ":$port " | grep -oP 'pid=\K[0-9]+' | sort -u)
-    fi
-    if [ -n "$PIDS_PORT" ]; then
-        for p in $PIDS_PORT; do
-            echo "     - Port $port đang bị giữ bởi PID $p. Đang kill..."
-            kill -9 "$p" 2>/dev/null || true
-        done
-    fi
-done
-
-# Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm
-rm -f /tmp/MTN_CHAIN_ERROR_STOP
-
-echo "   ✅ Đã dọn sạch toàn bộ tiến trình và giải phóng các port."
-
+echo "🔪 [1/3] Đang dọn dẹp hệ thống..."
+cleanup_all_processes
 
 # ─── Bước 2: Xóa logs cũ theo từng loại ─────────────────────────
 echo ""
