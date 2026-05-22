@@ -670,7 +670,7 @@ func main() {
 			// Đợi node online và đồng bộ vượt qua Block A lớn nhất
 			var rpcClient *rpc.Client
 			
-			maxRetries := 30
+			maxRetries := 300
 			for r := 1; r <= maxRetries; r++ {
 				rpcClient, err = rpc.Dial(targetURL)
 				if err == nil {
@@ -685,7 +685,34 @@ func main() {
 						latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
 						if latestBlock > maxBlockA {
 							fmt.Printf("✅ Node đã online và đồng bộ tới Block %d (vượt qua Block A lớn nhất %d)\n", latestBlock, maxBlockA)
-							break
+							fmt.Printf("🔍 Bắt đầu kiểm tra trạng thái khả dụng của dữ liệu Block A (%d) qua RPC...\n", maxBlockA)
+
+							// Thăm dò chủ động (active polling) mỗi 200ms thay vì sleep 2s cứng
+							var ready bool
+							for checkRetries := 0; checkRetries < 50; checkRetries++ {
+								var checkBlock map[string]interface{}
+								ctxBlock, cancelBlock := context.WithTimeout(context.Background(), 1*time.Second)
+								errBlockCheck := rpcClient.CallContext(ctxBlock, &checkBlock, "eth_getBlockByNumber", hexutil.EncodeUint64(maxBlockA), false)
+								cancelBlock()
+
+								var checkNonceHex string
+								ctxNonce, cancelNonce := context.WithTimeout(context.Background(), 1*time.Second)
+								errNonceCheck := rpcClient.CallContext(ctxNonce, &checkNonceHex, "eth_getTransactionCount", common.HexToAddress(checkpoints[0].FromAddress), hexutil.EncodeUint64(maxBlockA))
+								cancelNonce()
+
+								if errBlockCheck == nil && checkBlock != nil && errNonceCheck == nil {
+									fmt.Printf("   ✅ Trạng thái dữ liệu Block A (%d) đã sẵn sàng sau %d lần thử (khoảng %d ms)!\n", maxBlockA, checkRetries+1, (checkRetries+1)*200)
+									ready = true
+									break
+								}
+								time.Sleep(200 * time.Millisecond)
+							}
+
+							if ready {
+								break
+							} else {
+								fmt.Printf("⏳ Dữ liệu mốc Block A (%d) vẫn chưa sẵn sàng sau 10 giây thăm dò. Đang thử lại...\n", maxBlockA)
+							}
 						} else {
 							fmt.Printf("⏳ Node đã online nhưng chiều cao block (%d) chưa vượt qua Block A lớn nhất (%d). Đang đợi...\n", latestBlock, maxBlockA)
 						}
@@ -696,9 +723,9 @@ func main() {
 				} else {
 					fmt.Printf("⏳ Lần thử %d/%d: Node %s chưa online (Error: %v). Đang đợi...\n", r, maxRetries, targetURL, err)
 				}
-				time.Sleep(2 * time.Second)
+				time.Sleep(200 * time.Millisecond)
 				if r == maxRetries {
-					log.Fatalf("🛑 LỖI: Node %s không online hoặc không đồng bộ kịp sau %d giây!", targetURL, maxRetries*2)
+					log.Fatalf("🛑 LỖI: Node %s không online hoặc không đồng bộ kịp sau %d giây!", targetURL, int(float64(maxRetries)*0.2))
 				}
 			}
 			defer rpcClient.Close()
@@ -710,7 +737,11 @@ func main() {
 			var latestBlockHex string
 			err = callContextWithRetry(ctx, rpcClient, &latestBlockHex, "eth_blockNumber")
 			if err != nil {
-				log.Fatalf("Lỗi lấy block mới nhất: %v", err)
+				reason := fmt.Sprintf("🚨 LỖI SO SÁNH LỊCH SỬ STATE (VERIFY)\nLấy block mới nhất thất bại: %v\n", err)
+				os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+				appendLocalErrorLog(reason)
+				fmt.Printf("\n🚨 %s\n", reason)
+				os.Exit(1)
 			}
 			latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
 			latestBlockHex = hexutil.EncodeUint64(latestBlock)
@@ -727,28 +758,44 @@ func main() {
 				var balanceAHex string
 				err = callContextWithRetry(ctx, rpcClient, &balanceAHex, "eth_getBalance", fromAddr, blockAHex)
 				if err != nil {
-					log.Fatalf("Lỗi lấy Balance tại Block A: %v", err)
+					reason := fmt.Sprintf("🚨 LỖI SO SÁNH LỊCH SỬ STATE (VERIFY)\nLấy Balance tại Block A (%d) thất bại: %v\n", cp.BlockA, err)
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("\n🚨 %s\n", reason)
+					os.Exit(1)
 				}
 				balanceA, _ := hexutil.DecodeBig(balanceAHex)
 
 				var nonceAHex string
 				err = callContextWithRetry(ctx, rpcClient, &nonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
 				if err != nil {
-					log.Fatalf("Lỗi lấy Nonce tại Block A: %v", err)
+					reason := fmt.Sprintf("🚨 LỖI SO SÁNH LỊCH SỬ STATE (VERIFY)\nLấy Nonce tại Block A (%d) thất bại: %v\n", cp.BlockA, err)
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("\n🚨 %s\n", reason)
+					os.Exit(1)
 				}
 				nonceA, _ := hexutil.DecodeUint64(nonceAHex)
 
 				var balanceBHex string
 				err = callContextWithRetry(ctx, rpcClient, &balanceBHex, "eth_getBalance", fromAddr, latestBlockHex)
 				if err != nil {
-					log.Fatalf("Lỗi lấy Balance hiện tại: %v", err)
+					reason := fmt.Sprintf("🚨 LỖI SO SÁNH LỊCH SỬ STATE (VERIFY)\nLấy Balance hiện tại (%d) thất bại: %v\n", latestBlock, err)
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("\n🚨 %s\n", reason)
+					os.Exit(1)
 				}
 				balanceB, _ := hexutil.DecodeBig(balanceBHex)
 
 				var nonceBHex string
 				err = callContextWithRetry(ctx, rpcClient, &nonceBHex, "eth_getTransactionCount", fromAddr, latestBlockHex)
 				if err != nil {
-					log.Fatalf("Lỗi lấy Nonce hiện tại: %v", err)
+					reason := fmt.Sprintf("🚨 LỖI SO SÁNH LỊCH SỬ STATE (VERIFY)\nLấy Nonce hiện tại (%d) thất bại: %v\n", latestBlock, err)
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("\n🚨 %s\n", reason)
+					os.Exit(1)
 				}
 				nonceB, _ := hexutil.DecodeUint64(nonceBHex)
 

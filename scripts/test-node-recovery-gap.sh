@@ -45,6 +45,33 @@ get_current_epoch() {
     fi
 }
 
+# Hàm chờ mạng thiết lập đồng thuận và bắt đầu tăng trưởng block
+wait_for_consensus() {
+    echo "⏳ Đang chờ hệ thống mạng thiết lập lại đồng thuận và tiến triển chiều cao block..."
+    local last_block=""
+    # Thử tối đa 60 giây (300 lần thử, mỗi lần cách nhau 200ms)
+    for ((r=1; r<=300; r++)); do
+        local block_hex
+        block_hex=$(curl -s --max-time 1 -X POST http://127.0.0.1:8757 \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
+        
+        if [ -n "$block_hex" ]; then
+            local current_block
+            current_block=$(printf "%d\n" "$block_hex")
+            if [ -n "$last_block" ] && [ "$current_block" -gt "$last_block" ]; then
+                echo "✅ Đồng thuận đã phục hồi! Chiều cao block đang tăng trưởng: $last_block -> $current_block"
+                return 0
+            fi
+            last_block=$current_block
+        fi
+        sleep 0.2
+    done
+    echo "⚠️ Cảnh báo: Đồng thuận chưa phục hồi rõ rệt sau 60 giây, tiếp tục chạy..."
+    return 1
+}
+
 
 
 # Hàm dọn dẹp tiến trình spam
@@ -66,7 +93,11 @@ cleanup() {
     trap - EXIT INT TERM
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
-    rm -f /tmp/pending_check_*.json
+    if [ $err -eq 0 ]; then
+        rm -f /tmp/pending_check_*.json
+    else
+        echo "💡 [DEBUG] Giữ lại file checkpoint /tmp/pending_check_*.json để debug offline!"
+    fi
     kill ${MONITOR_PID:-0} 2>/dev/null || true
     exit $err
 }
@@ -179,8 +210,18 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại toàn bộ mạng..."
         $ORCH_SCRIPT start
         
-        echo "⏳ Chờ 10s để xác nhận tiến trình Node không bị crash..."
-        sleep 10
+        echo "⏳ Đang kiểm tra nhanh xem có Node nào bị crash ngay khi khởi động không..."
+        crash_detected=0
+        for ((i=1; i<=20; i++)); do
+            for n in 0 1 2 3 4; do
+                if ! tmux ls 2>/dev/null | grep -q "go-master-$n"; then
+                    crash_detected=1
+                    break 2
+                fi
+            done
+            sleep 0.1
+        done
+
         for n in 0 1 2 3 4; do
             if ! tmux ls 2>/dev/null | grep -q "go-master-$n"; then
                 if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
@@ -207,8 +248,8 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
                 exit 1
             fi
         done
-        echo "⏳ Đợi thêm 15s cho toàn mạng kết nối và khôi phục hoạt động..."
-        sleep 15
+        # Chờ mạng phục hồi đồng thuận hoàn toàn bằng active polling thay vì sleep 15s cứng
+        wait_for_consensus
     else
         echo "📥 Lưu trạng thái lịch sử trước khi dừng node $TARGET_NODE..."
         (
@@ -248,8 +289,16 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại node $TARGET_NODE..."
         $ORCH_SCRIPT start-node $TARGET_NODE
         
-        echo "⏳ Chờ 5s để xác nhận tiến trình Node không bị crash..."
-        sleep 5
+        echo "⏳ Đang kiểm tra nhanh xem Node $TARGET_NODE có bị crash ngay khi khởi động không..."
+        crash_detected=0
+        for ((i=1; i<=20; i++)); do
+            if ! tmux ls 2>/dev/null | grep -q "go-master-$TARGET_NODE"; then
+                crash_detected=1
+                break
+            fi
+            sleep 0.1
+        done
+
         if ! tmux ls 2>/dev/null | grep -q "go-master-$TARGET_NODE"; then
             # ═══════════════════════════════════════════════════════════
             # DATA INTEGRITY DETECTION (May 2026):
@@ -282,20 +331,9 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
             echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$TARGET_NODE/go-master-stdout.log"
             exit 1
         fi
-        echo "⏳ Đợi 10s cho node khởi động và xin Recovery State..."
-        sleep 10
-
     fi
 
-
-
-echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Timeout 30s)..."
-    cd $HASH_CHECKER_DIR
-    rm -f hash_mismatch_alert.log
-timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
-    analyze_mismatch "$TARGET_NODE"
-    echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
-
+    # 1. Chạy xác minh trạng thái lịch sử trước bằng active polling (cực kỳ nhanh và chính xác)
     if [ "$TARGET_NODE" != "all" ]; then
         echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
         (
@@ -303,6 +341,14 @@ timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=ht
             go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
         )
     fi
+
+    # 2. Kiểm tra Hash Checker sau khi xác minh lịch sử thành công
+    echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Timeout 30s)..."
+    cd $HASH_CHECKER_DIR
+    rm -f hash_mismatch_alert.log
+    timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
+    analyze_mismatch "$TARGET_NODE"
+    echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
     cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
