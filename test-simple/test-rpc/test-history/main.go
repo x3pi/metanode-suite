@@ -37,6 +37,17 @@ type SavedCheckpoint struct {
 	ChainID       int64  `json:"chain_id"`
 }
 
+type AccountStateResult struct {
+	Address        string `json:"address"`
+	Balance        string `json:"balance"`
+	PendingBalance string `json:"pendingBalance"`
+	LastHash       string `json:"lastHash"`
+	DeviceKey      string `json:"deviceKey"`
+	Nonce          uint64 `json:"nonce"`
+	PublicKeyBls   string `json:"publicKeyBls"`
+	AccountType    int32  `json:"accountType"`
+}
+
 func callContextWithRetry(ctx context.Context, rpcClient *rpc.Client, result interface{}, method string, args ...interface{}) error {
 	var err error
 	for i := 0; i < 15; i++ {
@@ -338,6 +349,8 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	var balanceA *big.Int
 	var balanceB *big.Int
 	var nonceA, nonceB uint64
+	var accountStateA AccountStateResult
+	var accountStateB AccountStateResult
 
 	err = fc.execute(func(ethCli *ethclient.Client, rpcClient *rpc.Client) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -371,6 +384,16 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		}
 		nonceB, _ = hexutil.DecodeUint64(nonceBHex)
 
+		err = callContextWithRetry(ctx, rpcClient, &accountStateA, "mtn_getAccountState", fromAddress, blockAHex)
+		if err != nil {
+			return err
+		}
+
+		err = callContextWithRetry(ctx, rpcClient, &accountStateB, "mtn_getAccountState", fromAddress, blockBHex)
+		if err != nil {
+			return err
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -380,8 +403,12 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 
 	fmt.Printf("💰 eth_getBalance tại Block A (Lịch sử: %d): %v\n", blockA, balanceA)
 	fmt.Printf("💰 eth_getBalance tại Block B (Hiện tại: %d): %v\n", blockB, balanceB)
+	fmt.Printf("💰 mtn_getAccountState.balance tại Block A: %s\n", accountStateA.Balance)
+	fmt.Printf("💰 mtn_getAccountState.balance tại Block B: %s\n", accountStateB.Balance)
 	fmt.Printf("\n🔢 eth_getTransactionCount tại Block A (Lịch sử: %d): %d\n", blockA, nonceA)
 	fmt.Printf("🔢 eth_getTransactionCount tại Block B (Hiện tại: %d): %d\n", blockB, nonceB)
+	fmt.Printf("🔢 mtn_getAccountState.nonce tại Block A: %d\n", accountStateA.Nonce)
+	fmt.Printf("🔢 mtn_getAccountState.nonce tại Block B: %d\n", accountStateB.Nonce)
 
 	hasError := false
 	var errDetails []string
@@ -422,6 +449,26 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		hasError = true
 	}
 
+	// 5. Đối chiếu giữa mtn_getAccountState và eth_getBalance/eth_getTransactionCount
+	// Tại Block A
+	if accountStateA.Balance != balanceA.String() {
+		errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block A: mtn_getAccountState.balance (%s) khác eth_getBalance (%s)", accountStateA.Balance, balanceA.String()))
+		hasError = true
+	}
+	if accountStateA.Nonce != nonceA {
+		errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block A: mtn_getAccountState.nonce (%d) khác eth_getTransactionCount (%d)", accountStateA.Nonce, nonceA))
+		hasError = true
+	}
+	// Tại Block B
+	if accountStateB.Balance != balanceB.String() {
+		errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block B: mtn_getAccountState.balance (%s) khác eth_getBalance (%s)", accountStateB.Balance, balanceB.String()))
+		hasError = true
+	}
+	if accountStateB.Nonce != nonceB {
+		errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block B: mtn_getAccountState.nonce (%d) khác eth_getTransactionCount (%d)", accountStateB.Nonce, nonceB))
+		hasError = true
+	}
+
 	if hasError {
 		var sb strings.Builder
 		sb.WriteString("==================================================\n")
@@ -451,8 +498,8 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 	var sb strings.Builder
 	blockAHex := hexutil.EncodeUint64(blockA)
 	sb.WriteString("    🌐 Đối chiếu dữ liệu thực tế trên toàn bộ RPC Nodes:\n")
-	sb.WriteString("       RPC URL                        | Balance                                 | Nonce\n")
-	sb.WriteString("       ---------------------------------------------------------------------------------\n")
+	sb.WriteString("       RPC URL                        | eth_getBalance / mtn_balance                      | eth_nonce / mtn_nonce\n")
+	sb.WriteString("       ------------------------------------------------------------------------------------------------------\n")
 	for _, u := range urls {
 		tempClient, errDial := rpc.Dial(u)
 		if errDial != nil {
@@ -466,19 +513,23 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 
 		var tempNonceAHex string
 		errNon := tempClient.CallContext(ctxTemp, &tempNonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
+
+		var tempAccountState AccountStateResult
+		errAs := tempClient.CallContext(ctxTemp, &tempAccountState, "mtn_getAccountState", fromAddr, blockAHex)
 		cancelTemp()
 		tempClient.Close()
 
-		if errBal != nil || errNon != nil {
-			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi RPC: bal_err=%v, nonce_err=%v\n", u, errBal, errNon))
+		if errBal != nil || errNon != nil || errAs != nil {
+			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi RPC: bal_err=%v, nonce_err=%v, as_err=%v\n", u, errBal, errNon, errAs))
 			continue
 		}
 
 		tempBalance, _ := hexutil.DecodeBig(tempBalanceAHex)
 		tempNonce, _ := hexutil.DecodeUint64(tempNonceAHex)
-		sb.WriteString(fmt.Sprintf("       %-30s | balance=%-31s | nonce=%d\n", u, tempBalance.String(), tempNonce))
+		sb.WriteString(fmt.Sprintf("       %-30s | eth_bal=%s / mtn_bal=%s | eth_nonce=%d / mtn_nonce=%d\n",
+			u, tempBalance.String(), tempAccountState.Balance, tempNonce, tempAccountState.Nonce))
 	}
-	sb.WriteString("       ---------------------------------------------------------------------------------\n")
+	sb.WriteString("       ------------------------------------------------------------------------------------------------------\n")
 	return sb.String()
 }
 
@@ -840,15 +891,55 @@ func main() {
 				}
 				nonceB, _ := hexutil.DecodeUint64(nonceBHex)
 
+				var accountStateA AccountStateResult
+				err = callContextWithRetry(ctx, rpcClient, &accountStateA, "mtn_getAccountState", fromAddr, blockAHex)
+				if err != nil {
+					reason := fmt.Sprintf("🚨 LỖI SO SÁNH LỊCH SỬ STATE (VERIFY)\nLấy AccountState tại Block A (%d) thất bại: %v\n", cp.BlockA, err)
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("\n🚨 %s\n", reason)
+					os.Exit(1)
+				}
+
+				var accountStateB AccountStateResult
+				err = callContextWithRetry(ctx, rpcClient, &accountStateB, "mtn_getAccountState", fromAddr, latestBlockHex)
+				if err != nil {
+					reason := fmt.Sprintf("🚨 LỖI SO SÁNH LỊCH SỬ STATE (VERIFY)\nLấy AccountState hiện tại (%d) thất bại: %v\n", latestBlock, err)
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("\n🚨 %s\n", reason)
+					os.Exit(1)
+				}
+
 				fmt.Printf("Mốc lịch sử Block A (%d):\n", cp.BlockA)
-				fmt.Printf("   - Số dư lưu trước: %s | Thực tế get lại: %v\n", cp.SavedBalanceA, balanceA)
-				fmt.Printf("   - Nonce lưu trước: %d | Thực tế get lại: %d\n", cp.SavedNonceA, nonceA)
+				fmt.Printf("   - Số dư lưu trước: %s | Thực tế get lại: %v | mtn_balance: %s\n", cp.SavedBalanceA, balanceA, accountStateA.Balance)
+				fmt.Printf("   - Nonce lưu trước: %d | Thực tế get lại: %d | mtn_nonce: %d\n", cp.SavedNonceA, nonceA, accountStateA.Nonce)
 				fmt.Printf("Mốc hiện tại Block B (%d):\n", latestBlock)
-				fmt.Printf("   - Số dư hiện tại: %v\n", balanceB)
-				fmt.Printf("   - Nonce hiện tại: %d\n", nonceB)
+				fmt.Printf("   - Số dư hiện tại: %v | mtn_balance: %s\n", balanceB, accountStateB.Balance)
+				fmt.Printf("   - Nonce hiện tại: %d | mtn_nonce: %d\n", nonceB, accountStateB.Nonce)
 
 				hasError := false
 				var errDetails []string
+
+				// 5. Đối chiếu giữa mtn_getAccountState và eth_getBalance/eth_getTransactionCount
+				// Tại Block A
+				if accountStateA.Balance != balanceA.String() {
+					errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block A: mtn_getAccountState.balance (%s) khác eth_getBalance (%s)", accountStateA.Balance, balanceA.String()))
+					hasError = true
+				}
+				if accountStateA.Nonce != nonceA {
+					errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block A: mtn_getAccountState.nonce (%d) khác eth_getTransactionCount (%d)", accountStateA.Nonce, nonceA))
+					hasError = true
+				}
+				// Tại Block B
+				if accountStateB.Balance != balanceB.String() {
+					errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block B: mtn_getAccountState.balance (%s) khác eth_getBalance (%s)", accountStateB.Balance, balanceB.String()))
+					hasError = true
+				}
+				if accountStateB.Nonce != nonceB {
+					errDetails = append(errDetails, fmt.Sprintf("Mâu thuẫn Block B: mtn_getAccountState.nonce (%d) khác eth_getTransactionCount (%d)", accountStateB.Nonce, nonceB))
+					hasError = true
+				}
 
 				// 1. Số dư lịch sử get lại phải bằng số dư lưu trước
 				savedBalBig, _ := new(big.Int).SetString(cp.SavedBalanceA, 10)

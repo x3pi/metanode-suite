@@ -1,10 +1,11 @@
 {
     "type": "get_transaction_by_hash",
     "rpc_urls": [
-        "http://localhost:8757",
-        "http://localhost:10747",
-        "http://localhost:10749",
-        "http://localhost:10750"
+        "http://localhost:8545",
+        "http://localhost:8547",
+        "http://localhost:8548",
+        "http://localhost:8549",
+        "http://localhost:8550"
     ],
     "params": {
         "hash": "0xd1749100a45cb382dc4ee3e2528d7b1babfa91889284b3821acda7ae4b4efc33"
