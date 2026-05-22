@@ -76,6 +76,55 @@ wait_for_consensus() {
     return 1
 }
 
+# Hàm chờ và kiểm tra trạng thái khởi động chính xác của từng node (không dựa vào timeout 2s mù)
+wait_for_node_startup() {
+    local node_id=$1
+    local log_file="$ROOT_DIR/metanode/consensus/metanode/logs/node_${node_id}/go-master-stdout.log"
+    echo "🔍 Đang kiểm tra trạng thái khởi động chính xác của Node ${node_id}..."
+    
+    # Thăm dò tối đa 50 lần, mỗi lần cách nhau 100ms (tổng tối đa 5 giây)
+    for ((r=1; r<=50; r++)); do
+        # 1. Nếu sentinel file báo lỗi integrity xuất hiện, báo lỗi ngay lập tức
+        if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
+            echo "❌ [ERROR] Phát hiện lỗi integrity check của Node ${node_id}!"
+            return 1
+        fi
+        
+        # 2. Nếu tmux session biến mất, nghĩa là process đã crash trước cả khi ghi log hoặc tmux bị lỗi
+        if ! tmux ls 2>/dev/null | grep -q "go-master-${node_id}"; then
+            echo "❌ [ERROR] Tmux session go-master-${node_id} không tồn tại!"
+            return 1
+        fi
+        
+        # 3. Nếu log file tồn tại, kiểm tra xem có dấu hiệu khởi động thành công hoặc lỗi nghiêm trọng không
+        if [ -f "$log_file" ]; then
+            if grep -E -q "All checks passed|NOMT account_state not initialized yet|Indexing process initiated|Consensus core started|Starting consensus|Starting peer synchronization" "$log_file"; then
+                echo "✅ [SUCCESS] Node ${node_id} đã khởi động và vượt qua integrity check thành công sau $((r * 100))ms!"
+                return 0
+            fi
+            if grep -E -q "CRITICAL ERROR|CRITICAL:" "$log_file"; then
+                echo "❌ [ERROR] Node ${node_id} báo lỗi CRITICAL trong log!"
+                return 1
+            fi
+        fi
+        
+        # 4. Kiểm tra xem tiến trình thực sự có chạy không
+        if ! pgrep -f "simple_chain.*config-master-node${node_id}" >/dev/null; then
+            # Đợi thêm một tí xem có ghi log lỗi gì không
+            sleep 0.1
+            if ! pgrep -f "simple_chain.*config-master-node${node_id}" >/dev/null; then
+                echo "❌ [ERROR] Tiến trình simple_chain cho Node ${node_id} không chạy!"
+                return 1
+            fi
+        fi
+        
+        sleep 0.1
+    done
+    
+    echo "⚠️ Cảnh báo: Hết thời gian chờ 5s nhưng chưa xác định được trạng thái Node ${node_id}"
+    return 0
+}
+
 
 
 # Hàm dọn dẹp tiến trình spam
@@ -129,7 +178,7 @@ monitor_error_flag() {
             kill -TERM -$$
             exit 1
         fi
-        sleep 2
+        sleep 0.2
     done
 }
 monitor_error_flag &
@@ -223,20 +272,9 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại toàn bộ mạng..."
         $ORCH_SCRIPT start
         
-        echo "⏳ Đang kiểm tra nhanh xem có Node nào bị crash ngay khi khởi động không..."
-        crash_detected=0
-        for ((i=1; i<=20; i++)); do
-            for n in 0 1 2 3 4; do
-                if ! tmux ls 2>/dev/null | grep -q "go-master-$n"; then
-                    crash_detected=1
-                    break 2
-                fi
-            done
-            sleep 0.1
-        done
-
+        echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của toàn mạng..."
         for n in 0 1 2 3 4; do
-            if ! tmux ls 2>/dev/null | grep -q "go-master-$n"; then
+            if ! wait_for_node_startup "$n"; then
                 if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
                     echo -e "\n🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
                     echo "❌ [DATA INTEGRITY FAILURE] (Đang test mục tiêu: $TARGET_NODE)"
@@ -255,8 +293,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
                     rm -f /tmp/MTN_INTEGRITY_FAILED
                     exit 1
                 fi
-                echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $n đã Crash (Panic) ngay khi vừa khởi động!"
-                echo "   👉 Tiến trình go-master-$n không tồn tại trong tmux."
+                echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $n đã Crash ngay khi vừa khởi động!"
                 echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$n/go-master-stdout.log"
                 exit 1
             fi
@@ -302,23 +339,11 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại node $TARGET_NODE..."
         $ORCH_SCRIPT start-node $TARGET_NODE
         
-        echo "⏳ Đang kiểm tra nhanh xem Node $TARGET_NODE có bị crash ngay khi khởi động không..."
-        crash_detected=0
-        for ((i=1; i<=20; i++)); do
-            if ! tmux ls 2>/dev/null | grep -q "go-master-$TARGET_NODE"; then
-                crash_detected=1
-                break
-            fi
-            sleep 0.1
-        done
-
-        if ! tmux ls 2>/dev/null | grep -q "go-master-$TARGET_NODE"; then
+        echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của Node $TARGET_NODE..."
+        if ! wait_for_node_startup "$TARGET_NODE"; then
             # ═══════════════════════════════════════════════════════════
             # DATA INTEGRITY DETECTION (May 2026):
             # Check if the node exited due to data integrity failure
-            # (exit code 78) vs regular crash (panic, OOM).
-            # The Go startup_integrity_check writes /tmp/MTN_INTEGRITY_FAILED
-            # with detailed error info when data is corrupted.
             # ═══════════════════════════════════════════════════════════
             if [ -f /tmp/MTN_INTEGRITY_FAILED ]; then
                 echo -e "\n🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
@@ -339,8 +364,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
                 rm -f /tmp/MTN_INTEGRITY_FAILED
                 exit 1
             fi
-            echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $TARGET_NODE đã Crash (Panic) ngay khi vừa khởi động!"
-            echo "   👉 Tiến trình go-master-$TARGET_NODE không tồn tại trong tmux."
+            echo -e "\n❌ [FATAL ERROR] (Đang test mục tiêu: $TARGET_NODE): Node $TARGET_NODE đã Crash ngay khi vừa khởi động!"
             echo "   👉 Vui lòng xem log: metanode/consensus/metanode/logs/node_$TARGET_NODE/go-master-stdout.log"
             exit 1
         fi
