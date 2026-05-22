@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Giới hạn tài nguyên biên dịch để tránh OOM trong môi trường tài nguyên hạn chế
+export GOMAXPROCS=2
+export CARGO_BUILD_JOBS=2
+
 # Unset exported cd function to avoid environment conflicts
 unset -f cd 2>/dev/null || true
 
@@ -84,7 +88,16 @@ stop_spam() {
     pkill -f "main.go --count" || true
     pkill -f "go run main.go --watch" || true
     pkill -f "exe/main --watch" || true
-    sleep 2
+    
+    # Chờ động các tiến trình trên thực sự dừng hẳn (tối đa 5 giây, thăm dò mỗi 100ms)
+    local elapsed=0
+    while [ $elapsed -lt 50 ]; do
+        if ! pgrep -f "rpc-tcp-simple.sh|test-rpc.*main.go|test-tcp.*main-no-none.go|tps_blast_cc.*main.go|main.go --count|go run main.go --watch|exe/main --watch" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.1
+        elapsed=$((elapsed + 1))
+    done
 }
 
 # Đảm bảo dọn dẹp khi script bị ngắt
@@ -197,7 +210,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
             break
         fi
         echo "   ... Hiện tại: Epoch $CURRENT_EPOCH. Đang chờ mạng lên ít nhất Epoch 1..."
-        sleep 5
+        sleep 0.5
     done
 
     if [ "$TARGET_NODE" == "all" ]; then
@@ -279,7 +292,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
                 break
             fi
             echo "   ... Hiện tại: $CURRENT_EPOCH / $TARGET_EPOCH"
-            sleep 10
+            sleep 0.5
         done
 
         # Dừng spam để node bắt kịp nhanh hơn, hoặc để nguyên tùy kịch bản. Ở đây tạm dừng spam trước khi restart.
