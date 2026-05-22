@@ -266,7 +266,7 @@ func main() {
 	flag.IntVar(&sleepMs, "sleep", 10, "Sleep between batches (ms)")
 	flag.StringVar(&nodeAddr, "node", "", "Override node TCP address")
 	flag.StringVar(&rpcAddr, "rpc", "", "RPC URL for verification")
-	flag.IntVar(&waitSecs, "wait", 120, "Max seconds to wait for chain processing")
+	flag.IntVar(&waitSecs, "wait", 600, "Max seconds to wait for chain processing")
 	flag.StringVar(&recipient, "recipient", "0xbF2b4B9b9dFB6d23F7F0FC46981c2eC89f94A9F2", "Recipient address")
 	flag.IntVar(&destId, "dest", 2, "Destination chain ID")
 	flag.StringVar(&amountWei, "amount", "100", "Amount in wei (default: 1 ETH)")
@@ -1077,9 +1077,11 @@ func main() {
 		epochTransitioned := false
 		var processStart time.Time
 		var timeoutStartEpoch uint64
+		lastProgressTime := time.Now()
 		if epochWait <= 0 {
 			epochTransitioned = true
 			processStart = time.Now()
+			lastProgressTime = time.Now()
 			timeoutStartEpoch = startEpochBeforeBlast
 		}
 
@@ -1109,9 +1111,9 @@ func main() {
 				}
 			}
 
-			// Check TX confirmation timeout
+			// Check TX confirmation timeout (resets whenever there is block or TX progress)
 			if epochTransitioned && !processStart.IsZero() {
-				if time.Since(processStart) > maxWait {
+				if time.Since(lastProgressTime) > maxWait {
 					break
 				}
 			}
@@ -1136,6 +1138,7 @@ func main() {
 						fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", blk.Epoch, bn, time.Now().Format("15:04:05.000"))
 						epochTransitioned = true
 						processStart = time.Now()
+						lastProgressTime = time.Now()
 						timeoutStartEpoch = blk.Epoch
 					}
 
@@ -1152,6 +1155,9 @@ func main() {
 				}
 			}
 
+			if nextLastBlockNum > lastBlockNum || newTxs > 0 {
+				lastProgressTime = time.Now()
+			}
 			totalTxsInBlocks += newTxs
 			lastBlockNum = nextLastBlockNum
 
@@ -1166,7 +1172,7 @@ func main() {
 
 			var elapsedStr string
 			if epochTransitioned && !processStart.IsZero() {
-				elapsedStr = fmt.Sprintf("Timeout: %s/%s", time.Since(processStart).Round(time.Millisecond), maxWait)
+				elapsedStr = fmt.Sprintf("Timeout: %s/%s", time.Since(lastProgressTime).Round(time.Millisecond), maxWait)
 			} else if epochWait > 0 {
 				elapsedStr = fmt.Sprintf("Wait Epoch: %s/%ds", time.Since(epochWaitStart).Round(time.Millisecond), epochWait)
 			} else {
