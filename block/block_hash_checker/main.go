@@ -609,11 +609,17 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 							node.Name, curGEI, prev.GEI))
 				}
 
-				// CHECK 3: Epoch inconsistency (epoch must never decrease)
-				if curEpoch > 0 && prev.Epoch > 0 && curEpoch < prev.Epoch {
-					logAnomaly("EPOCH_REGRESSION", r.blockNum,
-						fmt.Sprintf("node=%s epoch=%d < prev_epoch=%d (CRITICAL: epoch went backward!)",
-							node.Name, curEpoch, prev.Epoch))
+				// CHECK 3: Epoch inconsistency (epoch must never decrease and must not jump/skip)
+				if curEpoch > 0 && prev.Epoch > 0 {
+					if curEpoch < prev.Epoch {
+						logAnomaly("EPOCH_REGRESSION", r.blockNum,
+							fmt.Sprintf("node=%s epoch=%d < prev_epoch=%d (CRITICAL: epoch went backward!)",
+								node.Name, curEpoch, prev.Epoch))
+					} else if curEpoch > prev.Epoch+1 {
+						logAnomaly("EPOCH_JUMP", r.blockNum,
+							fmt.Sprintf("node=%s epoch=%d jumped from prev_epoch=%d (CRITICAL: epoch skipped!)",
+								node.Name, curEpoch, prev.Epoch))
+					}
 				}
 
 				// CHECK 5: StateRoot freeze (same stateRoot across 5+ consecutive non-epoch-boundary blocks with txs)
@@ -1276,8 +1282,6 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 	type nodeBlock struct {
 		name  string
 		block uint64
-		gei   uint64
-		epoch uint64
 		err   error
 	}
 
@@ -1289,28 +1293,18 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 	for _, n := range nodes {
 		num, err := getLatestBlockNumber(client, n.URL)
 
-		var gei, epoch uint64
 		if err == nil {
 			if nodeWasDead[n.Name] {
 				fmt.Printf("\n🔄 NODE %s ĐÃ SỐNG LẠI! Tiến hành đặt lại mốc kiểm tra để quét lại từ đầu (block 1)...\n", n.Name)
 				nodeWasDead[n.Name] = false
 				*lastVerifiedBlock = 0
 			}
-
-			// Lấy gei và epoch từ chính block mới nhất thông qua eth_getBlockByNumber
-			bi, errBi := getBlockInfo(client, n.URL, num)
-			if errBi == nil && !bi.IsError() {
-				gei = parseHexStr(bi.GlobalExecIndex)
-				epoch = parseHexStr(bi.Epoch)
-			} else if bi.IsError() {
-				// logSystemError(n.Name, num, bi.Error)
-			}
 		} else {
 			hasNodeError = true
 			nodeWasDead[n.Name] = true
 		}
 
-		results = append(results, nodeBlock{name: n.Name, block: num, gei: gei, epoch: epoch, err: err})
+		results = append(results, nodeBlock{name: n.Name, block: num, err: err})
 		if err == nil {
 			if num < minBlock {
 				minBlock = num
@@ -1335,7 +1329,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		if r.err != nil {
 			heightParts = append(heightParts, fmt.Sprintf("%s=ERR", r.name))
 		} else {
-			heightParts = append(heightParts, fmt.Sprintf("%s=%d (gei:%d e:%d)", r.name, r.block, r.gei, r.epoch))
+			heightParts = append(heightParts, fmt.Sprintf("%s=%d", r.name, r.block))
 		}
 	}
 	fmt.Printf("Heights: %s", strings.Join(heightParts, "  "))
