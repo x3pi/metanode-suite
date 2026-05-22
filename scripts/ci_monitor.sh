@@ -202,6 +202,12 @@ echo "🚀 [3/3] Khởi động ${MONITOR_NAME}.py mới..."
 echo "   → Args: ${CI_ARGS[*]}"
 echo "   → Log:  $CI_LOG"
 
+# Ghi lại log file mới nhất hiện tại trước khi khởi chạy
+PREV_LATEST=""
+if [ -d "$AUTO_TEST_LOGS" ]; then
+    PREV_LATEST=$(ls -t "$AUTO_TEST_LOGS"/*.log 2>/dev/null | head -n 1)
+fi
+
 # Đợi 2 giây để port cũ đóng hoàn toàn
 sleep 2
 
@@ -218,11 +224,30 @@ else
     exit 1
 fi
 
+# Chờ tối đa 5 giây để Python monitor thực hiện git ls-remote/pull và tạo log file mới
+LATEST_LOG_FILE=""
+for i in {1..50}; do
+    LATEST_LOG_FILE=$(ls -t "$AUTO_TEST_LOGS"/*.log 2>/dev/null | head -n 1)
+    if [ -n "$LATEST_LOG_FILE" ] && [ "$LATEST_LOG_FILE" != "$PREV_LATEST" ]; then
+        break
+    fi
+    sleep 0.1
+done
+
+# Fallback nếu không tìm thấy log file mới hoặc chưa tạo kịp
+if [ -z "$LATEST_LOG_FILE" ]; then
+    LATEST_LOG_FILE=$(ls -t "$AUTO_TEST_LOGS"/*.log 2>/dev/null | head -n 1)
+fi
+
 echo ""
 echo "======================================================="
 echo "📋 THÔNG TIN TIỆN ÍCH"
 echo "======================================================="
 echo "  Xem log realtime:  tail -f $CI_LOG"
-echo "  Xem log test:      tail -f $AUTO_TEST_LOGS/\$(ls -t $AUTO_TEST_LOGS/ 2>/dev/null | head -n 1)"
+if [ -n "$LATEST_LOG_FILE" ]; then
+    echo "  Xem log test:      tail -f $LATEST_LOG_FILE"
+else
+    echo "  Xem log test:      tail -f $AUTO_TEST_LOGS/*.log"
+fi
 echo "  Kill CI Monitor:   pkill -f ${MONITOR_NAME}.py"
 echo "======================================================="
