@@ -253,8 +253,13 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 
 		waitStartTime := time.Now()
 		for {
-			if time.Since(waitStartTime) > 60*time.Second {
-				return fmt.Errorf("timeout waiting for receipt after 50s")
+			if time.Since(waitStartTime) > 30*time.Second {
+				fmt.Printf("\n   🚨 Timeout khi chờ receipt cho Tx %s. Dùng lệnh curl sau để kiểm tra trên từng RPC:\n", signedTx.Hash().Hex())
+				for _, url := range fc.urls {
+					fmt.Printf("      curl -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"%s\"],\"id\":1}' %s\n", signedTx.Hash().Hex(), url)
+				}
+				fmt.Println()
+				return fmt.Errorf("timeout waiting for receipt after 30s")
 			}
 			ctxReceipt, cancelReceipt := context.WithTimeout(context.Background(), 10*time.Second)
 			receipt, errReceipt := ethCli.TransactionReceipt(ctxReceipt, signedTx.Hash())
