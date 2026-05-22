@@ -1,11 +1,11 @@
 {
     "type": "get_transaction_receipt",
     "rpc_urls": [
-        "http://localhost:8757",
-        "http://localhost:10747",
-        "http://localhost:10749",
-        "http://localhost:10750",
-        "http://localhost:10748"
+        "http://localhost:8545",
+        "http://localhost:8547",
+        "http://localhost:8548",
+        "http://localhost:8549",
+        "http://localhost:8550"
     ],
     "params": {
         "hash": "0x62f3fd465d74f6b2e8ea6e3860fbf7b7b8ee642f062dd60254ce6b90a824def0"
