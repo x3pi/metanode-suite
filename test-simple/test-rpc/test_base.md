@@ -6,6 +6,8 @@ go run -tags tool base.go -config=./base/config-transactionbyhash.json
 go run -tags tool base.go -config=./base/config-systemtxsbyblock.json
 go run -tags tool base.go -config=./base/config-transactionreceipt.json
 go run -tags tool base.go -config=./base/config-accountstate.json
+go run -tags tool base.go -config=./base/config-gettransactioncount.json
+go run -tags tool base.go -config=./base/config-getbalance.json
 ```
 
 # Tool check state all RPC (base.go)
@@ -113,7 +115,57 @@ Ví dụ:
 }
 ```
 
-### C. get_chain_id
+### C. get_transaction_count
+
+Gọi method `eth_getTransactionCount`, in ra `nonce` của tài khoản tại block được chọn theo từng RPC.
+
+Params:
+
+- Bắt buộc: `address`
+- Tùy chọn: `block_tag` (mặc định `latest`)
+
+Ví dụ:
+
+```json
+{
+ "rpc_urls": [
+  "http://127.0.0.1:8757",
+  "http://127.0.0.1:10747"
+ ],
+ "type": "get_transaction_count",
+ "params": {
+  "address": "0x1234567890abcdef1234567890abcdef12345678",
+  "block_tag": "latest"
+ }
+}
+```
+
+### D. get_balance
+
+Gọi method `eth_getBalance`, in ra `balance` dạng decimal của tài khoản tại block được chọn theo từng RPC.
+
+Params:
+
+- Bắt buộc: `address`
+- Tùy chọn: `block_tag` (mặc định `latest`)
+
+Ví dụ:
+
+```json
+{
+ "rpc_urls": [
+  "http://127.0.0.1:8757",
+  "http://127.0.0.1:10747"
+ ],
+ "type": "get_balance",
+ "params": {
+  "address": "0x1234567890abcdef1234567890abcdef12345678",
+  "block_tag": "latest"
+ }
+}
+```
+
+### E. get_chain_id
 
 Gọi method `eth_chainId`, in ra chain id theo từng RPC.
 

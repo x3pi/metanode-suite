@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"strconv"
@@ -74,6 +75,8 @@ func main() {
 	handlers := map[string]func(string, Config) (string, error){
 		"get_logs":                                runGetLogs,
 		"account_state":                           runAccountState,
+		"get_transaction_count":                   runGetTransactionCount,
+		"get_balance":                             runGetBalance,
 		"get_chain_id":                            runGetChainID,
 		"get_transaction_by_hash":                 runGetTransactionByHash,
 		"get_transaction_receipt":                 runGetTransactionReceipt,
@@ -85,7 +88,7 @@ func main() {
 	handler, ok := handlers[runType]
 	if !ok {
 		fmt.Printf("Unsupported type: %q\n", cfg.Type)
-		fmt.Println("Supported types: get_logs, account_state, get_chain_id, get_transaction_by_hash, get_transaction_receipt, get_block_transactions, get_system_transactions_by_block_number")
+		fmt.Println("Supported types: get_logs, account_state, get_transaction_count, get_balance, get_chain_id, get_transaction_by_hash, get_transaction_receipt, get_block_transactions, get_system_transactions_by_block_number")
 		os.Exit(1)
 	}
 
@@ -195,9 +198,16 @@ func runAccountState(url string, cfg Config) (string, error) {
 		return "", fmt.Errorf("params.address is required")
 	}
 
-	blockTag, ok := readStringParam(cfg.Params, "block_tag")
+	blockTagRaw, ok := readParam(cfg.Params, "block_tag")
+	var blockTag string
+	var err error
 	if !ok {
 		blockTag = "latest"
+	} else {
+		blockTag, err = normalizeBlockParam(blockTagRaw)
+		if err != nil {
+			return "", fmt.Errorf("params.block_tag: %w", err)
+		}
 	}
 
 	result, err := callRPC(url, cfg.TimeoutSeconds, "mtn_getAccountState", []interface{}{address, blockTag})
@@ -216,6 +226,109 @@ func runAccountState(url string, cfg Config) (string, error) {
 
 	return fmt.Sprintf("balance=%s | pending_balance=%s | nonce=%d | last_hash=%s | device_key=%s | account_type=%d",
 		state.Balance, state.PendingBalance, state.Nonce, state.LastHash, state.DeviceKey, state.AccountType), nil
+}
+
+func runGetTransactionCount(url string, cfg Config) (string, error) {
+	address, ok := readStringParam(cfg.Params, "address")
+	if !ok {
+		return "", fmt.Errorf("params.address is required")
+	}
+
+	blockTagRaw, ok := readParam(cfg.Params, "block_tag")
+	var blockTag string
+	var err error
+	if !ok {
+		blockTag = "latest"
+	} else {
+		blockTag, err = normalizeBlockParam(blockTagRaw)
+		if err != nil {
+			return "", fmt.Errorf("params.block_tag: %w", err)
+		}
+	}
+
+	result, err := callRPC(url, cfg.TimeoutSeconds, "eth_getTransactionCount", []interface{}{address, blockTag})
+	if err != nil {
+		return "", err
+	}
+
+	if string(result) == "null" {
+		return "null (không có dữ liệu/tài khoản không tồn tại)", nil
+	}
+
+	var nonceHex string
+	if err := json.Unmarshal(result, &nonceHex); err != nil {
+		var nonceNum uint64
+		if errNum := json.Unmarshal(result, &nonceNum); errNum == nil {
+			return fmt.Sprintf("nonce=%d", nonceNum), nil
+		}
+		return "", fmt.Errorf("failed to parse transaction count result: %w", err)
+	}
+
+	var nonceNum uint64
+	if strings.HasPrefix(nonceHex, "0x") {
+		num, errParse := strconv.ParseUint(strings.TrimPrefix(nonceHex, "0x"), 16, 64)
+		if errParse == nil {
+			nonceNum = num
+		} else {
+			return fmt.Sprintf("nonce_hex=%s (lỗi parse: %v)", nonceHex, errParse), nil
+		}
+	} else {
+		num, errParse := strconv.ParseUint(nonceHex, 10, 64)
+		if errParse == nil {
+			nonceNum = num
+		} else {
+			return fmt.Sprintf("nonce=%s", nonceHex), nil
+		}
+	}
+
+	return fmt.Sprintf("nonce=%d", nonceNum), nil
+}
+
+func runGetBalance(url string, cfg Config) (string, error) {
+	address, ok := readStringParam(cfg.Params, "address")
+	if !ok {
+		return "", fmt.Errorf("params.address is required")
+	}
+
+	blockTagRaw, ok := readParam(cfg.Params, "block_tag")
+	var blockTag string
+	var err error
+	if !ok {
+		blockTag = "latest"
+	} else {
+		blockTag, err = normalizeBlockParam(blockTagRaw)
+		if err != nil {
+			return "", fmt.Errorf("params.block_tag: %w", err)
+		}
+	}
+
+	result, err := callRPC(url, cfg.TimeoutSeconds, "eth_getBalance", []interface{}{address, blockTag})
+	if err != nil {
+		return "", err
+	}
+
+	if string(result) == "null" {
+		return "null (không có dữ liệu/tài khoản không tồn tại)", nil
+	}
+
+	var balanceHex string
+	if err := json.Unmarshal(result, &balanceHex); err != nil {
+		return "", fmt.Errorf("failed to parse balance result: %w", err)
+	}
+
+	var balanceStr string
+	if strings.HasPrefix(balanceHex, "0x") {
+		balanceBig := new(big.Int)
+		if _, ok := balanceBig.SetString(strings.TrimPrefix(balanceHex, "0x"), 16); ok {
+			balanceStr = balanceBig.String()
+		} else {
+			balanceStr = fmt.Sprintf("%s (lỗi parse hex)", balanceHex)
+		}
+	} else {
+		balanceStr = balanceHex
+	}
+
+	return fmt.Sprintf("balance=%s", balanceStr), nil
 }
 
 func runGetChainID(url string, cfg Config) (string, error) {

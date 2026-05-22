@@ -433,6 +433,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		for _, det := range errDetails {
 			sb.WriteString(fmt.Sprintf("- %s\n", det))
 		}
+		sb.WriteString(queryAllRPCsAndGenerateReport(fc.urls, fromAddress, blockA))
 		sb.WriteString("==================================================\n")
 		reason := sb.String()
 		os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
@@ -444,6 +445,41 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	}
 
 	return !hasError
+}
+
+func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, blockA uint64) string {
+	var sb strings.Builder
+	blockAHex := hexutil.EncodeUint64(blockA)
+	sb.WriteString("    🌐 Đối chiếu dữ liệu thực tế trên toàn bộ RPC Nodes:\n")
+	sb.WriteString("       RPC URL                        | Balance                                 | Nonce\n")
+	sb.WriteString("       ---------------------------------------------------------------------------------\n")
+	for _, u := range urls {
+		tempClient, errDial := rpc.Dial(u)
+		if errDial != nil {
+			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi kết nối: %v\n", u, errDial))
+			continue
+		}
+		
+		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
+		var tempBalanceAHex string
+		errBal := tempClient.CallContext(ctxTemp, &tempBalanceAHex, "eth_getBalance", fromAddr, blockAHex)
+		
+		var tempNonceAHex string
+		errNon := tempClient.CallContext(ctxTemp, &tempNonceAHex, "eth_getTransactionCount", fromAddr, blockAHex)
+		cancelTemp()
+		tempClient.Close()
+		
+		if errBal != nil || errNon != nil {
+			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi RPC: bal_err=%v, nonce_err=%v\n", u, errBal, errNon))
+			continue
+		}
+		
+		tempBalance, _ := hexutil.DecodeBig(tempBalanceAHex)
+		tempNonce, _ := hexutil.DecodeUint64(tempNonceAHex)
+		sb.WriteString(fmt.Sprintf("       %-30s | balance=%-31s | nonce=%d\n", u, tempBalance.String(), tempNonce))
+	}
+	sb.WriteString("       ---------------------------------------------------------------------------------\n")
+	return sb.String()
 }
 
 func appendLocalErrorLog(reason string) {
@@ -704,6 +740,8 @@ func main() {
 									fmt.Printf("   ✅ Trạng thái dữ liệu Block A (%d) đã sẵn sàng sau %d lần thử (khoảng %d ms)!\n", maxBlockA, checkRetries+1, (checkRetries+1)*200)
 									ready = true
 									break
+								} else {
+									fmt.Printf("   DEBUG (lần %d): errBlockCheck=%v, checkBlock==nil: %t, errNonceCheck=%v\n", checkRetries+1, errBlockCheck, checkBlock == nil, errNonceCheck)
 								}
 								time.Sleep(200 * time.Millisecond)
 							}
@@ -859,6 +897,7 @@ func main() {
 					for _, det := range errDetails {
 						errStr.WriteString(fmt.Sprintf("    * %s\n", det))
 					}
+					errStr.WriteString(queryAllRPCsAndGenerateReport(urls, fromAddr, cp.BlockA))
 					allErrDetails = append(allErrDetails, errStr.String())
 					hasGlobalError = true
 				}

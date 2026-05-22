@@ -1,5 +1,5 @@
 {
-    "type": "account_state",
+    "type": "get_transaction_count",
     "rpc_urls": [
         "http://localhost:8757",
         "http://localhost:10747",
@@ -9,6 +9,6 @@
     ],
     "params": {
         "address": "0x7d03201fee4675987894617138e5Ee7e038a6b39",
-        "block_tag": "latest"
+        "block_tag": "463"
     }
 }
