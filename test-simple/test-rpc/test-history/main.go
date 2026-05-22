@@ -500,7 +500,120 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		fmt.Printf("\n🚨 %s\n", reason)
 	}
 
-	return !hasError
+	fmt.Println("\n=====================================================")
+	fmt.Println("🚀 BẮT ĐẦU XÁC MINH TRÊN CÁC NODE CÒN LẠI")
+	fmt.Println("=====================================================")
+
+	for _, u := range fc.urls {
+		fmt.Printf("🔍 Đang kiểm tra node: %s\n", u)
+		tempClient, errDial := rpc.Dial(u)
+		if errDial != nil {
+			fmt.Printf("   ⚠️ Node %s không thể kết nối (%v). Bỏ qua...\n", u, errDial)
+			continue
+		}
+
+		// Đợi node đồng bộ tới blockB (tối đa 30s)
+		synced := false
+		waitStart := time.Now()
+		isAlive := false
+		for time.Since(waitStart) < 30*time.Second {
+			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
+			var latestBlockHex string
+			errBlock := tempClient.CallContext(ctxTemp, &latestBlockHex, "eth_blockNumber")
+			cancelTemp()
+
+			if errBlock == nil {
+				isAlive = true
+				latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
+				if latestBlock >= blockB {
+					synced = true
+					break
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		if !isAlive {
+			fmt.Printf("   ⚠️ Node %s không phản hồi eth_blockNumber. Bỏ qua...\n", u)
+			tempClient.Close()
+			continue
+		}
+
+		if !synced {
+			reason := fmt.Sprintf("🛑 LỖI: Node %s không đồng bộ tới block %d sau 30s", u, blockB)
+			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+			appendLocalErrorLog(reason)
+			fmt.Printf("   %s\n", reason)
+			tempClient.Close()
+			return false
+		}
+
+		// Xác minh dữ liệu lịch sử trên node này
+		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 5*time.Second)
+		var tBalAHex, tBalBHex, tNonceAHex, tNonceBHex string
+		var tAsA, tAsB AccountStateResult
+		
+		err1 := tempClient.CallContext(ctxTemp, &tBalAHex, "eth_getBalance", fromAddress, blockAHex)
+		err2 := tempClient.CallContext(ctxTemp, &tBalBHex, "eth_getBalance", fromAddress, blockBHex)
+		err3 := tempClient.CallContext(ctxTemp, &tNonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
+		err4 := tempClient.CallContext(ctxTemp, &tNonceBHex, "eth_getTransactionCount", fromAddress, blockBHex)
+		err5 := tempClient.CallContext(ctxTemp, &tAsA, "mtn_getAccountState", fromAddress, blockAHex)
+		err6 := tempClient.CallContext(ctxTemp, &tAsB, "mtn_getAccountState", fromAddress, blockBHex)
+		cancelTemp()
+
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil {
+			fmt.Printf("   ⚠️ Node %s gặp lỗi RPC khi query data. Bỏ qua...\n", u)
+			tempClient.Close()
+			continue
+		}
+
+		tBalA, _ := hexutil.DecodeBig(tBalAHex)
+		tBalB, _ := hexutil.DecodeBig(tBalBHex)
+		tNonceA, _ := hexutil.DecodeUint64(tNonceAHex)
+		tNonceB, _ := hexutil.DecodeUint64(tNonceBHex)
+
+		nodeHasError := false
+		var nodeErrDetails []string
+
+		if tBalA.Cmp(balanceA) != 0 {
+			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- balanceA khác: Node=%v vs Chuẩn=%v", tBalA, balanceA))
+			nodeHasError = true
+		}
+		if tBalB.Cmp(balanceB) != 0 {
+			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- balanceB khác: Node=%v vs Chuẩn=%v", tBalB, balanceB))
+			nodeHasError = true
+		}
+		if tNonceA != nonceA {
+			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- nonceA khác: Node=%v vs Chuẩn=%v", tNonceA, nonceA))
+			nodeHasError = true
+		}
+		if tNonceB != nonceB {
+			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- nonceB khác: Node=%v vs Chuẩn=%v", tNonceB, nonceB))
+			nodeHasError = true
+		}
+		if tAsA.Balance != accountStateA.Balance || tAsA.Nonce != accountStateA.Nonce {
+			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- accountStateA khác: Node=%v/%v vs Chuẩn=%v/%v", tAsA.Balance, tAsA.Nonce, accountStateA.Balance, accountStateA.Nonce))
+			nodeHasError = true
+		}
+		if tAsB.Balance != accountStateB.Balance || tAsB.Nonce != accountStateB.Nonce {
+			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- accountStateB khác: Node=%v/%v vs Chuẩn=%v/%v", tAsB.Balance, tAsB.Nonce, accountStateB.Balance, accountStateB.Nonce))
+			nodeHasError = true
+		}
+
+		if nodeHasError {
+			reason := fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s:\n%s", u, strings.Join(nodeErrDetails, "\n"))
+			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+			appendLocalErrorLog(reason)
+			fmt.Printf("   %s\n", reason)
+			tempClient.Close()
+			return false
+		}
+
+		fmt.Printf("   ✅ Node %s đã xác minh dữ liệu lịch sử hoàn toàn khớp!\n", u)
+		tempClient.Close()
+	}
+
+	return true
 }
 
 func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, blockA uint64) string {
