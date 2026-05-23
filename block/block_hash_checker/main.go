@@ -348,7 +348,8 @@ func main() {
 		}
 
 		// Trigger the verified first mismatch stop flag for Telegram!
-		triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+		stopFlagMsg := triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+		fmt.Println(stopFlagMsg)
 
 		// Chi tiết từng mismatch
 		maxShow := 50
@@ -1610,7 +1611,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 	}
 
 	// Trigger the verified first mismatch stop flag for Telegram!
-	triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+	stopFlagMsg := triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
 
 	*totalMismatches += len(mismatches)
 
@@ -1733,6 +1734,8 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 
 	alertBuf.WriteString(surroundingDetails.String())
 
+	alertBuf.WriteString("\n" + stopFlagMsg + "\n")
+
 	alertBuf.WriteString("\n─── Summary ───\n")
 	alertBuf.WriteString(fmt.Sprintf("Total mismatches: %d\n", *totalMismatches))
 	alertBuf.WriteString(fmt.Sprintf("Detected at: %s\n", time.Now().Format("2006-01-02 15:04:05.000")))
@@ -1793,7 +1796,7 @@ func formatFullBlockDetails(client *http.Client, nodes []nodeInfo, blockNum uint
 	return sb.String()
 }
 
-func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64) {
+func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64) string {
 	// Fetch block info across all nodes
 	blocks := make(map[string]blockInfo)
 	var validBlocks []blockInfo
@@ -1813,7 +1816,7 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 	}
 
 	if len(validBlocks) < 2 {
-		return
+		return ""
 	}
 
 	mismatchedFields := make(map[string]bool)
@@ -1966,6 +1969,7 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 	}
 
 	triggerStopFlag(sb.String())
+	return sb.String()
 }
 
 // ===== Types and helper functions for RPC Block State Diffing =====
