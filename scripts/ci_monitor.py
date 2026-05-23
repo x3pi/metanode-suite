@@ -260,16 +260,16 @@ def main():
                             if os.path.exists(log_file):
                                 with open(log_file, "r", errors="replace") as f:
                                     lines = f.readlines()
-                                    tail_logs = "".join(lines[-25:])
+                                    tail_logs = "".join(lines[-50:])
                                     # Giới hạn số lượng ký tự để không vượt quá giới hạn của Telegram
-                                    if len(tail_logs) > 3000:
-                                        tail_logs = tail_logs[-3000:]
+                                    if len(tail_logs) > 3800:
+                                        tail_logs = tail_logs[-3800:]
                         except Exception as e:
                             print(f"Lỗi đọc log: {e}")
 
                         server_info = get_server_ip_info()
                         real_code = exit_code if exit_code > 0 else "0 (lỗi phát hiện qua log/sentinel)"
-                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI (Exit Code: {real_code}).\n\n📄 **Trích xuất 25 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
+                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI (Exit Code: {real_code}).\n\n📄 **Trích xuất 50 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
                         send_telegram_message(msg)
                     else:
                         server_info = get_server_ip_info()

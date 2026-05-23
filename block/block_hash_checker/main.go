@@ -599,23 +599,17 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			}
 			sort.Strings(fields)
 
-			// Build a beautiful multi-line diagnostic string for the stop flag
+			// Build a compact 1-line diagnostic string for the stop flag
 			var sb strings.Builder
-			sb.WriteString("\n")
-			sb.WriteString("================================================================================\n")
-			sb.WriteString(fmt.Sprintf("🚨  CHAIN BROKEN OR HASH MISMATCH DETECTED ON BLOCK %d\n", r.blockNum))
-			sb.WriteString("================================================================================\n")
-			sb.WriteString(fmt.Sprintf("Mismatched fields: [%s]\n", strings.Join(fields, ", ")))
-			sb.WriteString("--------------------------------------------------------------------------------\n")
-			sb.WriteString("Node Values Details:\n")
+			sb.WriteString(fmt.Sprintf("🚨 LỆCH BLOCK %d | Fields: [%s] | ", r.blockNum, strings.Join(fields, ", ")))
 
+			var nodeDetails []string
 			for _, node := range nodes {
 				bi := r.blocks[node.Name]
-				sb.WriteString(fmt.Sprintf("\n• %s:\n", node.Name))
 				if bi.IsError() {
-					sb.WriteString(fmt.Sprintf("  ⚠️  Error: %s\n", bi.Error))
+					nodeDetails = append(nodeDetails, fmt.Sprintf("%s(Lỗi: %s)", node.Name, bi.Error))
 				} else {
-					// Print each mismatched field value for this node
+					var fieldVals []string
 					for _, f := range fields {
 						val := ""
 						switch f {
@@ -632,32 +626,41 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 						case "receiptsRoot":
 							val = bi.ReceiptsRoot
 						case "timestamp":
-							val = fmt.Sprintf("%s (%d)", bi.Timestamp, parseHexStr(bi.Timestamp))
+							val = fmt.Sprintf("%s(%d)", bi.Timestamp, parseHexStr(bi.Timestamp))
 						case "miner":
 							val = bi.Miner
 						case "epoch":
-							val = fmt.Sprintf("%s (%d)", bi.Epoch, parseHexStr(bi.Epoch))
+							val = fmt.Sprintf("%s(%d)", bi.Epoch, parseHexStr(bi.Epoch))
 						case "globalExecIndex":
-							val = fmt.Sprintf("%s (%d)", bi.GlobalExecIndex, parseHexStr(bi.GlobalExecIndex))
+							val = fmt.Sprintf("%s(%d)", bi.GlobalExecIndex, parseHexStr(bi.GlobalExecIndex))
 						case "commitIndex":
-							val = fmt.Sprintf("%s (%d)", bi.CommitIndex, parseHexStr(bi.CommitIndex))
+							val = fmt.Sprintf("%s(%d)", bi.CommitIndex, parseHexStr(bi.CommitIndex))
 						case "aggregateSignature":
 							val = bi.AggregateSignature
 						case "chain_broken":
 							val = fmt.Sprintf("parentHash=%s", bi.ParentHash)
 						}
-						sb.WriteString(fmt.Sprintf("  - %-18s: %s\n", f, val))
+						// Shorten long hashes for 1-line output
+						if len(val) > 20 && strings.HasPrefix(val, "0x") {
+							val = val[:6] + ".." + val[len(val)-4:]
+						}
+						fieldVals = append(fieldVals, fmt.Sprintf("%s:%s", f, val))
 					}
-					// Also print block hash if hash itself wasn't the mismatched field, to identify the block
+					// Always include gei and epoch for context
 					if !mismatchedFields["hash"] {
-						sb.WriteString(fmt.Sprintf("  - %-18s: %s\n", "hash", bi.Hash))
+						hashVal := bi.Hash
+						if len(hashVal) > 20 {
+							hashVal = hashVal[:6] + ".." + hashVal[len(hashVal)-4:]
+						}
+						fieldVals = append(fieldVals, fmt.Sprintf("hash:%s", hashVal))
 					}
-					// Also print epoch and gei for additional context
-					sb.WriteString(fmt.Sprintf("  - %-18s: %d\n", "globalExecIndex", parseHexStr(bi.GlobalExecIndex)))
-					sb.WriteString(fmt.Sprintf("  - %-18s: %d\n", "epoch", parseHexStr(bi.Epoch)))
+					fieldVals = append(fieldVals, fmt.Sprintf("gei:%d", parseHexStr(bi.GlobalExecIndex)))
+					fieldVals = append(fieldVals, fmt.Sprintf("epoch:%d", parseHexStr(bi.Epoch)))
+
+					nodeDetails = append(nodeDetails, fmt.Sprintf("%s{%s}", node.Name, strings.Join(fieldVals, ", ")))
 				}
 			}
-			sb.WriteString("================================================================================\n")
+			sb.WriteString(strings.Join(nodeDetails, " vs "))
 
 			triggerStopFlag(sb.String())
 		} else {
