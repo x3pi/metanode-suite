@@ -38,10 +38,11 @@ go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=fa
 cd /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/scripts
 ./mtn-orchestrator.sh start-node 1
 ```
-*Ghi chú: Tại bước này bạn nên theo dõi log của Node 1 để xem tiến trình Recovery diễn ra như thế nào, có bị panic hoặc lỗi integrity không:*
+*Ghi chú: check node 0:*
 ```bash
-tail -f /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/logs/node_1/go-master-stdout.log
-```
+tail -f /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/logs/node_0/go-master-stdout.log
+tail -f /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/logs/node_0/App.log
+App
 
 ### 6. Xác minh trạng thái lịch sử
 Kiểm tra xem dữ liệu lịch sử trên Node 1 có bảo toàn được sau khi recovery không (so sánh với file đã lưu ở bước 2).
