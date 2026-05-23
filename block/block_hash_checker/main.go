@@ -174,9 +174,12 @@ type blockResult struct {
 	ReceiptsRoot     string        `json:"receiptsRoot"`
 	Timestamp        string        `json:"timestamp"`
 	Miner            string        `json:"miner"`
-	GlobalExecIndex  string        `json:"globalExecIndex"`
-	Epoch            string        `json:"epoch"`
-	Transactions     []interface{} `json:"transactions"`
+	GlobalExecIndex    string        `json:"globalExecIndex"`
+	Epoch              string        `json:"epoch"`
+	StakeStatesRoot    string        `json:"stakeStatesRoot"`
+	AggregateSignature string        `json:"aggregateSignature"`
+	CommitIndex        string        `json:"commitIndex"`
+	Transactions       []interface{} `json:"transactions"`
 }
 
 // ===== Block info (parsed from blockResult) =====
@@ -189,10 +192,13 @@ type blockInfo struct {
 	ReceiptsRoot     string
 	Timestamp        string
 	Miner            string
-	GlobalExecIndex  string
-	Epoch            string
-	TxCount          int
-	SysTxCount       int
+	GlobalExecIndex    string
+	Epoch              string
+	StakeStatesRoot    string
+	AggregateSignature string
+	CommitIndex        string
+	TxCount            int
+	SysTxCount         int
 	Error            string // non-empty if fetch failed
 }
 
@@ -511,6 +517,9 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			if b.StateRoot != ref.StateRoot {
 				mismatchedFields["stateRoot"] = true
 			}
+			if b.StakeStatesRoot != ref.StakeStatesRoot {
+				mismatchedFields["stakeStatesRoot"] = true
+			}
 			if b.TransactionsRoot != ref.TransactionsRoot {
 				mismatchedFields["transactionsRoot"] = true
 			}
@@ -522,6 +531,18 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			}
 			if b.Miner != ref.Miner {
 				mismatchedFields["miner"] = true
+			}
+			if b.Epoch != ref.Epoch {
+				mismatchedFields["epoch"] = true
+			}
+			if b.GlobalExecIndex != ref.GlobalExecIndex {
+				mismatchedFields["globalExecIndex"] = true
+			}
+			if b.CommitIndex != ref.CommitIndex {
+				mismatchedFields["commitIndex"] = true
+			}
+			if b.AggregateSignature != ref.AggregateSignature {
+				mismatchedFields["aggregateSignature"] = true
 			}
 		}
 
@@ -604,6 +625,8 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 							val = bi.ParentHash
 						case "stateRoot":
 							val = bi.StateRoot
+						case "stakeStatesRoot":
+							val = bi.StakeStatesRoot
 						case "transactionsRoot":
 							val = bi.TransactionsRoot
 						case "receiptsRoot":
@@ -612,6 +635,14 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 							val = fmt.Sprintf("%s (%d)", bi.Timestamp, parseHexStr(bi.Timestamp))
 						case "miner":
 							val = bi.Miner
+						case "epoch":
+							val = fmt.Sprintf("%s (%d)", bi.Epoch, parseHexStr(bi.Epoch))
+						case "globalExecIndex":
+							val = fmt.Sprintf("%s (%d)", bi.GlobalExecIndex, parseHexStr(bi.GlobalExecIndex))
+						case "commitIndex":
+							val = fmt.Sprintf("%s (%d)", bi.CommitIndex, parseHexStr(bi.CommitIndex))
+						case "aggregateSignature":
+							val = bi.AggregateSignature
 						case "chain_broken":
 							val = fmt.Sprintf("parentHash=%s", bi.ParentHash)
 						}
@@ -837,17 +868,20 @@ func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, 
 	}
 
 	return blockInfo{
-		Hash:             block.Hash,
-		ParentHash:       block.ParentHash,
-		StateRoot:        block.StateRoot,
-		TransactionsRoot: block.TransactionsRoot,
-		ReceiptsRoot:     block.ReceiptsRoot,
-		Timestamp:        block.Timestamp,
-		Miner:            block.Miner,
-		GlobalExecIndex:  block.GlobalExecIndex,
-		Epoch:            block.Epoch,
-		TxCount:          txCount,
-		SysTxCount:       sysTxCount,
+		Hash:               block.Hash,
+		ParentHash:         block.ParentHash,
+		StateRoot:          block.StateRoot,
+		StakeStatesRoot:    block.StakeStatesRoot,
+		TransactionsRoot:   block.TransactionsRoot,
+		ReceiptsRoot:       block.ReceiptsRoot,
+		Timestamp:          block.Timestamp,
+		Miner:              block.Miner,
+		GlobalExecIndex:    block.GlobalExecIndex,
+		Epoch:              block.Epoch,
+		AggregateSignature: block.AggregateSignature,
+		CommitIndex:        block.CommitIndex,
+		TxCount:            txCount,
+		SysTxCount:         sysTxCount,
 	}, nil
 }
 
