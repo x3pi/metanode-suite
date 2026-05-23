@@ -318,6 +318,38 @@ func main() {
 		fmt.Printf("   ✅ Khớp: %d | 🚨 Lệch: %d | ❌ Lỗi: %d (%.1fs)\n\n",
 			matchCount, len(allMismatches), errorCount, elapsed.Seconds())
 
+		// Query backward via Binary Search to find the true first mismatch block
+		firstMismatchInBatch := allMismatches[0].BlockNumber
+		fmt.Printf("\n🔍 Phát hiện lệch hash tại block %d. Đang truy vấn lùi bằng Binary Search để tìm block lệch đầu tiên...\n", firstMismatchInBatch)
+
+		realFirstMismatch := firstMismatchInBatch
+		low := uint64(1)
+		high := firstMismatchInBatch - 1
+
+		for low <= high {
+			mid := low + (high-low)/2
+			m, _, _, _, _, _ := checkBatch(client, nodes, mid, mid)
+			if len(m) > 0 {
+				realFirstMismatch = mid
+				high = mid - 1
+			} else {
+				low = mid + 1
+			}
+		}
+
+		if realFirstMismatch < firstMismatchInBatch {
+			fmt.Printf("🎯 Đã tìm thấy block lệch đầu tiên thực sự tại: %d\n", realFirstMismatch)
+			m, _, _, _, _, _ := checkBatch(client, nodes, realFirstMismatch, realFirstMismatch)
+			if len(m) > 0 {
+				allMismatches = append(m, allMismatches...)
+			}
+		} else {
+			fmt.Printf("🎯 Block %d chính là block lệch đầu tiên trên chuỗi.\n", realFirstMismatch)
+		}
+
+		// Trigger the verified first mismatch stop flag for Telegram!
+		triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+
 		// Chi tiết từng mismatch
 		maxShow := 50
 		for i, m := range allMismatches {
@@ -655,7 +687,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				}
 			}
 
-			triggerStopFlag(sb.String())
+			// Deferred stop flag trigger to watchOnce/main after backward binary search resolves the true first mismatch block.
 		} else {
 			matchCount++
 		}
@@ -1577,6 +1609,9 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		fmt.Printf("🎯 Block %d chính là block lệch đầu tiên trên chuỗi.\n", realFirstMismatch)
 	}
 
+	// Trigger the verified first mismatch stop flag for Telegram!
+	triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+
 	*totalMismatches += len(mismatches)
 
 	// Build alert content for both console and file
@@ -1756,4 +1791,134 @@ func formatFullBlockDetails(client *http.Client, nodes []nodeInfo, blockNum uint
 		sb.WriteString(fmt.Sprintf("       - aggregateSignature: %s\n", bi.AggregateSignature))
 	}
 	return sb.String()
+}
+
+func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64) {
+	// Fetch block info across all nodes
+	blocks := make(map[string]blockInfo)
+	var validBlocks []blockInfo
+
+	for _, node := range nodes {
+		bi, err := getBlockInfo(client, node.URL, blockNum)
+		if err == nil && !bi.IsError() {
+			blocks[node.Name] = bi
+			validBlocks = append(validBlocks, bi)
+		} else {
+			if err != nil {
+				blocks[node.Name] = blockInfo{Error: fmt.Sprintf("ERROR: %v", err)}
+			} else {
+				blocks[node.Name] = bi
+			}
+		}
+	}
+
+	if len(validBlocks) < 2 {
+		return
+	}
+
+	mismatchedFields := make(map[string]bool)
+	ref := validBlocks[0]
+
+	for i := 1; i < len(validBlocks); i++ {
+		b := validBlocks[i]
+		if b.Hash != ref.Hash {
+			mismatchedFields["hash"] = true
+		}
+		if b.ParentHash != ref.ParentHash {
+			mismatchedFields["parentHash"] = true
+		}
+		if b.StateRoot != ref.StateRoot {
+			mismatchedFields["stateRoot"] = true
+		}
+		if b.StakeStatesRoot != ref.StakeStatesRoot {
+			mismatchedFields["stakeStatesRoot"] = true
+		}
+		if b.TransactionsRoot != ref.TransactionsRoot {
+			mismatchedFields["transactionsRoot"] = true
+		}
+		if b.ReceiptsRoot != ref.ReceiptsRoot {
+			mismatchedFields["receiptsRoot"] = true
+		}
+		if b.Timestamp != ref.Timestamp {
+			mismatchedFields["timestamp"] = true
+		}
+		if b.Miner != ref.Miner {
+			mismatchedFields["miner"] = true
+		}
+		if b.Epoch != ref.Epoch {
+			mismatchedFields["epoch"] = true
+		}
+		if b.GlobalExecIndex != ref.GlobalExecIndex {
+			mismatchedFields["globalExecIndex"] = true
+		}
+		if b.CommitIndex != ref.CommitIndex {
+			mismatchedFields["commitIndex"] = true
+		}
+	}
+
+	var fields []string
+	for f := range mismatchedFields {
+		fields = append(fields, f)
+	}
+	sort.Strings(fields)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🚨 **LỆCH BLOCK #%d**\n", blockNum))
+	if len(fields) > 0 {
+		sb.WriteString(fmt.Sprintf("• ⚠️ **Trường bị lệch:** `[%s]`\n", strings.Join(fields, ", ")))
+	} else {
+		sb.WriteString("• ⚠️ **Trường bị lệch:** `[không xác định - độ trễ/lỗi node]`\n")
+	}
+	sb.WriteString("• **Chi tiết các node:**\n")
+
+	for _, node := range nodes {
+		bi := blocks[node.Name]
+		if bi.IsError() {
+			sb.WriteString(fmt.Sprintf("  - **%s**: `ERROR: %s`\n", node.Name, bi.Error))
+		} else {
+			var fieldVals []string
+			// Show actual values for mismatched fields
+			showFields := fields
+			if len(showFields) == 0 {
+				showFields = []string{"hash", "stateRoot"}
+			}
+			for _, f := range showFields {
+				val := ""
+				switch f {
+				case "hash":
+					val = bi.Hash
+				case "parentHash":
+					val = bi.ParentHash
+				case "stateRoot":
+					val = bi.StateRoot
+				case "stakeStatesRoot":
+					val = bi.StakeStatesRoot
+				case "transactionsRoot":
+					val = bi.TransactionsRoot
+				case "receiptsRoot":
+					val = bi.ReceiptsRoot
+				case "timestamp":
+					val = fmt.Sprintf("%s(%d)", bi.Timestamp, parseHexStr(bi.Timestamp))
+				case "miner":
+					val = bi.Miner
+				case "epoch":
+					val = fmt.Sprintf("%d", parseHexStr(bi.Epoch))
+				case "globalExecIndex":
+					val = fmt.Sprintf("%d", parseHexStr(bi.GlobalExecIndex))
+				case "commitIndex":
+					val = fmt.Sprintf("%d", parseHexStr(bi.CommitIndex))
+				}
+				if len(val) > 16 && strings.HasPrefix(val, "0x") {
+					val = val[:8] + "..." + val[len(val)-4:]
+				}
+				fieldVals = append(fieldVals, fmt.Sprintf("%s: `%s`", f, val))
+			}
+			geiVal := parseHexStr(bi.GlobalExecIndex)
+			epochVal := parseHexStr(bi.Epoch)
+			sb.WriteString(fmt.Sprintf("  - **%s**: %s (gei=%d, epoch=%d)\n", 
+				node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
+		}
+	}
+
+	triggerStopFlag(sb.String())
 }
