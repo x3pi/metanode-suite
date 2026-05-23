@@ -41,7 +41,7 @@ cd /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/scripts
 *Ghi chú: check node 0:*
 ```bash
 tail -f /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/logs/node_0/go-master-stdout.log
-tail -f /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/logs/node_0/App.log
+tail -f /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/logs/node_0/go-master/App.log
 App
 
 ### 6. Xác minh trạng thái lịch sử

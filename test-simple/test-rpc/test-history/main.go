@@ -574,10 +574,11 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	fmt.Println("=====================================================")
 
 	for _, u := range fc.urls {
-		fmt.Printf("🔍 Đang kiểm tra node: %s\n", u)
+		nodeNum := getNodeNumberFromURL(u)
+		fmt.Printf("🔍 Đang kiểm tra node: %s (Node %s)\n", u, nodeNum)
 		tempClient, errDial := rpc.Dial(u)
 		if errDial != nil {
-			fmt.Printf("   ⚠️ Node %s không thể kết nối (%v). Bỏ qua...\n", u, errDial)
+			fmt.Printf("   ⚠️ Node %s (Node %s) không thể kết nối (%v). Bỏ qua...\n", u, nodeNum, errDial)
 			continue
 		}
 
@@ -603,13 +604,13 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		}
 
 		if !isAlive {
-			fmt.Printf("   ⚠️ Node %s không phản hồi eth_blockNumber. Bỏ qua...\n", u)
+			fmt.Printf("   ⚠️ Node %s (Node %s) không phản hồi eth_blockNumber. Bỏ qua...\n", u, nodeNum)
 			tempClient.Close()
 			continue
 		}
 
 		if !synced {
-			reason := fmt.Sprintf("🛑 LỖI: Node %s không đồng bộ tới block %d sau 30s", u, blockB)
+			reason := fmt.Sprintf("🛑 LỖI: Node %s (Node %s) không đồng bộ tới block %d sau 30s", u, nodeNum, blockB)
 			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 			appendLocalErrorLog(reason)
 			fmt.Printf("   %s\n", reason)
@@ -631,7 +632,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		cancelTemp()
 
 		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil {
-			fmt.Printf("   ⚠️ Node %s gặp lỗi RPC khi query data. Bỏ qua...\n", u)
+			fmt.Printf("   ⚠️ Node %s (Node %s) gặp lỗi RPC khi query data. Bỏ qua...\n", u, nodeNum)
 			tempClient.Close()
 			continue
 		}
@@ -670,7 +671,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		}
 
 		if nodeHasError {
-			reason := fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s:\n%s", u, strings.Join(nodeErrDetails, "\n"))
+			reason := fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s (Node %s):\n%s", u, nodeNum, strings.Join(nodeErrDetails, "\n"))
 			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 			appendLocalErrorLog(reason)
 			fmt.Printf("   %s\n", reason)
@@ -678,7 +679,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 			return false
 		}
 
-		fmt.Printf("   ✅ Node %s đã xác minh dữ liệu lịch sử hoàn toàn khớp!\n", u)
+		fmt.Printf("   ✅ Node %s (Node %s) đã xác minh dữ liệu lịch sử hoàn toàn khớp!\n", u, nodeNum)
 		tempClient.Close()
 	}
 
@@ -731,6 +732,22 @@ func appendLocalErrorLog(reason string) {
 	}
 	defer f.Close()
 	f.WriteString(reason + "\n")
+}
+
+func getNodeNumberFromURL(u string) string {
+	nodePortMap := map[string]string{
+		"8545": "0",
+		"8547": "1",
+		"8548": "2",
+		"8549": "3",
+		"8550": "4",
+	}
+	for port, nodeNum := range nodePortMap {
+		if strings.Contains(u, ":"+port) || strings.Contains(u, "/"+port) {
+			return nodeNum
+		}
+	}
+	return "Unknown"
 }
 
 func getTargetNodeURL(cfg *Config, targetNode string) (string, error) {
