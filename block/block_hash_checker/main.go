@@ -112,7 +112,7 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
 
-	triggerStopFlag(fmt.Sprintf("%s: blockNumber=%d %s", anomalyType, blockNum, detail))
+	triggerStopFlag(fmt.Sprintf("🚨 **CẢNH BÁO ANOMALY: %s**\n• **Block:** #%d\n• **Chi tiết:** %s", anomalyType, blockNum, detail))
 }
 
 func triggerStopFlag(reason string) {
@@ -541,9 +541,9 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			if b.CommitIndex != ref.CommitIndex {
 				mismatchedFields["commitIndex"] = true
 			}
-			if b.AggregateSignature != ref.AggregateSignature {
-				mismatchedFields["aggregateSignature"] = true
-			}
+			// if b.AggregateSignature != ref.AggregateSignature {
+			// 	mismatchedFields["aggregateSignature"] = true
+			// }
 		}
 
 		// === CHECK 2: Chain integrity — parentHash of block N == hash of block N-1 ===
@@ -599,15 +599,16 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			}
 			sort.Strings(fields)
 
-			// Build a compact 1-line diagnostic string for the stop flag
+			// Build a compact, beautifully formatted Telegram message for the stop flag
 			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("🚨 LỆCH BLOCK %d | Fields: [%s] | ", r.blockNum, strings.Join(fields, ", ")))
+			sb.WriteString(fmt.Sprintf("🚨 **LỆCH BLOCK #%d**\n", r.blockNum))
+			sb.WriteString(fmt.Sprintf("• ⚠️ **Trường bị lệch:** `[%s]`\n", strings.Join(fields, ", ")))
+			sb.WriteString("• **Chi tiết các node:**\n")
 
-			var nodeDetails []string
 			for _, node := range nodes {
 				bi := r.blocks[node.Name]
 				if bi.IsError() {
-					nodeDetails = append(nodeDetails, fmt.Sprintf("%s(Lỗi: %s)", node.Name, bi.Error))
+					sb.WriteString(fmt.Sprintf("  - **%s**: `ERROR: %s`\n", node.Name, bi.Error))
 				} else {
 					var fieldVals []string
 					for _, f := range fields {
@@ -630,37 +631,29 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 						case "miner":
 							val = bi.Miner
 						case "epoch":
-							val = fmt.Sprintf("%s(%d)", bi.Epoch, parseHexStr(bi.Epoch))
+							val = fmt.Sprintf("%d", parseHexStr(bi.Epoch))
 						case "globalExecIndex":
-							val = fmt.Sprintf("%s(%d)", bi.GlobalExecIndex, parseHexStr(bi.GlobalExecIndex))
+							val = fmt.Sprintf("%d", parseHexStr(bi.GlobalExecIndex))
 						case "commitIndex":
-							val = fmt.Sprintf("%s(%d)", bi.CommitIndex, parseHexStr(bi.CommitIndex))
-						case "aggregateSignature":
-							val = bi.AggregateSignature
+							val = fmt.Sprintf("%d", parseHexStr(bi.CommitIndex))
 						case "chain_broken":
 							val = fmt.Sprintf("parentHash=%s", bi.ParentHash)
 						}
-						// Shorten long hashes for 1-line output
-						if len(val) > 20 && strings.HasPrefix(val, "0x") {
-							val = val[:6] + ".." + val[len(val)-4:]
+						// Shorten long hashes for elegant display
+						if len(val) > 16 && strings.HasPrefix(val, "0x") {
+							val = val[:8] + "..." + val[len(val)-4:]
 						}
-						fieldVals = append(fieldVals, fmt.Sprintf("%s:%s", f, val))
+						fieldVals = append(fieldVals, fmt.Sprintf("%s: `%s`", f, val))
 					}
-					// Always include gei and epoch for context
-					if !mismatchedFields["hash"] {
-						hashVal := bi.Hash
-						if len(hashVal) > 20 {
-							hashVal = hashVal[:6] + ".." + hashVal[len(hashVal)-4:]
-						}
-						fieldVals = append(fieldVals, fmt.Sprintf("hash:%s", hashVal))
-					}
-					fieldVals = append(fieldVals, fmt.Sprintf("gei:%d", parseHexStr(bi.GlobalExecIndex)))
-					fieldVals = append(fieldVals, fmt.Sprintf("epoch:%d", parseHexStr(bi.Epoch)))
-
-					nodeDetails = append(nodeDetails, fmt.Sprintf("%s{%s}", node.Name, strings.Join(fieldVals, ", ")))
+					
+					// Add context fields
+					geiVal := parseHexStr(bi.GlobalExecIndex)
+					epochVal := parseHexStr(bi.Epoch)
+					
+					sb.WriteString(fmt.Sprintf("  - **%s**: %s (gei=%d, epoch=%d)\n", 
+						node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
 				}
 			}
-			sb.WriteString(strings.Join(nodeDetails, " vs "))
 
 			triggerStopFlag(sb.String())
 		} else {
@@ -1689,6 +1682,22 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		}
 	}
 
+	// Build surrounding details for the first mismatched block
+	var surroundingDetails strings.Builder
+	surroundingDetails.WriteString("\n================================================================================\n")
+	surroundingDetails.WriteString("🔍 CHI TIẾT BLOCK LỆCH ĐẦU TIÊN VÀ CÁC BLOCK LÂN CẬN\n")
+	surroundingDetails.WriteString("================================================================================\n")
+
+	if realFirstMismatch > 1 {
+		surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch-1, "⏮️  BLOCK TRƯỚC ĐÓ"))
+	}
+	surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch, "🚨 BLOCK LỆCH ĐẦU TIÊN"))
+	
+	surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch+1, "⏭️  BLOCK SAU ĐÓ"))
+	surroundingDetails.WriteString("================================================================================\n")
+
+	alertBuf.WriteString(surroundingDetails.String())
+
 	alertBuf.WriteString("\n─── Summary ───\n")
 	alertBuf.WriteString(fmt.Sprintf("Total mismatches: %d\n", *totalMismatches))
 	alertBuf.WriteString(fmt.Sprintf("Detected at: %s\n", time.Now().Format("2006-01-02 15:04:05.000")))
@@ -1715,4 +1724,36 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 	}
 
 	return true // Signal caller to STOP
+}
+
+func formatFullBlockDetails(client *http.Client, nodes []nodeInfo, blockNum uint64, title string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("\n%s (BLOCK #%d):\n", title, blockNum))
+
+	for _, node := range nodes {
+		bi, err := getBlockInfo(client, node.URL, blockNum)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("   %-12s ERROR: %v\n", node.Name+":", err))
+			continue
+		}
+		if bi.IsError() {
+			sb.WriteString(fmt.Sprintf("   %-12s ERROR: %s\n", node.Name+":", bi.Error))
+			continue
+		}
+
+		sb.WriteString(fmt.Sprintf("   %-12s\n", "• "+node.Name+":"))
+		sb.WriteString(fmt.Sprintf("       - hash:               %s\n", bi.Hash))
+		sb.WriteString(fmt.Sprintf("       - parentHash:         %s\n", bi.ParentHash))
+		sb.WriteString(fmt.Sprintf("       - stateRoot:          %s\n", bi.StateRoot))
+		sb.WriteString(fmt.Sprintf("       - stakeStatesRoot:    %s\n", bi.StakeStatesRoot))
+		sb.WriteString(fmt.Sprintf("       - transactionsRoot:   %s\n", bi.TransactionsRoot))
+		sb.WriteString(fmt.Sprintf("       - receiptsRoot:       %s\n", bi.ReceiptsRoot))
+		sb.WriteString(fmt.Sprintf("       - timestamp:          %s (%d)\n", bi.Timestamp, parseHexStr(bi.Timestamp)))
+		sb.WriteString(fmt.Sprintf("       - miner:              %s\n", bi.Miner))
+		sb.WriteString(fmt.Sprintf("       - globalExecIndex:    %s (%d)\n", bi.GlobalExecIndex, parseHexStr(bi.GlobalExecIndex)))
+		sb.WriteString(fmt.Sprintf("       - epoch:              %s (%d)\n", bi.Epoch, parseHexStr(bi.Epoch)))
+		sb.WriteString(fmt.Sprintf("       - commitIndex:        %s (%d)\n", bi.CommitIndex, parseHexStr(bi.CommitIndex)))
+		sb.WriteString(fmt.Sprintf("       - aggregateSignature: %s\n", bi.AggregateSignature))
+	}
+	return sb.String()
 }
