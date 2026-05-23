@@ -53,6 +53,7 @@ Trong trường hợp chạy trên các máy khác nhau hoặc cấu hình đặ
 Thêm cờ `--loop` để script chạy xoay vòng liên tục chu trình test RPC ➡️ TCP. Thích hợp để test độ ổn định (stability test) hoặc kiểm tra bug phát sinh khi spam.
 
 ```bash
+./rpc-tcp-simple.sh --loop --node 1
 ./rpc-tcp-simple.sh --loop --node 4
 ./rpc-tcp-simple.sh --loop --rpc-url http://127.0.0.1:8550 --tcp-url 127.0.0.1:6241
 ```

@@ -492,7 +492,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 		}
 
 		// Compare hash, parentHash, stateRoot, txRoot, receiptsRoot across all valid nodes
-		hasMismatch := false
+		mismatchedFields := make(map[string]bool)
 		ref := validBlocks[0]
 
 		if ref.TxCount == 0 && ref.SysTxCount == 0 {
@@ -502,12 +502,26 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 		for i := 1; i < len(validBlocks); i++ {
 			b := validBlocks[i]
-			if b.Hash != ref.Hash || b.ParentHash != ref.ParentHash ||
-				b.StateRoot != ref.StateRoot || b.TransactionsRoot != ref.TransactionsRoot ||
-				b.ReceiptsRoot != ref.ReceiptsRoot || b.Timestamp != ref.Timestamp ||
-				b.Miner != ref.Miner {
-				hasMismatch = true
-				break
+			if b.Hash != ref.Hash {
+				mismatchedFields["hash"] = true
+			}
+			if b.ParentHash != ref.ParentHash {
+				mismatchedFields["parentHash"] = true
+			}
+			if b.StateRoot != ref.StateRoot {
+				mismatchedFields["stateRoot"] = true
+			}
+			if b.TransactionsRoot != ref.TransactionsRoot {
+				mismatchedFields["transactionsRoot"] = true
+			}
+			if b.ReceiptsRoot != ref.ReceiptsRoot {
+				mismatchedFields["receiptsRoot"] = true
+			}
+			if b.Timestamp != ref.Timestamp {
+				mismatchedFields["timestamp"] = true
+			}
+			if b.Miner != ref.Miner {
+				mismatchedFields["miner"] = true
 			}
 		}
 
@@ -531,7 +545,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			prevHash, hasPrev := prevBlockHashes[node.Name]
 			if hasPrev && bi.ParentHash != prevHash {
 				// Chain is broken on this node!
-				hasMismatch = true
+				mismatchedFields["chain_broken"] = true
 				// Mark the error in the block info for display
 				brokenBi := r.blocks[node.Name]
 				brokenBi.Error = fmt.Sprintf("CHAIN BROKEN: parentHash=%s but prev block hash=%s",
@@ -554,19 +568,67 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			}
 		}
 
+		hasMismatch := len(mismatchedFields) > 0
 		if hasMismatch {
 			mismatches = append(mismatches, mismatch{BlockNumber: r.blockNum, Blocks: r.blocks})
-			// Generate detailed mismatch information
-			var details []string
+			// Sort mismatched fields for deterministic output
+			var fields []string
+			for f := range mismatchedFields {
+				fields = append(fields, f)
+			}
+			sort.Strings(fields)
+
+			// Build a beautiful multi-line diagnostic string for the stop flag
+			var sb strings.Builder
+			sb.WriteString("\n")
+			sb.WriteString("================================================================================\n")
+			sb.WriteString(fmt.Sprintf("🚨  CHAIN BROKEN OR HASH MISMATCH DETECTED ON BLOCK %d\n", r.blockNum))
+			sb.WriteString("================================================================================\n")
+			sb.WriteString(fmt.Sprintf("Mismatched fields: [%s]\n", strings.Join(fields, ", ")))
+			sb.WriteString("--------------------------------------------------------------------------------\n")
+			sb.WriteString("Node Values Details:\n")
+
 			for _, node := range nodes {
 				bi := r.blocks[node.Name]
+				sb.WriteString(fmt.Sprintf("\n• %s:\n", node.Name))
 				if bi.IsError() {
-					details = append(details, fmt.Sprintf("%s=ERR(%s)", node.Name, bi.Error))
+					sb.WriteString(fmt.Sprintf("  ⚠️  Error: %s\n", bi.Error))
 				} else {
-					details = append(details, fmt.Sprintf("%s=hash(%s) gei(%d) epoch(%d)", node.Name, safePrefix(bi.Hash, 10), parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch)))
+					// Print each mismatched field value for this node
+					for _, f := range fields {
+						val := ""
+						switch f {
+						case "hash":
+							val = bi.Hash
+						case "parentHash":
+							val = bi.ParentHash
+						case "stateRoot":
+							val = bi.StateRoot
+						case "transactionsRoot":
+							val = bi.TransactionsRoot
+						case "receiptsRoot":
+							val = bi.ReceiptsRoot
+						case "timestamp":
+							val = fmt.Sprintf("%s (%d)", bi.Timestamp, parseHexStr(bi.Timestamp))
+						case "miner":
+							val = bi.Miner
+						case "chain_broken":
+							val = fmt.Sprintf("parentHash=%s", bi.ParentHash)
+						}
+						sb.WriteString(fmt.Sprintf("  - %-18s: %s\n", f, val))
+					}
+					// Also print block hash if hash itself wasn't the mismatched field, to identify the block
+					if !mismatchedFields["hash"] {
+						sb.WriteString(fmt.Sprintf("  - %-18s: %s\n", "hash", bi.Hash))
+					}
+					// Also print epoch and gei for additional context
+					sb.WriteString(fmt.Sprintf("  - %-18s: %d\n", "globalExecIndex", parseHexStr(bi.GlobalExecIndex)))
+					sb.WriteString(fmt.Sprintf("  - %-18s: %d\n", "epoch", parseHexStr(bi.Epoch)))
 				}
 			}
-			triggerStopFlag(fmt.Sprintf("CHAIN_BROKEN_OR_HASH_MISMATCH: blockNumber=%d details: [%s]", r.blockNum, strings.Join(details, " | ")))
+			sb.WriteString("================================================================================\n")
+
+			triggerStopFlag(sb.String())
 		} else {
 			matchCount++
 		}
@@ -1070,16 +1132,16 @@ func getPeerInfo(client *http.Client, rpcURL string) (uint64, uint64, error) {
 // ===== Print mismatch detail =====
 
 func printMismatchDetail(m mismatch, nodes []nodeInfo) {
-	fmt.Printf("\n⚠\ufe0f  Block %d:\n", m.BlockNumber)
+	fmt.Printf("\n\033[1;31m╔══════════════════════════════════════════════════════════════════════════════╗\033[0m\n")
+	fmt.Printf("\033[1;31m║  🚨  HASH MISMATCH DETECTED AT BLOCK %-46d ║\033[0m\n", m.BlockNumber)
+	fmt.Printf("\033[1;31m╚══════════════════════════════════════════════════════════════════════════════╝\033[0m\n")
 
 	// Collect valid blocks to show which fields actually differ
 	var validBlocks []blockInfo
-	var validNames []string
 	for _, n := range nodes {
 		bi, ok := m.Blocks[n.Name]
 		if ok && !bi.IsError() {
 			validBlocks = append(validBlocks, bi)
-			validNames = append(validNames, n.Name)
 		}
 	}
 
@@ -1136,41 +1198,43 @@ func printMismatchDetail(m mismatch, nodes []nodeInfo) {
 		diffs = append(diffs, "miner")
 	}
 	if len(diffs) > 0 {
-		fmt.Printf("   ⚠\ufe0f  Fields differ: %s\n", strings.Join(diffs, ", "))
+		fmt.Printf("   \033[1;33m⚠️  Mismatched fields: \033[1;31m%s\033[0m\n\n", strings.Join(diffs, ", "))
 	}
 
 	for _, n := range nodes {
 		bi, ok := m.Blocks[n.Name]
 		if !ok {
-			fmt.Printf("   %-12s (kh\u00f4ng c\u00f3 d\u1eef li\u1ec7u)\n", n.Name+":")
+			fmt.Printf("   \033[1;30m%-12s (không có dữ liệu)\033[0m\n", n.Name+":")
 			continue
 		}
 		if bi.IsError() {
-			fmt.Printf("   %-12s %s\n", n.Name+":", bi.Error)
+			fmt.Printf("   \033[1;31m%-12s ERROR: %s\033[0m\n", n.Name+":", bi.Error)
 			continue
 		}
-		line := fmt.Sprintf("   %-12s hash=%s gei=%d epoch=%d", n.Name+":", bi.Hash, parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch))
-		if parentDiff {
-			line += fmt.Sprintf("  parent=%s", bi.ParentHash)
+
+		fmt.Printf("   \033[1;36m• %s\033[0m\n", n.Name)
+
+		// Helper to print a field with highlight if mismatched
+		printField := func(label string, val string, isMismatched bool) {
+			if isMismatched {
+				fmt.Printf("       - \033[1;31m%-16s: %s [MISMATCH]\033[0m\n", label, val)
+			} else {
+				fmt.Printf("       - %-16s: %s\n", label, val)
+			}
 		}
-		if stateDiff {
-			line += fmt.Sprintf("  stateRoot=%s", bi.StateRoot)
-		}
-		if txDiff {
-			line += fmt.Sprintf("  txRoot=%s", bi.TransactionsRoot)
-		}
-		if rcpDiff {
-			line += fmt.Sprintf("  rcpRoot=%s", bi.ReceiptsRoot)
-		}
-		if timeDiff {
-			line += fmt.Sprintf("  time=%s", bi.Timestamp)
-		}
-		if minerDiff {
-			line += fmt.Sprintf("  miner=%s", bi.Miner)
-		}
-		fmt.Println(line)
+
+		printField("hash", bi.Hash, hashDiff)
+		printField("parentHash", bi.ParentHash, parentDiff)
+		printField("stateRoot", bi.StateRoot, stateDiff)
+		printField("txRoot", bi.TransactionsRoot, txDiff)
+		printField("receiptsRoot", bi.ReceiptsRoot, rcpDiff)
+		printField("timestamp", fmt.Sprintf("%s (%d)", bi.Timestamp, parseHexStr(bi.Timestamp)), timeDiff)
+		printField("miner", bi.Miner, minerDiff)
+		fmt.Printf("       - %-16s: %d\n", "globalExecIndex", parseHexStr(bi.GlobalExecIndex))
+		fmt.Printf("       - %-16s: %d\n", "epoch", parseHexStr(bi.Epoch))
+		fmt.Println()
 	}
-	fmt.Println()
+	fmt.Printf("\033[1;31m╚══════════════════════════════════════════════════════════════════════════════╝\033[0m\n\n")
 }
 
 // ===== CSV export =====
