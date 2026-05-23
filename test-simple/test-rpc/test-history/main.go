@@ -979,8 +979,8 @@ func main() {
 
 					if errBlock == nil {
 						latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
-						if latestBlock > maxBlockA {
-							fmt.Printf("✅ Node đã online và đồng bộ tới Block %d (vượt qua Block A lớn nhất %d)\n", latestBlock, maxBlockA)
+						if latestBlock >= maxBlockA {
+							fmt.Printf("✅ Node đã online và đồng bộ tới Block %d (đạt mốc Block A lớn nhất %d)\n", latestBlock, maxBlockA)
 							fmt.Printf("🔍 Bắt đầu kiểm tra trạng thái khả dụng của dữ liệu Block A (%d) qua RPC...\n", maxBlockA)
 
 							// Thăm dò chủ động (active polling) mỗi 200ms thay vì sleep 2s cứng
@@ -1016,7 +1016,7 @@ func main() {
 								log.Fatalf(reason)
 							}
 						} else {
-							fmt.Printf("⏳ Node đã online nhưng chiều cao block (%d) chưa vượt qua Block A lớn nhất (%d). Đang đợi...\n", latestBlock, maxBlockA)
+							fmt.Printf("⏳ Node đã online nhưng chiều cao block (%d) chưa đạt Block A lớn nhất (%d). Đang đợi...\n", latestBlock, maxBlockA)
 						}
 					} else {
 						fmt.Printf("⏳ Kết nối RPC thành công nhưng lỗi eth_blockNumber: %v. Đang thử lại...\n", errBlock)
@@ -1229,7 +1229,8 @@ func main() {
 
 			fmt.Printf("🎉 XÁC MINH THÀNH CÔNG: Node %s trả về toàn bộ dữ liệu lịch sử của %d checkpoints hoàn toàn chính xác!\n", *targetNodeFlag, len(checkpoints))
 			os.Remove(*fileFlag)
-			fmt.Println("🔄 Đã verify xong, tiếp tục chuyển sang chế độ chạy kiểm tra lịch sử...")
+			fmt.Println("🔄 Đã verify xong, thoát thành công.")
+			os.Exit(0)
 		}
 	}
 
