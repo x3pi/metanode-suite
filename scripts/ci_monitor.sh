@@ -79,33 +79,36 @@ cleanup_all_processes() {
 
     # 1. Kill tất cả Python monitors
     for m in "ci_monitor.py" "ci_recovery_monitor.py" "ci_snapshot_monitor.py"; do
-        PIDS_M=$(pgrep -f "$m" 2>/dev/null)
+        local pat="[${m:0:1}]${m:1}"
+        PIDS_M=$(pgrep -f "$pat" 2>/dev/null)
         if [ -n "$PIDS_M" ]; then
             echo "   → Tìm thấy $m (PIDs: $PIDS_M). Đang kill..."
-            pkill -f "$m" 2>/dev/null
+            pkill -f "$pat" 2>/dev/null
             sleep 0.5
-            pkill -9 -f "$m" 2>/dev/null || true
+            pkill -9 -f "$pat" 2>/dev/null || true
         fi
     done
 
     # 2. Kill tất cả Shell test runners
     for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh"; do
-        PIDS_T=$(pgrep -f "$t" 2>/dev/null)
+        local pat="[${t:0:1}]${t:1}"
+        PIDS_T=$(pgrep -f "$pat" 2>/dev/null)
         if [ -n "$PIDS_T" ]; then
             echo "   → Tìm thấy $t (PIDs: $PIDS_T). Đang kill..."
-            pkill -f "$t" 2>/dev/null
+            pkill -f "$pat" 2>/dev/null
             sleep 0.5
-            pkill -9 -f "$t" 2>/dev/null || true
+            pkill -9 -f "$pat" 2>/dev/null || true
         fi
     done
 
     # 3. Kill các tiến trình phụ trợ
     for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc"; do
-        if pgrep -f "$proc" >/dev/null; then
+        local pat="[${proc:0:1}]${proc:1}"
+        if pgrep -f "$pat" >/dev/null; then
             echo "   → Tìm thấy $proc. Đang kill..."
-            pkill -f "$proc" 2>/dev/null
+            pkill -f "$pat" 2>/dev/null
             sleep 0.5
-            pkill -9 -f "$proc" 2>/dev/null || true
+            pkill -9 -f "$pat" 2>/dev/null || true
         fi
     done
 
@@ -118,9 +121,9 @@ cleanup_all_processes() {
 
     # 5. Tắt triệt để các tiến trình Go/Rust
     echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client..."
-    pkill -9 -f "simple_chain" 2>/dev/null || true
-    pkill -9 -f "metanode" 2>/dev/null || true
-    pkill -9 -f "rpc-client" 2>/dev/null || true
+    pkill -9 -f "[s]imple_chain" 2>/dev/null || true
+    pkill -9 -f "[m]etanode" 2>/dev/null || true
+    pkill -9 -f "[r]pc-client" 2>/dev/null || true
 
     # 6. Giải phóng port của cluster
     echo "   → Giải phóng các port của cluster (8545, 8757, 10747-10750)..."
