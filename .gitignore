@@ -11,3 +11,4 @@ scripts/error_report.txt
 **/*.pem
 **/*.key
 test-simple/test-rpc/test-history/history_records.json
+block/block_hash_checker/block_hash_checker

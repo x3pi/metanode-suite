@@ -370,8 +370,46 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         fi
     fi
 
+# Hàm chờ target_node đồng bộ tới block cao nhất (so với Node 0)
+wait_for_sync_to_highest_block() {
+    local target_node=$1
+    echo "⏳ Đang chờ Node $target_node đồng bộ tới block cao nhất của mạng (Node 0 làm chuẩn)..."
+    while true; do
+        # Lấy block hiện tại của Node 0
+        local block_hex_0=$(curl -s --max-time 1 -X POST http://127.0.0.1:8757 \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "0x0")
+        local block_0=$(printf "%d\n" "$block_hex_0")
+        
+        # Lấy RPC Port của target node
+        local port=8545
+        if [ "$target_node" == "1" ]; then port=8547; fi
+        if [ "$target_node" == "2" ]; then port=8548; fi
+        if [ "$target_node" == "3" ]; then port=8549; fi
+        if [ "$target_node" == "4" ]; then port=8550; fi
+        
+        # Lấy block hiện tại của Target Node
+        local block_hex_target=$(curl -s --max-time 1 -X POST http://127.0.0.1:$port \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "0x0")
+        local block_target=$(printf "%d\n" "$block_hex_target")
+        
+        if [ "$block_target" -ge "$block_0" ] && [ "$block_0" -gt 0 ]; then
+            echo "✅ Node $target_node đã đồng bộ tới block cao nhất (Node 0: $block_0, Node $target_node: $block_target)"
+            break
+        fi
+        
+        echo "   ... Node 0: $block_0, Node $target_node: $block_target. Đang chờ đồng bộ..."
+        sleep 1
+    done
+}
+
     # 1. Chạy xác minh trạng thái lịch sử trước bằng active polling (cực kỳ nhanh và chính xác)
     if [ "$TARGET_NODE" != "all" ]; then
+        wait_for_sync_to_highest_block "$TARGET_NODE"
+        
         echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
         (
             cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"

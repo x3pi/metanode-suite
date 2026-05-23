@@ -112,7 +112,7 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
 
-	triggerStopFlag(fmt.Sprintf("%s: blockNumber=%d %s", anomalyType, blockNum, detail))
+	triggerStopFlag(fmt.Sprintf("🚨 *CẢNH BÁO ANOMALY: %s*\n• *Block:* #%d\n• *Chi tiết:* %s", anomalyType, blockNum, detail))
 }
 
 func triggerStopFlag(reason string) {
@@ -174,9 +174,12 @@ type blockResult struct {
 	ReceiptsRoot     string        `json:"receiptsRoot"`
 	Timestamp        string        `json:"timestamp"`
 	Miner            string        `json:"miner"`
-	GlobalExecIndex  string        `json:"globalExecIndex"`
-	Epoch            string        `json:"epoch"`
-	Transactions     []interface{} `json:"transactions"`
+	GlobalExecIndex    string        `json:"globalExecIndex"`
+	Epoch              string        `json:"epoch"`
+	StakeStatesRoot    string        `json:"stakeStatesRoot"`
+	AggregateSignature string        `json:"aggregateSignature"`
+	CommitIndex        string        `json:"commitIndex"`
+	Transactions       []interface{} `json:"transactions"`
 }
 
 // ===== Block info (parsed from blockResult) =====
@@ -189,10 +192,13 @@ type blockInfo struct {
 	ReceiptsRoot     string
 	Timestamp        string
 	Miner            string
-	GlobalExecIndex  string
-	Epoch            string
-	TxCount          int
-	SysTxCount       int
+	GlobalExecIndex    string
+	Epoch              string
+	StakeStatesRoot    string
+	AggregateSignature string
+	CommitIndex        string
+	TxCount            int
+	SysTxCount         int
 	Error            string // non-empty if fetch failed
 }
 
@@ -311,6 +317,39 @@ func main() {
 		fmt.Printf("🚨 KẾT QUẢ: Phát hiện %d blocks LỆCH HASH!\n", len(allMismatches))
 		fmt.Printf("   ✅ Khớp: %d | 🚨 Lệch: %d | ❌ Lỗi: %d (%.1fs)\n\n",
 			matchCount, len(allMismatches), errorCount, elapsed.Seconds())
+
+		// Query backward via Binary Search to find the true first mismatch block
+		firstMismatchInBatch := allMismatches[0].BlockNumber
+		fmt.Printf("\n🔍 Phát hiện lệch hash tại block %d. Đang truy vấn lùi bằng Binary Search để tìm block lệch đầu tiên...\n", firstMismatchInBatch)
+
+		realFirstMismatch := firstMismatchInBatch
+		low := uint64(1)
+		high := firstMismatchInBatch - 1
+
+		for low <= high {
+			mid := low + (high-low)/2
+			m, _, _, _, _, _ := checkBatch(client, nodes, mid, mid)
+			if len(m) > 0 {
+				realFirstMismatch = mid
+				high = mid - 1
+			} else {
+				low = mid + 1
+			}
+		}
+
+		if realFirstMismatch < firstMismatchInBatch {
+			fmt.Printf("🎯 Đã tìm thấy block lệch đầu tiên thực sự tại: %d\n", realFirstMismatch)
+			m, _, _, _, _, _ := checkBatch(client, nodes, realFirstMismatch, realFirstMismatch)
+			if len(m) > 0 {
+				allMismatches = append(m, allMismatches...)
+			}
+		} else {
+			fmt.Printf("🎯 Block %d chính là block lệch đầu tiên trên chuỗi.\n", realFirstMismatch)
+		}
+
+		// Trigger the verified first mismatch stop flag for Telegram!
+		stopFlagMsg := triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+		fmt.Println(stopFlagMsg)
 
 		// Chi tiết từng mismatch
 		maxShow := 50
@@ -492,7 +531,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 		}
 
 		// Compare hash, parentHash, stateRoot, txRoot, receiptsRoot across all valid nodes
-		hasMismatch := false
+		mismatchedFields := make(map[string]bool)
 		ref := validBlocks[0]
 
 		if ref.TxCount == 0 && ref.SysTxCount == 0 {
@@ -502,13 +541,42 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 		for i := 1; i < len(validBlocks); i++ {
 			b := validBlocks[i]
-			if b.Hash != ref.Hash || b.ParentHash != ref.ParentHash ||
-				b.StateRoot != ref.StateRoot || b.TransactionsRoot != ref.TransactionsRoot ||
-				b.ReceiptsRoot != ref.ReceiptsRoot || b.Timestamp != ref.Timestamp ||
-				b.Miner != ref.Miner {
-				hasMismatch = true
-				break
+			if b.Hash != ref.Hash {
+				mismatchedFields["hash"] = true
 			}
+			if b.ParentHash != ref.ParentHash {
+				mismatchedFields["parentHash"] = true
+			}
+			if b.StateRoot != ref.StateRoot {
+				mismatchedFields["stateRoot"] = true
+			}
+			if b.StakeStatesRoot != ref.StakeStatesRoot {
+				mismatchedFields["stakeStatesRoot"] = true
+			}
+			if b.TransactionsRoot != ref.TransactionsRoot {
+				mismatchedFields["transactionsRoot"] = true
+			}
+			if b.ReceiptsRoot != ref.ReceiptsRoot {
+				mismatchedFields["receiptsRoot"] = true
+			}
+			if b.Timestamp != ref.Timestamp {
+				mismatchedFields["timestamp"] = true
+			}
+			if b.Miner != ref.Miner {
+				mismatchedFields["miner"] = true
+			}
+			if b.Epoch != ref.Epoch {
+				mismatchedFields["epoch"] = true
+			}
+			if b.GlobalExecIndex != ref.GlobalExecIndex {
+				mismatchedFields["globalExecIndex"] = true
+			}
+			if b.CommitIndex != ref.CommitIndex {
+				mismatchedFields["commitIndex"] = true
+			}
+			// if b.AggregateSignature != ref.AggregateSignature {
+			// 	mismatchedFields["aggregateSignature"] = true
+			// }
 		}
 
 		// === CHECK 2: Chain integrity — parentHash of block N == hash of block N-1 ===
@@ -531,7 +599,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			prevHash, hasPrev := prevBlockHashes[node.Name]
 			if hasPrev && bi.ParentHash != prevHash {
 				// Chain is broken on this node!
-				hasMismatch = true
+				mismatchedFields["chain_broken"] = true
 				// Mark the error in the block info for display
 				brokenBi := r.blocks[node.Name]
 				brokenBi.Error = fmt.Sprintf("CHAIN BROKEN: parentHash=%s but prev block hash=%s",
@@ -554,19 +622,73 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			}
 		}
 
+		hasMismatch := len(mismatchedFields) > 0
 		if hasMismatch {
 			mismatches = append(mismatches, mismatch{BlockNumber: r.blockNum, Blocks: r.blocks})
-			// Generate detailed mismatch information
-			var details []string
+			// Sort mismatched fields for deterministic output
+			var fields []string
+			for f := range mismatchedFields {
+				fields = append(fields, f)
+			}
+			sort.Strings(fields)
+
+			// Build a compact, beautifully formatted Telegram message for the stop flag
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("🚨 *LỆCH BLOCK #%d*\n", r.blockNum))
+			sb.WriteString(fmt.Sprintf("• ⚠️ *Trường bị lệch:* `[%s]`\n", strings.Join(fields, ", ")))
+			sb.WriteString("• *Chi tiết các node:*\n")
+
 			for _, node := range nodes {
 				bi := r.blocks[node.Name]
 				if bi.IsError() {
-					details = append(details, fmt.Sprintf("%s=ERR(%s)", node.Name, bi.Error))
+					sb.WriteString(fmt.Sprintf("  - *%s*: `ERROR: %s`\n", node.Name, bi.Error))
 				} else {
-					details = append(details, fmt.Sprintf("%s=hash(%s) gei(%d) epoch(%d)", node.Name, safePrefix(bi.Hash, 10), parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch)))
+					var fieldVals []string
+					for _, f := range fields {
+						val := ""
+						switch f {
+						case "hash":
+							val = bi.Hash
+						case "parentHash":
+							val = bi.ParentHash
+						case "stateRoot":
+							val = bi.StateRoot
+						case "stakeStatesRoot":
+							val = bi.StakeStatesRoot
+						case "transactionsRoot":
+							val = bi.TransactionsRoot
+						case "receiptsRoot":
+							val = bi.ReceiptsRoot
+						case "timestamp":
+							val = fmt.Sprintf("%s(%d)", bi.Timestamp, parseHexStr(bi.Timestamp))
+						case "miner":
+							val = bi.Miner
+						case "epoch":
+							val = fmt.Sprintf("%d", parseHexStr(bi.Epoch))
+						case "globalExecIndex":
+							val = fmt.Sprintf("%d", parseHexStr(bi.GlobalExecIndex))
+						case "commitIndex":
+							val = fmt.Sprintf("%d", parseHexStr(bi.CommitIndex))
+						case "chain_broken":
+							val = fmt.Sprintf("parentHash=%s", bi.ParentHash)
+						}
+						// Shorten long hashes for elegant display
+						if len(val) > 16 && strings.HasPrefix(val, "0x") {
+							val = val[:8] + "..." + val[len(val)-4:]
+						}
+						fieldVals = append(fieldVals, fmt.Sprintf("%s: `%s`", f, val))
+					}
+					
+					// Add context fields
+					geiVal := parseHexStr(bi.GlobalExecIndex)
+					epochVal := parseHexStr(bi.Epoch)
+					
+					sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n", 
+						node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
 				}
 			}
-			triggerStopFlag(fmt.Sprintf("CHAIN_BROKEN_OR_HASH_MISMATCH: blockNumber=%d details: [%s]", r.blockNum, strings.Join(details, " | ")))
+
+			// Deferred stop flag trigger to watchOnce/main after backward binary search resolves the true first mismatch block.
 		} else {
 			matchCount++
 		}
@@ -775,17 +897,20 @@ func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, 
 	}
 
 	return blockInfo{
-		Hash:             block.Hash,
-		ParentHash:       block.ParentHash,
-		StateRoot:        block.StateRoot,
-		TransactionsRoot: block.TransactionsRoot,
-		ReceiptsRoot:     block.ReceiptsRoot,
-		Timestamp:        block.Timestamp,
-		Miner:            block.Miner,
-		GlobalExecIndex:  block.GlobalExecIndex,
-		Epoch:            block.Epoch,
-		TxCount:          txCount,
-		SysTxCount:       sysTxCount,
+		Hash:               block.Hash,
+		ParentHash:         block.ParentHash,
+		StateRoot:          block.StateRoot,
+		StakeStatesRoot:    block.StakeStatesRoot,
+		TransactionsRoot:   block.TransactionsRoot,
+		ReceiptsRoot:       block.ReceiptsRoot,
+		Timestamp:          block.Timestamp,
+		Miner:              block.Miner,
+		GlobalExecIndex:    block.GlobalExecIndex,
+		Epoch:              block.Epoch,
+		AggregateSignature: block.AggregateSignature,
+		CommitIndex:        block.CommitIndex,
+		TxCount:            txCount,
+		SysTxCount:         sysTxCount,
 	}, nil
 }
 
@@ -1070,16 +1195,16 @@ func getPeerInfo(client *http.Client, rpcURL string) (uint64, uint64, error) {
 // ===== Print mismatch detail =====
 
 func printMismatchDetail(m mismatch, nodes []nodeInfo) {
-	fmt.Printf("\n⚠\ufe0f  Block %d:\n", m.BlockNumber)
+	fmt.Printf("\n\033[1;31m╔══════════════════════════════════════════════════════════════════════════════╗\033[0m\n")
+	fmt.Printf("\033[1;31m║  🚨  HASH MISMATCH DETECTED AT BLOCK %-46d ║\033[0m\n", m.BlockNumber)
+	fmt.Printf("\033[1;31m╚══════════════════════════════════════════════════════════════════════════════╝\033[0m\n")
 
 	// Collect valid blocks to show which fields actually differ
 	var validBlocks []blockInfo
-	var validNames []string
 	for _, n := range nodes {
 		bi, ok := m.Blocks[n.Name]
 		if ok && !bi.IsError() {
 			validBlocks = append(validBlocks, bi)
-			validNames = append(validNames, n.Name)
 		}
 	}
 
@@ -1136,41 +1261,43 @@ func printMismatchDetail(m mismatch, nodes []nodeInfo) {
 		diffs = append(diffs, "miner")
 	}
 	if len(diffs) > 0 {
-		fmt.Printf("   ⚠\ufe0f  Fields differ: %s\n", strings.Join(diffs, ", "))
+		fmt.Printf("   \033[1;33m⚠️  Mismatched fields: \033[1;31m%s\033[0m\n\n", strings.Join(diffs, ", "))
 	}
 
 	for _, n := range nodes {
 		bi, ok := m.Blocks[n.Name]
 		if !ok {
-			fmt.Printf("   %-12s (kh\u00f4ng c\u00f3 d\u1eef li\u1ec7u)\n", n.Name+":")
+			fmt.Printf("   \033[1;30m%-12s (không có dữ liệu)\033[0m\n", n.Name+":")
 			continue
 		}
 		if bi.IsError() {
-			fmt.Printf("   %-12s %s\n", n.Name+":", bi.Error)
+			fmt.Printf("   \033[1;31m%-12s ERROR: %s\033[0m\n", n.Name+":", bi.Error)
 			continue
 		}
-		line := fmt.Sprintf("   %-12s hash=%s gei=%d epoch=%d", n.Name+":", bi.Hash, parseHexStr(bi.GlobalExecIndex), parseHexStr(bi.Epoch))
-		if parentDiff {
-			line += fmt.Sprintf("  parent=%s", bi.ParentHash)
+
+		fmt.Printf("   \033[1;36m• %s\033[0m\n", n.Name)
+
+		// Helper to print a field with highlight if mismatched
+		printField := func(label string, val string, isMismatched bool) {
+			if isMismatched {
+				fmt.Printf("       - \033[1;31m%-16s: %s [MISMATCH]\033[0m\n", label, val)
+			} else {
+				fmt.Printf("       - %-16s: %s\n", label, val)
+			}
 		}
-		if stateDiff {
-			line += fmt.Sprintf("  stateRoot=%s", bi.StateRoot)
-		}
-		if txDiff {
-			line += fmt.Sprintf("  txRoot=%s", bi.TransactionsRoot)
-		}
-		if rcpDiff {
-			line += fmt.Sprintf("  rcpRoot=%s", bi.ReceiptsRoot)
-		}
-		if timeDiff {
-			line += fmt.Sprintf("  time=%s", bi.Timestamp)
-		}
-		if minerDiff {
-			line += fmt.Sprintf("  miner=%s", bi.Miner)
-		}
-		fmt.Println(line)
+
+		printField("hash", bi.Hash, hashDiff)
+		printField("parentHash", bi.ParentHash, parentDiff)
+		printField("stateRoot", bi.StateRoot, stateDiff)
+		printField("txRoot", bi.TransactionsRoot, txDiff)
+		printField("receiptsRoot", bi.ReceiptsRoot, rcpDiff)
+		printField("timestamp", fmt.Sprintf("%s (%d)", bi.Timestamp, parseHexStr(bi.Timestamp)), timeDiff)
+		printField("miner", bi.Miner, minerDiff)
+		fmt.Printf("       - %-16s: %d\n", "globalExecIndex", parseHexStr(bi.GlobalExecIndex))
+		fmt.Printf("       - %-16s: %d\n", "epoch", parseHexStr(bi.Epoch))
+		fmt.Println()
 	}
-	fmt.Println()
+	fmt.Printf("\033[1;31m╚══════════════════════════════════════════════════════════════════════════════╝\033[0m\n\n")
 }
 
 // ===== CSV export =====
@@ -1483,6 +1610,9 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		fmt.Printf("🎯 Block %d chính là block lệch đầu tiên trên chuỗi.\n", realFirstMismatch)
 	}
 
+	// Trigger the verified first mismatch stop flag for Telegram!
+	stopFlagMsg := triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+
 	*totalMismatches += len(mismatches)
 
 	// Build alert content for both console and file
@@ -1588,6 +1718,24 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		}
 	}
 
+	// Build surrounding details for the first mismatched block
+	var surroundingDetails strings.Builder
+	surroundingDetails.WriteString("\n================================================================================\n")
+	surroundingDetails.WriteString("🔍 CHI TIẾT BLOCK LỆCH ĐẦU TIÊN VÀ CÁC BLOCK LÂN CẬN\n")
+	surroundingDetails.WriteString("================================================================================\n")
+
+	if realFirstMismatch > 1 {
+		surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch-1, "⏮️  BLOCK TRƯỚC ĐÓ"))
+	}
+	surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch, "🚨 BLOCK LỆCH ĐẦU TIÊN"))
+	
+	surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch+1, "⏭️  BLOCK SAU ĐÓ"))
+	surroundingDetails.WriteString("================================================================================\n")
+
+	alertBuf.WriteString(surroundingDetails.String())
+
+	alertBuf.WriteString("\n" + stopFlagMsg + "\n")
+
 	alertBuf.WriteString("\n─── Summary ───\n")
 	alertBuf.WriteString(fmt.Sprintf("Total mismatches: %d\n", *totalMismatches))
 	alertBuf.WriteString(fmt.Sprintf("Detected at: %s\n", time.Now().Format("2006-01-02 15:04:05.000")))
@@ -1614,4 +1762,364 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 	}
 
 	return true // Signal caller to STOP
+}
+
+func formatFullBlockDetails(client *http.Client, nodes []nodeInfo, blockNum uint64, title string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("\n%s (BLOCK #%d):\n", title, blockNum))
+
+	for _, node := range nodes {
+		bi, err := getBlockInfo(client, node.URL, blockNum)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("   %-12s ERROR: %v\n", node.Name+":", err))
+			continue
+		}
+		if bi.IsError() {
+			sb.WriteString(fmt.Sprintf("   %-12s ERROR: %s\n", node.Name+":", bi.Error))
+			continue
+		}
+
+		sb.WriteString(fmt.Sprintf("   %-12s\n", "• "+node.Name+":"))
+		sb.WriteString(fmt.Sprintf("       - hash:               %s\n", bi.Hash))
+		sb.WriteString(fmt.Sprintf("       - parentHash:         %s\n", bi.ParentHash))
+		sb.WriteString(fmt.Sprintf("       - stateRoot:          %s\n", bi.StateRoot))
+		sb.WriteString(fmt.Sprintf("       - stakeStatesRoot:    %s\n", bi.StakeStatesRoot))
+		sb.WriteString(fmt.Sprintf("       - transactionsRoot:   %s\n", bi.TransactionsRoot))
+		sb.WriteString(fmt.Sprintf("       - receiptsRoot:       %s\n", bi.ReceiptsRoot))
+		sb.WriteString(fmt.Sprintf("       - timestamp:          %s (%d)\n", bi.Timestamp, parseHexStr(bi.Timestamp)))
+		sb.WriteString(fmt.Sprintf("       - miner:              %s\n", bi.Miner))
+		sb.WriteString(fmt.Sprintf("       - globalExecIndex:    %s (%d)\n", bi.GlobalExecIndex, parseHexStr(bi.GlobalExecIndex)))
+		sb.WriteString(fmt.Sprintf("       - epoch:              %s (%d)\n", bi.Epoch, parseHexStr(bi.Epoch)))
+		sb.WriteString(fmt.Sprintf("       - commitIndex:        %s (%d)\n", bi.CommitIndex, parseHexStr(bi.CommitIndex)))
+		sb.WriteString(fmt.Sprintf("       - aggregateSignature: %s\n", bi.AggregateSignature))
+	}
+	return sb.String()
+}
+
+func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64) string {
+	// Fetch block info across all nodes
+	blocks := make(map[string]blockInfo)
+	var validBlocks []blockInfo
+
+	for _, node := range nodes {
+		bi, err := getBlockInfo(client, node.URL, blockNum)
+		if err == nil && !bi.IsError() {
+			blocks[node.Name] = bi
+			validBlocks = append(validBlocks, bi)
+		} else {
+			if err != nil {
+				blocks[node.Name] = blockInfo{Error: fmt.Sprintf("ERROR: %v", err)}
+			} else {
+				blocks[node.Name] = bi
+			}
+		}
+	}
+
+	if len(validBlocks) < 2 {
+		return ""
+	}
+
+	mismatchedFields := make(map[string]bool)
+	ref := validBlocks[0]
+
+	for i := 1; i < len(validBlocks); i++ {
+		b := validBlocks[i]
+		if b.Hash != ref.Hash {
+			mismatchedFields["hash"] = true
+		}
+		if b.ParentHash != ref.ParentHash {
+			mismatchedFields["parentHash"] = true
+		}
+		if b.StateRoot != ref.StateRoot {
+			mismatchedFields["stateRoot"] = true
+		}
+		if b.StakeStatesRoot != ref.StakeStatesRoot {
+			mismatchedFields["stakeStatesRoot"] = true
+		}
+		if b.TransactionsRoot != ref.TransactionsRoot {
+			mismatchedFields["transactionsRoot"] = true
+		}
+		if b.ReceiptsRoot != ref.ReceiptsRoot {
+			mismatchedFields["receiptsRoot"] = true
+		}
+		if b.Timestamp != ref.Timestamp {
+			mismatchedFields["timestamp"] = true
+		}
+		if b.Miner != ref.Miner {
+			mismatchedFields["miner"] = true
+		}
+		if b.Epoch != ref.Epoch {
+			mismatchedFields["epoch"] = true
+		}
+		if b.GlobalExecIndex != ref.GlobalExecIndex {
+			mismatchedFields["globalExecIndex"] = true
+		}
+		if b.CommitIndex != ref.CommitIndex {
+			mismatchedFields["commitIndex"] = true
+		}
+	}
+
+	var fields []string
+	for f := range mismatchedFields {
+		fields = append(fields, f)
+	}
+	sort.Strings(fields)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🚨 *LỆCH BLOCK #%d*\n", blockNum))
+	if len(fields) > 0 {
+		sb.WriteString(fmt.Sprintf("• ⚠️ *Trường bị lệch:* `[%s]`\n", strings.Join(fields, ", ")))
+	} else {
+		sb.WriteString("• ⚠️ *Trường bị lệch:* `[không xác định - độ trễ/lỗi node]`\n")
+	}
+	sb.WriteString("• *Chi tiết các node:*\n")
+
+	for _, node := range nodes {
+		bi := blocks[node.Name]
+		if bi.IsError() {
+			sb.WriteString(fmt.Sprintf("  - *%s*: `ERROR: %s`\n", node.Name, bi.Error))
+		} else {
+			var fieldVals []string
+			// Show actual values for mismatched fields
+			showFields := fields
+			if len(showFields) == 0 {
+				showFields = []string{"hash", "stateRoot"}
+			}
+			for _, f := range showFields {
+				val := ""
+				switch f {
+				case "hash":
+					val = bi.Hash
+				case "parentHash":
+					val = bi.ParentHash
+				case "stateRoot":
+					val = bi.StateRoot
+				case "stakeStatesRoot":
+					val = bi.StakeStatesRoot
+				case "transactionsRoot":
+					val = bi.TransactionsRoot
+				case "receiptsRoot":
+					val = bi.ReceiptsRoot
+				case "timestamp":
+					val = fmt.Sprintf("%s(%d)", bi.Timestamp, parseHexStr(bi.Timestamp))
+				case "miner":
+					val = bi.Miner
+				case "epoch":
+					val = fmt.Sprintf("%d", parseHexStr(bi.Epoch))
+				case "globalExecIndex":
+					val = fmt.Sprintf("%d", parseHexStr(bi.GlobalExecIndex))
+				case "commitIndex":
+					val = fmt.Sprintf("%d", parseHexStr(bi.CommitIndex))
+				}
+				if len(val) > 16 && strings.HasPrefix(val, "0x") {
+					val = val[:8] + "..." + val[len(val)-4:]
+				}
+				fieldVals = append(fieldVals, fmt.Sprintf("%s: `%s`", f, val))
+			}
+			geiVal := parseHexStr(bi.GlobalExecIndex)
+			epochVal := parseHexStr(bi.Epoch)
+			sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n", 
+				node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
+		}
+	}
+
+	if mismatchedFields["stateRoot"] {
+		// 1. Show curl commands
+		sb.WriteString("\n• 🔍 *Để kiểm tra thay đổi tài khoản chi tiết bằng curl:*\n")
+		for _, node := range nodes {
+			bi := blocks[node.Name]
+			if !bi.IsError() {
+				sb.WriteString(fmt.Sprintf("  - *%s*: `curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"debug_getBlockStateDiff\",\"params\":[%d],\"id\":1}' %s`\n",
+					node.Name, blockNum, node.URL))
+			}
+		}
+
+		// 2. Select two nodes with different stateRoots for comparison
+		var diffNode1, diffNode2 *nodeInfo
+		for i, nodeA := range nodes {
+			biA := blocks[nodeA.Name]
+			if biA.IsError() {
+				continue
+			}
+			for j, nodeB := range nodes {
+				if i == j {
+					continue
+				}
+				biB := blocks[nodeB.Name]
+				if biB.IsError() {
+					continue
+				}
+				if biA.StateRoot != biB.StateRoot {
+					nA := nodeA
+					nB := nodeB
+					diffNode1 = &nA
+					diffNode2 = &nB
+					break
+				}
+			}
+			if diffNode1 != nil {
+				break
+			}
+		}
+
+		if diffNode1 != nil && diffNode2 != nil {
+			comparison := compareNodeStateDiffs(client, *diffNode1, *diffNode2, blockNum)
+			sb.WriteString(comparison)
+		}
+	}
+
+	triggerStopFlag(sb.String())
+	return sb.String()
+}
+
+// ===== Types and helper functions for RPC Block State Diffing =====
+
+type ModifiedAccountRPC struct {
+	Address         string `json:"address"`
+	PreBalance      string `json:"preBalance"`
+	PostBalance     string `json:"postBalance"`
+	PreNonce        uint64 `json:"preNonce"`
+	PostNonce       uint64 `json:"postNonce"`
+	PreCodeHash     string `json:"preCodeHash"`
+	PostCodeHash    string `json:"postCodeHash"`
+	PreStorageRoot  string `json:"preStorageRoot"`
+	PostStorageRoot string `json:"postStorageRoot"`
+	PreDataHash     string `json:"preDataHash"`
+	PostDataHash    string `json:"postDataHash"`
+	IsNew           bool   `json:"isNew"`
+}
+
+type BlockStateDiffRPC struct {
+	BlockNumber      uint64                        `json:"blockNumber"`
+	CalculatedRoot   string                        `json:"calculatedRoot"`
+	ModifiedAccounts map[string]ModifiedAccountRPC `json:"modifiedAccounts"`
+}
+
+type blockStateDiffResponse struct {
+	JsonRPC string             `json:"jsonrpc"`
+	Result  *BlockStateDiffRPC `json:"result"`
+	Error   interface{}        `json:"error"`
+}
+
+func queryBlockStateDiff(client *http.Client, nodeURL string, blockNum uint64) (*BlockStateDiffRPC, error) {
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "debug_getBlockStateDiff",
+		"params":  []interface{}{blockNum},
+		"id":      1,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rpcResp blockStateDiffResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return nil, err
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error: %v", rpcResp.Error)
+	}
+
+	return rpcResp.Result, nil
+}
+
+func compareNodeStateDiffs(client *http.Client, node1 nodeInfo, node2 nodeInfo, blockNum uint64) string {
+	diff1, err1 := queryBlockStateDiff(client, node1.URL, blockNum)
+	diff2, err2 := queryBlockStateDiff(client, node2.URL, blockNum)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("\n• 🔍 *ĐỐI CHIẾU CHI TIẾT TÀI KHOẢN GIỮA %s VÀ %s TẠI BLOCK #%d:*\n", node1.Name, node2.Name, blockNum))
+
+	if err1 != nil {
+		sb.WriteString(fmt.Sprintf("  - [%s] ❌ Lỗi lấy thông tin: `%v`\n", node1.Name, err1))
+	}
+	if err2 != nil {
+		sb.WriteString(fmt.Sprintf("  - [%s] ❌ Lỗi lấy thông tin: `%v`\n", node2.Name, err2))
+	}
+	if err1 != nil || err2 != nil {
+		return sb.String()
+	}
+
+	if diff1 == nil || diff2 == nil {
+		sb.WriteString("  - ⚠️ Dữ liệu trả về từ RPC rỗng.\n")
+		return sb.String()
+	}
+
+	allAddrs := make(map[string]bool)
+	for addr := range diff1.ModifiedAccounts {
+		allAddrs[addr] = true
+	}
+	for addr := range diff2.ModifiedAccounts {
+		allAddrs[addr] = true
+	}
+
+	var sortedAddrs []string
+	for addr := range allAddrs {
+		sortedAddrs = append(sortedAddrs, addr)
+	}
+	sort.Strings(sortedAddrs)
+
+	hasDiffs := false
+	for _, addr := range sortedAddrs {
+		acc1, ok1 := diff1.ModifiedAccounts[addr]
+		acc2, ok2 := diff2.ModifiedAccounts[addr]
+
+		if !ok1 {
+			hasDiffs = true
+			sb.WriteString(fmt.Sprintf("  - *Tài khoản %s*: Chỉ thay đổi ở `%s` (không đổi ở `%s`)\n", addr, node2.Name, node1.Name))
+			sb.WriteString(fmt.Sprintf("    * [%s]: %s (bal=%s, nonce=%d)\n", node2.Name, formatAccountDiffCompact(acc2), acc2.PostBalance, acc2.PostNonce))
+			continue
+		}
+		if !ok2 {
+			hasDiffs = true
+			sb.WriteString(fmt.Sprintf("  - *Tài khoản %s*: Chỉ thay đổi ở `%s` (không đổi ở `%s`)\n", addr, node1.Name, node2.Name))
+			sb.WriteString(fmt.Sprintf("    * [%s]: %s (bal=%s, nonce=%d)\n", node1.Name, formatAccountDiffCompact(acc1), acc1.PostBalance, acc1.PostNonce))
+			continue
+		}
+
+		var fieldDiffs []string
+		if acc1.PostBalance != acc2.PostBalance {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("balance: `%s` vs `%s`", acc1.PostBalance, acc2.PostBalance))
+		}
+		if acc1.PostNonce != acc2.PostNonce {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("nonce: `%d` vs `%d`", acc1.PostNonce, acc2.PostNonce))
+		}
+		if acc1.PostCodeHash != acc2.PostCodeHash {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("codeHash: `%s` vs `%s`", acc1.PostCodeHash, acc2.PostCodeHash))
+		}
+		if acc1.PostStorageRoot != acc2.PostStorageRoot {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("storageRoot: `%s` vs `%s`", acc1.PostStorageRoot, acc2.PostStorageRoot))
+		}
+		if acc1.PostDataHash != acc2.PostDataHash {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("dataHash: `%s` vs `%s`", acc1.PostDataHash, acc2.PostDataHash))
+		}
+
+		if len(fieldDiffs) > 0 {
+			hasDiffs = true
+			sb.WriteString(fmt.Sprintf("  - *Tài khoản %s*:\n", addr))
+			for _, fd := range fieldDiffs {
+				sb.WriteString(fmt.Sprintf("    * ⚠️ *Khác biệt %s*\n", fd))
+			}
+		}
+	}
+
+	if !hasDiffs {
+		sb.WriteString("  - ✅ Không phát hiện khác biệt nào trong dữ liệu các tài khoản bị thay đổi!\n")
+	}
+
+	return sb.String()
+}
+
+func formatAccountDiffCompact(acc ModifiedAccountRPC) string {
+	if acc.IsNew {
+		return "TẠO MỚI"
+	}
+	return "CẬP NHẬT"
 }

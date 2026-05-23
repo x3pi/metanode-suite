@@ -262,9 +262,9 @@ def main():
                             if os.path.exists(log_file):
                                 with open(log_file, "r", errors="replace") as f:
                                     lines = f.readlines()
-                                    tail_logs = "".join(lines[-25:])
-                                    if len(tail_logs) > 3000:
-                                        tail_logs = tail_logs[-3000:]
+                                    tail_logs = "".join(lines[-50:])
+                                    if len(tail_logs) > 3800:
+                                        tail_logs = tail_logs[-3800:]
                         except Exception as e:
                             print(f"Lỗi đọc log: {e}")
 
