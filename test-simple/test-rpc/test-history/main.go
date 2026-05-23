@@ -581,11 +581,12 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 			continue
 		}
 
-		// Đợi node đồng bộ tới blockB (tối đa 30s)
+		// Đợi node đồng bộ tới blockB (tối đa 3 phút)
 		synced := false
 		waitStart := time.Now()
 		isAlive := false
-		for time.Since(waitStart) < 30*time.Second {
+		var lastSeenBlock uint64
+		for time.Since(waitStart) < 3*time.Minute {
 			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
 			var latestBlockHex string
 			errBlock := tempClient.CallContext(ctxTemp, &latestBlockHex, "eth_blockNumber")
@@ -594,6 +595,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 			if errBlock == nil {
 				isAlive = true
 				latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
+				lastSeenBlock = latestBlock
 				if latestBlock >= blockB {
 					synced = true
 					break
@@ -609,7 +611,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		}
 
 		if !synced {
-			reason := fmt.Sprintf("🛑 LỖI: Node %s không đồng bộ tới block %d sau 30s", u, blockB)
+			reason := fmt.Sprintf("🛑 LỖI: Node %s không đồng bộ tới block %d sau 3 phút (block hiện tại của node: %d)", u, blockB, lastSeenBlock)
 			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 			appendLocalErrorLog(reason)
 			fmt.Printf("   %s\n", reason)
