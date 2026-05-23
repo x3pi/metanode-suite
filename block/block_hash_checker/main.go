@@ -348,7 +348,8 @@ func main() {
 		}
 
 		// Trigger the verified first mismatch stop flag for Telegram!
-		triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+		stopFlagMsg := triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+		fmt.Println(stopFlagMsg)
 
 		// Chi tiết từng mismatch
 		maxShow := 50
@@ -1610,7 +1611,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 	}
 
 	// Trigger the verified first mismatch stop flag for Telegram!
-	triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
+	stopFlagMsg := triggerStopFlagForFirstMismatch(client, nodes, realFirstMismatch)
 
 	*totalMismatches += len(mismatches)
 
@@ -1733,6 +1734,8 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 
 	alertBuf.WriteString(surroundingDetails.String())
 
+	alertBuf.WriteString("\n" + stopFlagMsg + "\n")
+
 	alertBuf.WriteString("\n─── Summary ───\n")
 	alertBuf.WriteString(fmt.Sprintf("Total mismatches: %d\n", *totalMismatches))
 	alertBuf.WriteString(fmt.Sprintf("Detected at: %s\n", time.Now().Format("2006-01-02 15:04:05.000")))
@@ -1793,7 +1796,7 @@ func formatFullBlockDetails(client *http.Client, nodes []nodeInfo, blockNum uint
 	return sb.String()
 }
 
-func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64) {
+func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64) string {
 	// Fetch block info across all nodes
 	blocks := make(map[string]blockInfo)
 	var validBlocks []blockInfo
@@ -1813,7 +1816,7 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 	}
 
 	if len(validBlocks) < 2 {
-		return
+		return ""
 	}
 
 	mismatchedFields := make(map[string]bool)
@@ -1920,5 +1923,203 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 		}
 	}
 
+	if mismatchedFields["stateRoot"] {
+		// 1. Show curl commands
+		sb.WriteString("\n• 🔍 *Để kiểm tra thay đổi tài khoản chi tiết bằng curl:*\n")
+		for _, node := range nodes {
+			bi := blocks[node.Name]
+			if !bi.IsError() {
+				sb.WriteString(fmt.Sprintf("  - *%s*: `curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"debug_getBlockStateDiff\",\"params\":[%d],\"id\":1}' %s`\n",
+					node.Name, blockNum, node.URL))
+			}
+		}
+
+		// 2. Select two nodes with different stateRoots for comparison
+		var diffNode1, diffNode2 *nodeInfo
+		for i, nodeA := range nodes {
+			biA := blocks[nodeA.Name]
+			if biA.IsError() {
+				continue
+			}
+			for j, nodeB := range nodes {
+				if i == j {
+					continue
+				}
+				biB := blocks[nodeB.Name]
+				if biB.IsError() {
+					continue
+				}
+				if biA.StateRoot != biB.StateRoot {
+					nA := nodeA
+					nB := nodeB
+					diffNode1 = &nA
+					diffNode2 = &nB
+					break
+				}
+			}
+			if diffNode1 != nil {
+				break
+			}
+		}
+
+		if diffNode1 != nil && diffNode2 != nil {
+			comparison := compareNodeStateDiffs(client, *diffNode1, *diffNode2, blockNum)
+			sb.WriteString(comparison)
+		}
+	}
+
 	triggerStopFlag(sb.String())
+	return sb.String()
+}
+
+// ===== Types and helper functions for RPC Block State Diffing =====
+
+type ModifiedAccountRPC struct {
+	Address         string `json:"address"`
+	PreBalance      string `json:"preBalance"`
+	PostBalance     string `json:"postBalance"`
+	PreNonce        uint64 `json:"preNonce"`
+	PostNonce       uint64 `json:"postNonce"`
+	PreCodeHash     string `json:"preCodeHash"`
+	PostCodeHash    string `json:"postCodeHash"`
+	PreStorageRoot  string `json:"preStorageRoot"`
+	PostStorageRoot string `json:"postStorageRoot"`
+	PreDataHash     string `json:"preDataHash"`
+	PostDataHash    string `json:"postDataHash"`
+	IsNew           bool   `json:"isNew"`
+}
+
+type BlockStateDiffRPC struct {
+	BlockNumber      uint64                        `json:"blockNumber"`
+	CalculatedRoot   string                        `json:"calculatedRoot"`
+	ModifiedAccounts map[string]ModifiedAccountRPC `json:"modifiedAccounts"`
+}
+
+type blockStateDiffResponse struct {
+	JsonRPC string             `json:"jsonrpc"`
+	Result  *BlockStateDiffRPC `json:"result"`
+	Error   interface{}        `json:"error"`
+}
+
+func queryBlockStateDiff(client *http.Client, nodeURL string, blockNum uint64) (*BlockStateDiffRPC, error) {
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "debug_getBlockStateDiff",
+		"params":  []interface{}{blockNum},
+		"id":      1,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rpcResp blockStateDiffResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return nil, err
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error: %v", rpcResp.Error)
+	}
+
+	return rpcResp.Result, nil
+}
+
+func compareNodeStateDiffs(client *http.Client, node1 nodeInfo, node2 nodeInfo, blockNum uint64) string {
+	diff1, err1 := queryBlockStateDiff(client, node1.URL, blockNum)
+	diff2, err2 := queryBlockStateDiff(client, node2.URL, blockNum)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("\n• 🔍 *ĐỐI CHIẾU CHI TIẾT TÀI KHOẢN GIỮA %s VÀ %s TẠI BLOCK #%d:*\n", node1.Name, node2.Name, blockNum))
+
+	if err1 != nil {
+		sb.WriteString(fmt.Sprintf("  - [%s] ❌ Lỗi lấy thông tin: `%v`\n", node1.Name, err1))
+	}
+	if err2 != nil {
+		sb.WriteString(fmt.Sprintf("  - [%s] ❌ Lỗi lấy thông tin: `%v`\n", node2.Name, err2))
+	}
+	if err1 != nil || err2 != nil {
+		return sb.String()
+	}
+
+	if diff1 == nil || diff2 == nil {
+		sb.WriteString("  - ⚠️ Dữ liệu trả về từ RPC rỗng.\n")
+		return sb.String()
+	}
+
+	allAddrs := make(map[string]bool)
+	for addr := range diff1.ModifiedAccounts {
+		allAddrs[addr] = true
+	}
+	for addr := range diff2.ModifiedAccounts {
+		allAddrs[addr] = true
+	}
+
+	var sortedAddrs []string
+	for addr := range allAddrs {
+		sortedAddrs = append(sortedAddrs, addr)
+	}
+	sort.Strings(sortedAddrs)
+
+	hasDiffs := false
+	for _, addr := range sortedAddrs {
+		acc1, ok1 := diff1.ModifiedAccounts[addr]
+		acc2, ok2 := diff2.ModifiedAccounts[addr]
+
+		if !ok1 {
+			hasDiffs = true
+			sb.WriteString(fmt.Sprintf("  - *Tài khoản %s*: Chỉ thay đổi ở `%s` (không đổi ở `%s`)\n", addr, node2.Name, node1.Name))
+			sb.WriteString(fmt.Sprintf("    * [%s]: %s (bal=%s, nonce=%d)\n", node2.Name, formatAccountDiffCompact(acc2), acc2.PostBalance, acc2.PostNonce))
+			continue
+		}
+		if !ok2 {
+			hasDiffs = true
+			sb.WriteString(fmt.Sprintf("  - *Tài khoản %s*: Chỉ thay đổi ở `%s` (không đổi ở `%s`)\n", addr, node1.Name, node2.Name))
+			sb.WriteString(fmt.Sprintf("    * [%s]: %s (bal=%s, nonce=%d)\n", node1.Name, formatAccountDiffCompact(acc1), acc1.PostBalance, acc1.PostNonce))
+			continue
+		}
+
+		var fieldDiffs []string
+		if acc1.PostBalance != acc2.PostBalance {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("balance: `%s` vs `%s`", acc1.PostBalance, acc2.PostBalance))
+		}
+		if acc1.PostNonce != acc2.PostNonce {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("nonce: `%d` vs `%d`", acc1.PostNonce, acc2.PostNonce))
+		}
+		if acc1.PostCodeHash != acc2.PostCodeHash {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("codeHash: `%s` vs `%s`", acc1.PostCodeHash, acc2.PostCodeHash))
+		}
+		if acc1.PostStorageRoot != acc2.PostStorageRoot {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("storageRoot: `%s` vs `%s`", acc1.PostStorageRoot, acc2.PostStorageRoot))
+		}
+		if acc1.PostDataHash != acc2.PostDataHash {
+			fieldDiffs = append(fieldDiffs, fmt.Sprintf("dataHash: `%s` vs `%s`", acc1.PostDataHash, acc2.PostDataHash))
+		}
+
+		if len(fieldDiffs) > 0 {
+			hasDiffs = true
+			sb.WriteString(fmt.Sprintf("  - *Tài khoản %s*:\n", addr))
+			for _, fd := range fieldDiffs {
+				sb.WriteString(fmt.Sprintf("    * ⚠️ *Khác biệt %s*\n", fd))
+			}
+		}
+	}
+
+	if !hasDiffs {
+		sb.WriteString("  - ✅ Không phát hiện khác biệt nào trong dữ liệu các tài khoản bị thay đổi!\n")
+	}
+
+	return sb.String()
+}
+
+func formatAccountDiffCompact(acc ModifiedAccountRPC) string {
+	if acc.IsNew {
+		return "TẠO MỚI"
+	}
+	return "CẬP NHẬT"
 }
