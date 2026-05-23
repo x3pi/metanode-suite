@@ -112,7 +112,7 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
 
-	triggerStopFlag(fmt.Sprintf("🚨 **CẢNH BÁO ANOMALY: %s**\n• **Block:** #%d\n• **Chi tiết:** %s", anomalyType, blockNum, detail))
+	triggerStopFlag(fmt.Sprintf("🚨 *CẢNH BÁO ANOMALY: %s*\n• *Block:* #%d\n• *Chi tiết:* %s", anomalyType, blockNum, detail))
 }
 
 func triggerStopFlag(reason string) {
@@ -633,14 +633,14 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 
 			// Build a compact, beautifully formatted Telegram message for the stop flag
 			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("🚨 **LỆCH BLOCK #%d**\n", r.blockNum))
-			sb.WriteString(fmt.Sprintf("• ⚠️ **Trường bị lệch:** `[%s]`\n", strings.Join(fields, ", ")))
-			sb.WriteString("• **Chi tiết các node:**\n")
+			sb.WriteString(fmt.Sprintf("🚨 *LỆCH BLOCK #%d*\n", r.blockNum))
+			sb.WriteString(fmt.Sprintf("• ⚠️ *Trường bị lệch:* `[%s]`\n", strings.Join(fields, ", ")))
+			sb.WriteString("• *Chi tiết các node:*\n")
 
 			for _, node := range nodes {
 				bi := r.blocks[node.Name]
 				if bi.IsError() {
-					sb.WriteString(fmt.Sprintf("  - **%s**: `ERROR: %s`\n", node.Name, bi.Error))
+					sb.WriteString(fmt.Sprintf("  - *%s*: `ERROR: %s`\n", node.Name, bi.Error))
 				} else {
 					var fieldVals []string
 					for _, f := range fields {
@@ -682,7 +682,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 					geiVal := parseHexStr(bi.GlobalExecIndex)
 					epochVal := parseHexStr(bi.Epoch)
 					
-					sb.WriteString(fmt.Sprintf("  - **%s**: %s (gei=%d, epoch=%d)\n", 
+					sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n", 
 						node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
 				}
 			}
@@ -1863,18 +1863,18 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 	sort.Strings(fields)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🚨 **LỆCH BLOCK #%d**\n", blockNum))
+	sb.WriteString(fmt.Sprintf("🚨 *LỆCH BLOCK #%d*\n", blockNum))
 	if len(fields) > 0 {
-		sb.WriteString(fmt.Sprintf("• ⚠️ **Trường bị lệch:** `[%s]`\n", strings.Join(fields, ", ")))
+		sb.WriteString(fmt.Sprintf("• ⚠️ *Trường bị lệch:* `[%s]`\n", strings.Join(fields, ", ")))
 	} else {
-		sb.WriteString("• ⚠️ **Trường bị lệch:** `[không xác định - độ trễ/lỗi node]`\n")
+		sb.WriteString("• ⚠️ *Trường bị lệch:* `[không xác định - độ trễ/lỗi node]`\n")
 	}
-	sb.WriteString("• **Chi tiết các node:**\n")
+	sb.WriteString("• *Chi tiết các node:*\n")
 
 	for _, node := range nodes {
 		bi := blocks[node.Name]
 		if bi.IsError() {
-			sb.WriteString(fmt.Sprintf("  - **%s**: `ERROR: %s`\n", node.Name, bi.Error))
+			sb.WriteString(fmt.Sprintf("  - *%s*: `ERROR: %s`\n", node.Name, bi.Error))
 		} else {
 			var fieldVals []string
 			// Show actual values for mismatched fields
@@ -1915,7 +1915,7 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 			}
 			geiVal := parseHexStr(bi.GlobalExecIndex)
 			epochVal := parseHexStr(bi.Epoch)
-			sb.WriteString(fmt.Sprintf("  - **%s**: %s (gei=%d, epoch=%d)\n", 
+			sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n", 
 				node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
 		}
 	}

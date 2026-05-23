@@ -71,7 +71,8 @@ def send_telegram_message(message):
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = urllib.parse.urlencode({
             'chat_id': TELEGRAM_CHAT_ID,
-            'text': message
+            'text': message,
+            'parse_mode': 'Markdown'
         }).encode('utf-8')
         req = urllib.request.Request(url, data=data)
         with urllib.request.urlopen(req) as response:
@@ -269,7 +270,7 @@ def main():
 
                         server_info = get_server_ip_info()
                         real_code = exit_code if exit_code > 0 else "0 (lỗi phát hiện qua log/sentinel)"
-                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI (Exit Code: {real_code}).\n\n📄 **Trích xuất 50 dòng log cuối:**\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
+                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI (Exit Code: {real_code}).\n\n📄 *Trích xuất 50 dòng log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
                         send_telegram_message(msg)
                     else:
                         server_info = get_server_ip_info()
