@@ -211,6 +211,7 @@ fi
 # Đợi 2 giây để port cũ đóng hoàn toàn
 sleep 2
 
+export MTN_TELE_ALERT=true
 nohup "$CI_MONITOR" "${CI_ARGS[@]}" > "$CI_LOG" 2>&1 &
 NEW_PID=$!
 

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -226,6 +228,47 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+func getSystemIPInfo() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "Unknown"
+	}
+
+	var localIPs []string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					localIPs = append(localIPs, ipnet.IP.String())
+				}
+			}
+		}
+	}
+	localIPStr := "Unknown"
+	if len(localIPs) > 0 {
+		localIPStr = strings.Join(localIPs, ", ")
+	}
+
+	publicIP := "Unknown"
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			publicIP = strings.TrimSpace(string(body))
+		}
+	}
+
+	if publicIP != "Unknown" {
+		return fmt.Sprintf("%s (Static/Private IP: %s, Public IP: %s)", hostname, localIPStr, publicIP)
+	}
+	return fmt.Sprintf("%s (Static/Private IP: %s)", hostname, localIPStr)
+}
+
 func sendTelegramMessage(message string) {
 	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
 	chatID := "-1003867050625"
@@ -278,9 +321,12 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 				for _, u := range fc.urls {
 					curls = append(curls, fmt.Sprintf("      curl -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"%s\"],\"id\":1}' %s", txHash, u))
 				}
-				timeoutMsg := fmt.Sprintf("   🚨 Timeout khi chờ receipt cho Tx %s. Dùng lệnh curl sau để kiểm tra trên từng RPC:\n%s", txHash, strings.Join(curls, "\n"))
+				ipInfo := getSystemIPInfo()
+				timeoutMsg := fmt.Sprintf("   🚨 [WARNING] Timeout khi chờ receipt cho Tx %s.\n   Máy gửi: %s\n   Dùng lệnh curl sau để kiểm tra trên từng RPC:\n%s", txHash, ipInfo, strings.Join(curls, "\n"))
 				fmt.Println(timeoutMsg)
-				sendTelegramMessage(timeoutMsg)
+				if os.Getenv("MTN_TELE_ALERT") == "true" {
+					sendTelegramMessage(timeoutMsg)
+				}
 
 				return fmt.Errorf("timeout waiting for receipt after 60s")
 			}

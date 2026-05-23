@@ -206,6 +206,7 @@ def has_real_error(exit_code, log_file):
     return False
 
 def main():
+    os.environ["MTN_TELE_ALERT"] = "true"
     os.makedirs(LOGS_DIR, exist_ok=True)
     
     print(f"=======================================================")
