@@ -10,7 +10,40 @@ Dưới đây là các bước chạy thủ công để bạn có thể debug t�
 cd /home/abc/nhat/con-chain-v2/metanode-suite/scripts
 ./simple_test.sh
 ```
+
+
 *Chờ một lúc cho mạng tạo block và đạt ít nhất Epoch 1.* (Có thể dùng RPC check epoch: `curl -s -X POST http://127.0.0.1:8757 -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}'`)
+
+
+```bash
+cd /home/abc/nhat/con-chain-v2/metanode-suite/scripts
+./simple_test.sh
+
+cd /home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/test-history
+go run main.go -config config-local.json -action save -file /tmp/pending_check_1.json
+sleep 1s
+
+cd /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/scripts
+./mtn-orchestrator.sh stop-node 1
+sleep 1s
+
+cd /home/abc/nhat/con-chain-v2/metanode-suite/test_tps/tps_blast_cc
+go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node 0
+
+sleep 1s
+
+cd /home/abc/nhat/con-chain-v2/metanode/consensus/metanode/scripts
+./mtn-orchestrator.sh start-node 1
+
+
+
+cd /home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/test-history
+go run main.go -config config-local.json -action verify -file /tmp/pending_check_1.json -target-node 1
+
+cd /home/abc/nhat/con-chain-v2/metanode-suite/test_tps/tps_blast_cc
+go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node 1
+
+```
 
 ### 2. Lưu trạng thái lịch sử của mạng
 Lưu lại trạng thái RPC hiện tại để sau khi node 1 hồi phục, bạn có thể kiểm tra xem nó có bị sai lệch dữ liệu cũ không.
