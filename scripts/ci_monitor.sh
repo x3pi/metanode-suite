@@ -114,7 +114,7 @@ cleanup_all_processes() {
 
     # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
     echo "   → Tắt dịch vụ Nginx (giải quyết lỗi 502 Bad Gateway)..."
-    sudo systemctl stop nginx 2>/dev/null || sudo pkill -9 nginx 2>/dev/null || true
+    pkill -9 nginx 2>/dev/null || true
 
     # 4. Kill các session tmux liên quan đến cluster
     echo "   → Tìm và tắt các tmux sessions go-master, metanode, rpc-proxy..."
