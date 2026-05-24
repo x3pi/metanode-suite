@@ -73,6 +73,47 @@ CI_MONITOR="$SCRIPT_DIR/${MONITOR_NAME}.py"
 CI_LOG="$SCRIPT_DIR/${MONITOR_NAME}.log"
 AUTO_TEST_LOGS="$SCRIPT_DIR/${LOGS_DIR_NAME}"
 
+wait_for_ports_to_release() {
+    local ports=("$@")
+    echo "🔍 Đang kiểm tra và chờ giải phóng các cổng: ${ports[*]}..."
+    local start_time=$(date +%s)
+    local timeout=15
+    
+    while true; do
+        local busy_ports=()
+        for port in "${ports[@]}"; do
+            if ss -tlnp 2>/dev/null | grep -qE ":$port\s"; then
+                busy_ports+=("$port")
+            fi
+        done
+        
+        if [ ${#busy_ports[@]} -eq 0 ]; then
+            echo "✅ Tất cả các cổng đã được giải phóng hoàn toàn!"
+            return 0
+        fi
+        
+        local current_time=$(date +%s)
+        local elapsed=$((current_time - start_time))
+        if [ $elapsed -ge $timeout ]; then
+            echo "⚠️ Cảnh báo: Các cổng vẫn bị chiếm giữ sau ${timeout}s: ${busy_ports[*]}"
+            for port in "${busy_ports[@]}"; do
+                local pids=$(ss -tlnp 2>/dev/null | grep -E ":$port " | grep -oP 'pid=\K[0-9]+' | sort -u || true)
+                if [ -n "$pids" ]; then
+                    for p in $pids; do
+                        echo "  → Force killing PID $p occupying port $port..."
+                        kill -9 "$p" 2>/dev/null || true
+                    done
+                fi
+            done
+            sleep 1
+            return 0
+        fi
+        
+        echo "  → Các cổng đang bị giữ: ${busy_ports[*]}. Chờ giải phóng..."
+        sleep 0.5
+    done
+}
+
 cleanup_all_processes() {
     echo ""
     echo "🔪 Dọn dẹp TOÀN BỘ tiến trình cũ đang chạy ngầm..."
@@ -130,19 +171,8 @@ cleanup_all_processes() {
     pkill -9 -f "[r]pc-client" 2>/dev/null || true
 
     # 6. Giải phóng port của cluster
-    echo "   → Giải phóng các port của cluster (8545, 8757, 10747-10750)..."
-    for port in 8545 8757 10747 10748 10749 10750; do
-        PIDS_PORT=$(lsof -t -i :$port 2>/dev/null)
-        if [ -z "$PIDS_PORT" ]; then
-            PIDS_PORT=$(ss -tlnp 2>/dev/null | grep -E ":$port " | grep -oP 'pid=\K[0-9]+' | sort -u)
-        fi
-        if [ -n "$PIDS_PORT" ]; then
-            for p in $PIDS_PORT; do
-                echo "     - Port $port đang bị giữ bởi PID $p. Đang kill..."
-                kill -9 "$p" 2>/dev/null || true
-            done
-        fi
-    done
+    echo "   → Giải phóng các port của cụm cluster..."
+    wait_for_ports_to_release 8545 8757 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 8547 8548 8549 8550
 
     # Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm
     rm -f /tmp/MTN_CHAIN_ERROR_STOP
@@ -215,8 +245,9 @@ if [ -d "$AUTO_TEST_LOGS" ]; then
     PREV_LATEST=$(ls -t "$AUTO_TEST_LOGS"/*.log 2>/dev/null | head -n 1)
 fi
 
-# Đợi 2 giây để port cũ đóng hoàn toàn
-sleep 2
+# Đợi các port cũ giải phóng hoàn toàn
+wait_for_ports_to_release 8545 8757 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 8547 8548 8549 8550
+
 
 export MTN_TELE_ALERT=true
 nohup "$CI_MONITOR" "${CI_ARGS[@]}" > "$CI_LOG" 2>&1 &

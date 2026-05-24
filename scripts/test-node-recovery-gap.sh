@@ -21,6 +21,48 @@ ORCH_SCRIPT="$ROOT_DIR/metanode/consensus/metanode/scripts/mtn-orchestrator.sh"
 RPC_TCP_SCRIPT="$SCRIPT_DIR/rpc-tcp-simple.sh"
 HASH_CHECKER_DIR="$(dirname "$SCRIPT_DIR")/block/block_hash_checker"
 
+# Hàm kiểm tra và giải phóng các cổng bị chiếm giữ
+wait_for_ports_to_release() {
+    local ports=("$@")
+    echo "🔍 Đang kiểm tra và chờ giải phóng các cổng: ${ports[*]}..."
+    local start_time=$(date +%s)
+    local timeout=15
+    
+    while true; do
+        local busy_ports=()
+        for port in "${ports[@]}"; do
+            if ss -tlnp 2>/dev/null | grep -qE ":$port\s"; then
+                busy_ports+=("$port")
+            fi
+        done
+        
+        if [ ${#busy_ports[@]} -eq 0 ]; then
+            echo "✅ Tất cả các cổng đã được giải phóng hoàn toàn!"
+            return 0
+        fi
+        
+        local current_time=$(date +%s)
+        local elapsed=$((current_time - start_time))
+        if [ $elapsed -ge $timeout ]; then
+            echo "⚠️ Cảnh báo: Các cổng vẫn bị chiếm giữ sau ${timeout}s: ${busy_ports[*]}"
+            for port in "${busy_ports[@]}"; do
+                local pids=$(ss -tlnp 2>/dev/null | grep -E ":$port " | grep -oP 'pid=\K[0-9]+' | sort -u || true)
+                if [ -n "$pids" ]; then
+                    for p in $pids; do
+                        echo "  → Force killing PID $p occupying port $port..."
+                        kill -9 "$p" 2>/dev/null || true
+                    done
+                fi
+            done
+            sleep 1
+            return 0
+        fi
+        
+        echo "  → Các cổng đang bị giữ: ${busy_ports[*]}. Chờ giải phóng..."
+        sleep 0.5
+    done
+}
+
 # Dọn dẹp tiến trình giám sát hoặc spam cũ đang chạy ngầm để tránh xung đột
 echo "🧹 Đang dọn dẹp các tiến trình nền cũ..."
 pkill -f "go run main.go --watch" || true
@@ -29,6 +71,9 @@ pkill -f "rpc-tcp-simple.sh" || true
 pkill -f "test-rpc.*main.go" || true
 pkill -f "test-tcp.*main-no-none.go" || true
 pkill -f "main.go --count 20000" || true
+
+# Đảm bảo giải phóng các cổng của metanode trước khi chạy test
+wait_for_ports_to_release 8545 8757 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 8547 8548 8549 8550
 
 # Xóa cờ lỗi cũ trước khi chạy
 rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
@@ -39,13 +84,13 @@ get_current_epoch() {
     hex_epoch=$(curl -s --max-time 2 -X POST http://127.0.0.1:8757 \
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' \
-        | grep -oP '"epoch":"\K(0x[0-9a-fA-F]+)' || echo "0x0")
+        | grep -oP '"epoch":"\K(0x[0-9a-fA-F]+)' || echo "")
     
-    if [ -z "$hex_epoch" ] || [ "$hex_epoch" = "0x0" ]; then
+    if [ -z "$hex_epoch" ] || [ "$hex_epoch" = "0x0" ] || [ "$hex_epoch" = "0x" ]; then
         echo "0"
     else
-        # Chuyển Hex -> Decimal
-        printf "%d\n" "$hex_epoch"
+        # Chuyển Hex -> Decimal an toàn
+        printf "%d\n" "$hex_epoch" 2>/dev/null || echo "0"
     fi
 }
 
@@ -61,9 +106,9 @@ wait_for_consensus() {
             -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
             | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
         
-        if [ -n "$block_hex" ]; then
+        if [ -n "$block_hex" ] && [ "$block_hex" != "0x" ]; then
             local current_block
-            current_block=$(printf "%d\n" "$block_hex")
+            current_block=$(printf "%d\n" "$block_hex" 2>/dev/null || echo "0")
             if [ -n "$last_block" ] && [ "$current_block" -gt "$last_block" ]; then
                 echo "✅ Đồng thuận đã phục hồi! Chiều cao block đang tăng trưởng: $last_block -> $current_block"
                 return 0
@@ -374,36 +419,53 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
 wait_for_sync_to_highest_block() {
     local target_node=$1
     echo "⏳ Đang chờ Node $target_node đồng bộ tới block cao nhất của mạng (Node 0 làm chuẩn)..."
-    while true; do
+    
+    # Lấy RPC Port trực tiếp của target node để tránh phụ thuộc vào RPC Proxy
+    local direct_port=8757
+    if [ "$target_node" == "1" ]; then direct_port=10747; fi
+    if [ "$target_node" == "2" ]; then direct_port=10749; fi
+    if [ "$target_node" == "3" ]; then direct_port=10750; fi
+    if [ "$target_node" == "4" ]; then direct_port=10748; fi
+    
+    local max_attempts=600 # 10 phút tối đa
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
         # Lấy block hiện tại của Node 0
         local block_hex_0=$(curl -s --max-time 1 -X POST http://127.0.0.1:8757 \
             -H "Content-Type: application/json" \
             -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "0x0")
-        local block_0=$(printf "%d\n" "$block_hex_0")
-        
-        # Lấy RPC Port của target node
-        local port=8545
-        if [ "$target_node" == "1" ]; then port=8547; fi
-        if [ "$target_node" == "2" ]; then port=8548; fi
-        if [ "$target_node" == "3" ]; then port=8549; fi
-        if [ "$target_node" == "4" ]; then port=8550; fi
+            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
+            
+        local block_0=0
+        if [ -n "$block_hex_0" ] && [ "$block_hex_0" != "0x" ]; then
+            block_0=$(printf "%d\n" "$block_hex_0" 2>/dev/null || echo "0")
+        fi
         
         # Lấy block hiện tại của Target Node
-        local block_hex_target=$(curl -s --max-time 1 -X POST http://127.0.0.1:$port \
+        local block_hex_target=$(curl -s --max-time 1 -X POST http://127.0.0.1:$direct_port \
             -H "Content-Type: application/json" \
             -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "0x0")
-        local block_target=$(printf "%d\n" "$block_hex_target")
+            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
+            
+        local block_target=0
+        if [ -n "$block_hex_target" ] && [ "$block_hex_target" != "0x" ]; then
+            block_target=$(printf "%d\n" "$block_hex_target" 2>/dev/null || echo "0")
+        fi
         
         if [ "$block_target" -ge "$block_0" ] && [ "$block_0" -gt 0 ]; then
             echo "✅ Node $target_node đã đồng bộ tới block cao nhất (Node 0: $block_0, Node $target_node: $block_target)"
             break
         fi
         
-        echo "   ... Node 0: $block_0, Node $target_node: $block_target. Đang chờ đồng bộ..."
+        echo "   ... [Lần $attempt] Node 0: $block_0, Node $target_node: $block_target. Đang chờ đồng bộ..."
         sleep 1
+        attempt=$((attempt + 1))
     done
+    
+    if [ $attempt -eq $max_attempts ]; then
+        echo "⚠️ Cảnh báo: Đã đạt giới hạn tối đa chờ đồng bộ block của Node $target_node"
+    fi
 }
 
     # 1. Chạy xác minh trạng thái lịch sử trước bằng active polling (cực kỳ nhanh và chính xác)
