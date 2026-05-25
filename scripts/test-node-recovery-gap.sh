@@ -565,8 +565,14 @@ wait_for_sync_to_highest_block() {
     timeout 40s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
     analyze_mismatch "$TARGET_NODE"
 
+    echo "⏳ Đang chờ tiến trình bắn giao dịch ngầm ($PID_OTH) hoàn tất..."
+    wait $PID_OTH
+    if [ $? -ne 0 ]; then
+        echo "❌ [ERROR] Tiến trình bắn giao dịch ngầm thất bại!"
+        exit 1
+    fi
+
     stop_spam
-    wait $PID_OTH 2>/dev/null || true
 
     # Kiểm tra log xem có lỗi không
     if grep -q "❌ \[ERROR\]" "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_recovered_node.log" 2>/dev/null || grep -q "panic" "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc/blast_recovered_node.log" 2>/dev/null; then
