@@ -17,6 +17,17 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ─── Đảm bảo duy nhất một instance ci_monitor.sh hoạt động ───
+MY_PID=$$
+OTHER_PIDS=$(pgrep -f "ci_monitor.sh" | grep -v "^$MY_PID$" || true)
+if [ -n "$OTHER_PIDS" ]; then
+    echo "⚠️ Phát hiện phiên bản ci_monitor.sh khác đang chạy (PIDs: $OTHER_PIDS). Tiến hành tắt tiến trình cũ..."
+    for pid in $OTHER_PIDS; do
+        kill -9 "$pid" 2>/dev/null || true
+    done
+    sleep 1
+fi
+
 # Mặc định các thông số
 TYPE="spam"
 CLEAN_LOGS=false
@@ -143,7 +154,7 @@ cleanup_all_processes() {
     done
 
     # 3. Kill các tiến trình phụ trợ
-    for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc"; do
+    for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc" "tx_sender"; do
         local pat="[${proc:0:1}]${proc:1}"
         if pgrep -f "$pat" >/dev/null; then
             echo "   → Tìm thấy $proc. Đang kill..."
@@ -152,6 +163,10 @@ cleanup_all_processes() {
             pkill -9 -f "$pat" 2>/dev/null || true
         fi
     done
+
+    # 3.1. Kill các tool chạy qua go run (watch/loop)
+    pkill -9 -f "main.go -loop" 2>/dev/null || true
+    pkill -9 -f "main.go --watch" 2>/dev/null || true
 
     # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
     echo "   → Tắt dịch vụ Nginx (giải quyết lỗi 502 Bad Gateway)..."
@@ -164,11 +179,13 @@ cleanup_all_processes() {
         tmux kill-session -t "$session" 2>/dev/null || true
     done
 
-    # 5. Tắt triệt để các tiến trình Go/Rust
-    echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client..."
+    # 5. Tắt triệt để các tiến trình Go/Rust và các RPC proxy server
+    echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client, config-rpc..."
     pkill -9 -f "[s]imple_chain" 2>/dev/null || true
     pkill -9 -f "[m]etanode" 2>/dev/null || true
     pkill -9 -f "[r]pc-client" 2>/dev/null || true
+    pkill -9 -f "config-rpc-node" 2>/dev/null || true
+    pkill -9 -f "config-client-tcp" 2>/dev/null || true
 
     # 6. Giải phóng port của cluster
     echo "   → Giải phóng các port của cụm cluster..."
