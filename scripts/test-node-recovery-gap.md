@@ -26,8 +26,9 @@ Sử dụng script quản trị để tắt tiến trình của node cần test 
 - Bật công cụ `tps_blast_cc` để bắn lượng lớn giao dịch (mặc định 20,000 giao dịch) ngầm vào mạng lưới.
 - Việc bắn giao dịch này được định tuyến trực tiếp vào một node khỏe mạnh khác (`SPAM_NODE`) bằng flag `--target-node` nhằm ép mạng lưới tăng trưởng Epoch trong khi node mục tiêu đang tắt.
 
-### 6. Đợi mạng đạt mốc Gap Epoch
-Đợi cho đến khi Epoch hiện tại của các node đang chạy vượt qua mốc Epoch đích (`TARGET_EPOCH = START_EPOCH + GAP_EPOCH`). Lúc này, node bị tắt đã bị tụt hậu so với mạng lưới một khoảng nhất định. Script sau đó sẽ dừng bắn giao dịch tạm thời.
+### 6. Đợi mạng đạt mốc Gap Epoch (Hoặc thời gian Downtime)
+- **Nếu tắt 1 node:** Đợi cho đến khi Epoch hiện tại của mạng lưới vượt qua mốc Epoch đích (`TARGET_EPOCH = START_EPOCH + GAP_EPOCH`). Lúc này, node bị tắt đã bị tụt hậu một khoảng nhất định.
+- **Nếu tắt toàn mạng (`--all-only`):** Vì toàn bộ mạng dừng hoạt động, Epoch không tăng lên. Script bỏ qua bước tính downtime dài và chỉ đợi ngắn 10 giây trước khi bật lại toàn mạng.
 
 ### 7. Khởi động lại Node & Xác minh lịch sử trạng thái
 - Script khởi động lại node mục tiêu (`TARGET_NODE`).
@@ -39,16 +40,22 @@ Sử dụng script quản trị để tắt tiến trình của node cần test 
 - Node vừa phục hồi **bắt buộc phải trả về chính xác** số dư và nonce lịch sử tại Block A giống hệt như checkpoint đã lưu trước đó. Nếu dữ liệu lịch sử bị sai lệch hoặc bị rò rỉ dữ liệu mới (state mới ghi đè block cũ), kiểm thử sẽ dừng lập tức với mã lỗi 1.
 
 ### 8. Stress Test sau phục hồi & Kiểm tra Hash
-- Để kiểm tra độ ổn định của node phục hồi dưới tải cao, script bắn song song 2 luồng TPS (mỗi luồng 20,000 giao dịch): một luồng hướng vào node vừa hồi phục (`TARGET_NODE`), một luồng hướng vào node khác (`SPAM_NODE`).
+- Để kiểm tra độ ổn định của node phục hồi dưới tải cao và **tránh lỗi đụng độ Nonce (Nonce Collision)**:
+  1. Script bắn **tuần tự** 20,000 giao dịch vào node vừa hồi phục (`TARGET_NODE` hoặc Node 0 nếu test tắt toàn mạng).
+  2. Sau khi bắn xong, script chuyển sang bắn 20,000 giao dịch chạy **ngầm** qua một node khỏe mạnh khác (`SPAM_NODE`).
 - Nếu bất kỳ tiến trình bắn giao dịch nào gặp lỗi hoặc panic, script sẽ dừng và xuất log chi tiết ngay.
-- Đồng thời, `block_hash_checker` chạy để xác minh tính đồng thuận (không có node nào bị lệch hash block).
+- Đồng thời, `block_hash_checker` được kích hoạt chạy song song để xác minh tính đồng thuận (không có node nào bị lệch hash block khi mạng đang chịu tải).
 
 ---
 
 ## 🚀 Hướng dẫn chạy
 
 ### 1. Chạy với cấu hình mặc định
-Mặc định sẽ test tắt **Node 1**, tạo khoảng trống dữ liệu **1 Epoch**, và chạy **1 vòng lặp**:
+Mặc định script sẽ chạy **20,000 vòng lặp** và tạo khoảng trống dữ liệu **1 Epoch**. 
+Kịch bản tự động luân phiên tắt các node theo cơ chế tỷ lệ 50/50:
+- **Các vòng lặp lẻ (1, 3, 5, 7...)**: Luân phiên tắt tuần tự Node 1, 2 và 3.
+- **Các vòng lặp chẵn (2, 4, 6, 8...)**: Luôn luôn tắt Node 4.
+
 ```bash
 cd scripts/
 ./test-node-recovery-gap.sh
@@ -57,7 +64,7 @@ cd scripts/
 ### 2. Chạy với tham số tùy chọn
 Cú pháp:
 ```bash
-./test-node-recovery-gap.sh <NodeID> <GapEpoch> <Số lần lặp>
+./test-node-recovery-gap.sh [NodeID|--all-only] [GapEpoch] [Số lần lặp]
 ```
 
 Ví dụ:
@@ -65,7 +72,7 @@ Ví dụ:
   ```bash
   ./test-node-recovery-gap.sh 2 5 1
   ```
-- Tắt Node 1, chờ 3 Epochs, lặp lại test 3 lần liên tục:
+- Tắt toàn bộ mạng (`all`), mô phỏng downtime 2 Epochs, lặp lại 3 lần:
   ```bash
-  ./test-node-recovery-gap.sh 1 3 3
+  ./test-node-recovery-gap.sh --all-only 2 3
   ```

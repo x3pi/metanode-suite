@@ -14,7 +14,7 @@ Chạy `tps_blast_cc` để gửi một lượng lớn giao dịch vào mạng l
 
 ### 3. Lưu checkpoint & Khôi phục Node từ Snapshot (Restore Node)
 - Chạy công cụ `test-history` ở chế độ `-action save` để thực hiện một giao dịch thay đổi số dư/nonce, ghi nhận lại số dư và nonce của ví tại mốc block đó (Block A), rồi lưu checkpoint vào `/tmp/pending_check_${NODE_ID}.json`.
-- Sử dụng script `restore_node.sh` để xóa dữ liệu hiện tại của node cần test (`NODE_ID`, mặc định Node 1) và khôi phục nó bằng cách sao chép dữ liệu thư mục snapshot từ Node 4.
+- Sử dụng script `restore_node.sh` để xóa dữ liệu hiện tại của node cần test (`NODE_ID`) và khôi phục nó bằng cách sao chép dữ liệu thư mục snapshot từ Node 4. (Lưu ý: `NODE_ID` sẽ được luân phiên tự động 0 -> 1 -> 2 -> 3 qua các vòng lặp).
 - Quá trình này mô phỏng việc khôi phục một node trống dữ liệu sử dụng bản snapshot đáng tin cậy.
 
 ### 4. Chờ các node đồng bộ block & Ổn định
@@ -29,11 +29,11 @@ Chạy `tps_blast_cc` để gửi một lượng lớn giao dịch vào mạng l
   Node phục hồi từ snapshot bắt buộc phải trả về chính xác số dư và nonce tại Block A giống hệt như checkpoint đã lưu ở Bước 3. Quá trình này cũng sẽ tự động chạy thêm 1 vòng kiểm tra gửi giao dịch thực tế rồi lưu lại lịch sử trước khi tiếp tục.
 
 
-### 5. Gửi giao dịch kiểm tra có định tuyến
+### 5. Gửi giao dịch kiểm tra (Tuần tự)
 Sau khi khôi phục và xác minh lịch sử thành công, script thực hiện kiểm tra tính sẵn sàng của node bằng cách:
 - Chờ 10 giây cho node ổn định.
-- Bắn 20,000 giao dịch trực tiếp vào chính node vừa khôi phục (`NODE_ID`) sử dụng flag `--target-node $NODE_ID`. Nếu tiến trình này gặp lỗi (node chưa sẵn sàng hoặc bị crash), script sẽ dừng ngay lập tức và in log chi tiết.
-- Tiếp tục đổi sang bắn thêm 20,000 giao dịch qua một node khỏe mạnh khác (`SPAM_NODE`) để đảm bảo mạng lưới vẫn đồng thuận tốt khi chịu tải từ nhiều nguồn khác nhau.
+- Bắn **tuần tự** 20,000 giao dịch trực tiếp vào chính node vừa khôi phục (`NODE_ID`) sử dụng flag `--target-node $NODE_ID`. Nếu tiến trình này gặp lỗi, script sẽ dừng ngay lập tức.
+- Tiếp tục bắn **tuần tự** thêm 20,000 giao dịch qua một node khỏe mạnh khác (`SPAM_NODE`) để đảm bảo mạng lưới vẫn đồng thuận tốt. Việc chạy tuần tự tránh được lỗi đụng độ Nonce (Nonce Collision), trong khi `block_hash_checker` chạy ngầm từ Bước 1 vẫn liên tục giám sát mạng.
 
 ### 6. Xác minh đồng thuận Hash & Dọn dẹp tài nguyên
 - Chờ 10 giây, sau đó kiểm tra xem tiến trình `block_hash_checker` có phát hiện bất kỳ sự lệch hash block nào giữa các node hay không. Nếu có lệch hash, pipeline sẽ báo lỗi và dừng lập tức.
@@ -50,17 +50,16 @@ cd scripts/
 ```
 
 ### Các tùy chọn (Options):
-- `--node <id>`: ID của node cần thực hiện restore snapshot (mặc định: 1).
-- `--loops <num>`: Số vòng lặp chạy test liên tục (mặc định: 1).
+- `--loops <num>`: Số vòng lặp chạy test liên tục (mặc định: 2000). Trong mỗi vòng, script sẽ **tự động luân phiên Node** (0, 1, 2, 3) để thực hiện restore.
 - `--tps-rounds <num>`: Số vòng chạy TPS blast trước snapshot (mặc định: 1).
 - `--tps-count <num>`: Số lượng giao dịch trong mỗi vòng TPS (mặc định: 20000).
 
 ### Ví dụ:
-- Chạy test khôi phục snapshot cho Node 1 với 1 vòng lặp:
+- Chạy test khôi phục snapshot luân phiên các node trong mạng với 5 vòng lặp:
   ```bash
-  ./test-snapshot.sh --node 1 --loops 1
+  ./test-snapshot.sh --loops 5
   ```
-- Chạy khôi phục snapshot cho Node 2, lặp lại 5 lần liên tục:
+- Chạy với số lượng TPS cao hơn (50,000 giao dịch mỗi lần):
   ```bash
-  ./test-snapshot.sh --node 2 --loops 5
+  ./test-snapshot.sh --loops 3 --tps-count 50000
   ```

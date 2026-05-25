@@ -316,17 +316,13 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         TARGET_NODE="all"
         echo "ℹ️ Chế độ TEST_ALL_ONLY: Bỏ qua luân phiên, ép test tắt toàn bộ mạng."
     else
-        MOD=$(( (loop - 1) % 5 ))
-        if [ $MOD -eq 0 ]; then
-            TARGET_NODE=1
-        elif [ $MOD -eq 1 ]; then
-            TARGET_NODE=2
-        elif [ $MOD -eq 2 ]; then
-            TARGET_NODE=3
-        elif [ $MOD -eq 3 ]; then
+        # Tỉ lệ 50% test Node 4, 50% test luân phiên Node 1, 2, 3
+        if [ $(( loop % 2 )) -eq 0 ]; then
             TARGET_NODE=4
         else
-            TARGET_NODE="all"
+            # Luân phiên 1, 2, 3 cho các vòng lặp lẻ (1, 3, 5, 7...)
+            MOD_3=$(( ( (loop - 1) / 2 ) % 3 + 1 ))
+            TARGET_NODE=$MOD_3
         fi
     fi
 
@@ -342,13 +338,22 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     done
 
     if [ "$TARGET_NODE" == "all" ]; then
+        echo "📥 Lưu trạng thái lịch sử trước khi dừng toàn bộ mạng (chọn node 0 làm chuẩn)..."
+        (
+            cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
+            go run main.go -config config-local.json -action save -file /tmp/pending_check_all.json
+        )
+
         echo -e "\n[2/8] 🛑 Dừng toàn bộ mạng..."
         $ORCH_SCRIPT stop
 
-        echo -e "\n[3/8] 🚀 Bỏ qua tạo gap vì mạng đã dừng hoàn toàn."
-        echo -e "\n[4/8] ⏳ Bỏ qua chờ epoch gap."
+        echo -e "\n[3/8] 🚀 Bỏ qua tạo gap giao dịch vì mạng đã dừng hoàn toàn."
+        echo -e "\n[4/8] ⏳ Đợi 10 giây trước khi bật lại toàn mạng..."
+        sleep 10
 
         echo -e "\n[5/8] 🔄 Khởi động lại toàn bộ mạng..."
+        echo "🗑️ Đang dọn dẹp log cũ của toàn bộ node..."
+        rm -f "$ROOT_DIR/metanode/consensus/metanode/logs"/node_*/*.log
         $ORCH_SCRIPT start
         
         echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của toàn mạng..."
@@ -416,6 +421,8 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         wait $PID_GAP 2>/dev/null || true
 
         echo -e "\n[5/8] 🔄 Khởi động lại node $TARGET_NODE..."
+        echo "🗑️ Đang dọn dẹp log cũ của node $TARGET_NODE..."
+        rm -f "$ROOT_DIR/metanode/consensus/metanode/logs/node_$TARGET_NODE"/*.log
         $ORCH_SCRIPT start-node $TARGET_NODE
         
         echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của Node $TARGET_NODE..."
@@ -511,6 +518,12 @@ wait_for_sync_to_highest_block() {
             cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
             go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
         )
+    else
+        echo "📤 Xác minh trạng thái lịch sử trên mạng (node 0)..."
+        (
+            cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
+            go run main.go -config config-local.json -action verify -file /tmp/pending_check_all.json -target-node 0
+        )
     fi
 
     # 2. Kiểm tra Hash Checker sau khi xác minh lịch sử thành công
@@ -523,16 +536,27 @@ wait_for_sync_to_highest_block() {
 
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
     cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
-    SPAM_NODE=0
-    if [ "$TARGET_NODE" = "0" ]; then
-        SPAM_NODE=1
+    SPAM_NODE_1=$TARGET_NODE
+    SPAM_NODE_2=0
+    if [ "$TARGET_NODE" = "all" ]; then
+        SPAM_NODE_1=0
+        SPAM_NODE_2=1
+    elif [ "$TARGET_NODE" = "0" ]; then
+        SPAM_NODE_2=1
     fi
-    echo "👉 Bắn giao dịch lên Node vừa hồi phục ($TARGET_NODE)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $TARGET_NODE > blast_recovered_node.log 2>&1 &
-    PID_REC=$!
     
-    echo "👉 Đổi sang bắn giao dịch qua node khác ($SPAM_NODE)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_other_node.log 2>&1 &
+    echo "👉 Bắn giao dịch lên Node vừa hồi phục ($SPAM_NODE_1) (Chạy tuần tự)..."
+    # Chạy tuần tự để tránh lỗi Nonce collision. In ra màn hình bằng lệnh tee để dễ theo dõi.
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_1 2>&1 | tee blast_recovered_node.log
+    
+    # Check lỗi nếu lệnh fail
+    if [ ${PIPESTATUS[0]} -ne 0 ]; then
+        echo "❌ [ERROR] Lỗi khi chạy tps_blast_cc tuần tự!"
+        exit 1
+    fi
+    
+    echo "👉 Đổi sang bắn giao dịch qua node khác ($SPAM_NODE_2) (Chạy ngầm)..."
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_2 > blast_other_node.log 2>&1 &
     PID_OTH=$!
 
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
@@ -542,7 +566,6 @@ wait_for_sync_to_highest_block() {
     analyze_mismatch "$TARGET_NODE"
 
     stop_spam
-    wait $PID_REC 2>/dev/null || true
     wait $PID_OTH 2>/dev/null || true
 
     # Kiểm tra log xem có lỗi không
