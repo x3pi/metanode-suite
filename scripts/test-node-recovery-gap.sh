@@ -9,7 +9,14 @@ export CARGO_BUILD_JOBS=2
 unset -f cd 2>/dev/null || true
 
 
-# Tham số (mặc định: node=1, gap=3, loop=1)
+# Kiểm tra cờ --all-only
+TEST_ALL_ONLY=false
+if [ "${1:-}" == "--all-only" ]; then
+    TEST_ALL_ONLY=true
+    shift || true
+fi
+
+# Tham số (mặc định: node=1, gap=1, loop=20000)
 NODE_ID=${1:-1}
 GAP_EPOCH=${2:-1}
 LOOP_COUNT=${3:-20000}
@@ -94,30 +101,52 @@ get_current_epoch() {
     fi
 }
 
-# Hàm chờ mạng thiết lập đồng thuận và bắt đầu tăng trưởng block
+# Hàm chờ mạng thiết lập đồng thuận bằng cách kiểm tra tất cả các node có cùng chiều cao block
 wait_for_consensus() {
-    echo "⏳ Đang chờ hệ thống mạng thiết lập lại đồng thuận và tiến triển chiều cao block..."
-    local last_block=""
-    # Thử tối đa 60 giây (300 lần thử, mỗi lần cách nhau 200ms)
-    for ((r=1; r<=300; r++)); do
-        local block_hex
-        block_hex=$(curl -s --max-time 1 -X POST http://127.0.0.1:8757 \
-            -H "Content-Type: application/json" \
-            -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-            | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
+    echo "⏳ Đang kiểm tra chiều cao block trên tất cả các node..."
+    local ports=(8757 10747 10749 10750 10748)
+    
+    # Thử tối đa 120 giây (120 lần thử, mỗi lần cách nhau 1s)
+    for ((r=1; r<=120; r++)); do
+        local all_same=true
+        local first_block=""
+        local blocks_info=""
         
-        if [ -n "$block_hex" ] && [ "$block_hex" != "0x" ]; then
-            local current_block
-            current_block=$(printf "%d\n" "$block_hex" 2>/dev/null || echo "0")
-            if [ -n "$last_block" ] && [ "$current_block" -gt "$last_block" ]; then
-                echo "✅ Đồng thuận đã phục hồi! Chiều cao block đang tăng trưởng: $last_block -> $current_block"
-                return 0
+        for i in "${!ports[@]}"; do
+            local port="${ports[$i]}"
+            local block_hex
+            block_hex=$(curl -s --max-time 1 -X POST "http://127.0.0.1:$port" \
+                -H "Content-Type: application/json" \
+                -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+                | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
+            
+            local current_block=-1
+            if [ -n "$block_hex" ] && [ "$block_hex" != "0x" ]; then
+                current_block=$(printf "%d\n" "$block_hex" 2>/dev/null || echo "-1")
             fi
-            last_block=$current_block
+            
+            blocks_info+="m$i=$current_block "
+            
+            if [ "$current_block" -eq -1 ]; then
+                all_same=false
+            else
+                if [ -z "$first_block" ]; then
+                    first_block=$current_block
+                elif [ "$current_block" -ne "$first_block" ]; then
+                    all_same=false
+                fi
+            fi
+        done
+        
+        if [ "$all_same" = true ] && [ -n "$first_block" ]; then
+            echo "✅ Đồng thuận xác nhận! Tất cả 5 node đều ở cùng chiều cao block: $first_block"
+            return 0
         fi
-        sleep 0.2
+        
+        echo "   ... [Lần $r] Trạng thái block: $blocks_info. Đang chờ đồng bộ..."
+        sleep 1
     done
-    echo "⚠️ Cảnh báo: Đồng thuận chưa phục hồi rõ rệt sau 60 giây, tiếp tục chạy..."
+    echo "❌ LỖI: Các node không đồng bộ được chiều cao block với nhau sau 120 giây. Trạng thái cuối: $blocks_info. Dừng script để kiểm tra mạng!"
     return 1
 }
 
@@ -282,18 +311,23 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     echo -e "\n\n🔄 VÒNG LẶP TEST THỨ $loop / $LOOP_COUNT"
     echo "========================================================="
 
-    # Xác định TARGET_NODE luân phiên
-    MOD=$(( (loop - 1) % 5 ))
-    if [ $MOD -eq 0 ]; then
-        TARGET_NODE=1
-    elif [ $MOD -eq 1 ]; then
-        TARGET_NODE=2
-    elif [ $MOD -eq 2 ]; then
-        TARGET_NODE=3
-    elif [ $MOD -eq 3 ]; then
-        TARGET_NODE=4
-    else
+    # Xác định TARGET_NODE
+    if [ "$TEST_ALL_ONLY" = true ]; then
         TARGET_NODE="all"
+        echo "ℹ️ Chế độ TEST_ALL_ONLY: Bỏ qua luân phiên, ép test tắt toàn bộ mạng."
+    else
+        MOD=$(( (loop - 1) % 5 ))
+        if [ $MOD -eq 0 ]; then
+            TARGET_NODE=1
+        elif [ $MOD -eq 1 ]; then
+            TARGET_NODE=2
+        elif [ $MOD -eq 2 ]; then
+            TARGET_NODE=3
+        elif [ $MOD -eq 3 ]; then
+            TARGET_NODE=4
+        else
+            TARGET_NODE="all"
+        fi
     fi
 
     echo -e "\n[1/8] ⏳ Kiểm tra điều kiện bắt đầu (Yêu cầu Epoch >= 1)..."
