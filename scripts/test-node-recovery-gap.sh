@@ -304,7 +304,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
             break
         fi
         echo "   ... Hiện tại: Epoch $CURRENT_EPOCH. Đang chờ mạng lên ít nhất Epoch 1..."
-        sleep 0.5
+        sleep 5
     done
 
     if [ "$TARGET_NODE" == "all" ]; then
