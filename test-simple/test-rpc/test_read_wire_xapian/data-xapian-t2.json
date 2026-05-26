@@ -1,9 +1,9 @@
 [
   {
-    "contract": "0x0C5A9357F55B380ab38D69ca80BAfAD7Bc660cCa",
+    "contract": "0xedb0Ed15866d531ee064587f48381ee9c76Cc841",
     "abi_path": "./test_read_wire_xapian/abi/xapian.json",
     "action": "call",
-    "method": "runStep5b_QuerySearch",
+    "method": "runStep5b_QuerySearch_View",
     "args": [
       "iphone"
     ]
