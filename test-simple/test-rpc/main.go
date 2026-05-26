@@ -245,17 +245,20 @@ func main() {
 		}
 		fmt.Println("==================================================")
 
+		// Nếu có lỗi, luôn thoát bất kể loop hay không để tránh flood
+		if hasError {
+			fmt.Println("❌ Có lỗi xảy ra, dừng loop!")
+			os.Exit(1)
+		}
+
 		// Nếu không loop thì thoát
 		if !*loopFlag {
-			if hasError {
-				os.Exit(1)
-			}
 			break
 		}
 
 		// Loop mode: chờ rồi lặp lại
 		fmt.Printf("⏳ [LOOP] Chờ %ds trước vòng tiếp theo...\n", *delayFlag)
-		time.Sleep(time.Duration(*delayFlag) * time.Second)
+		// time.Sleep(time.Duration(*delayFlag) * time.Second)
 	}
 }
 
@@ -589,7 +592,7 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 							fmt.Printf("      - Log [%d]: Topic0=%s (Không tìm thấy trong ABI)\n", i, vLog.Topics[0].Hex())
 							continue
 						}
-						
+
 						logStrBuilder := strings.Builder{}
 						fmt.Printf("      - Log [%d] Event: %s\n", i, event.Name)
 						for j, topic := range vLog.Topics {

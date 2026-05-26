@@ -9,6 +9,13 @@ go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data.js
 #chạy v0
 go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-v0.json
 go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-v2.json
+
+ go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-t1.json --loop
+ go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-t2.json --loop
+ go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-t3.json --loop
+ go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-t4.json --loop
+ go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-t5.json --loop
+
 ```
 
 # server
