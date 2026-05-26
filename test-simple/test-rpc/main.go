@@ -494,7 +494,11 @@ func executeCall(client *ethclient.Client, contractAddress common.Address, parse
 		Data: payloadData,
 	}
 
+	startTime := time.Now()
 	result, err := client.CallContract(context.Background(), msg, nil)
+	latency := time.Since(startTime)
+	fmt.Printf("   ⏱️  Thời gian phản hồi RPC: %v\n", latency)
+
 	if err != nil {
 		return fmt.Errorf("Lỗi gọi eth_call %s: %v", methodName, err)
 	}
