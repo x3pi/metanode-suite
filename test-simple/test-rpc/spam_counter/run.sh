@@ -13,8 +13,12 @@ SOLC_NODE_PATH="/home/abc/nhat/consensus-chain/mtn-simple-2025/cmd/tool/tool-tes
 
 # ── 1. Biên dịch Solidity ───────────────────────────────────────
 echo "📦 Biên dịch TestCounter.sol..."
+BUILD_DIR="$REPO_ROOT/test-simple/contract/build"
+mkdir -p "$BUILD_DIR"
+# Copy compile.js vào build/ để chạy
+cp "$REPO_ROOT/test-simple/contract/compile.js" "$BUILD_DIR/compile.js"
 NODE_PATH="$SOLC_NODE_PATH" node \
-  "$REPO_ROOT/test-simple/contract/build/compile.js" \
+  "$BUILD_DIR/compile.js" \
   "$REPO_ROOT/test-simple/contract/test-counter.sol" \
   "$SCRIPT_DIR" 2>&1
 

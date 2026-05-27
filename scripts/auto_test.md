@@ -123,6 +123,7 @@ nohup ./ci_monitor.py --mode single > ci_monitor.log 2>&1 &
 
 ./ci_monitor.sh --type recovery
 ./ci_monitor.sh --type snapshot
+./ci_monitor.sh --type spam_xapian
 
 ./ci_monitor.sh --type snapshot --no-listen
 ./ci_monitor.sh --type recovery --no-listen

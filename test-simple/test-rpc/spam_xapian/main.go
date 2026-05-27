@@ -1,0 +1,318 @@
+package main
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log"
+	"math/big"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+)
+
+type Config struct {
+	RPCUrl  string `json:"rpc_url"`
+	ChainID int64  `json:"chain_id"`
+}
+
+type KeyItem struct {
+	PrivateKey string `json:"private_key"`
+	Address    string `json:"address"`
+}
+
+func waitReceipt(client *ethclient.Client, rpcUrl string, txHash common.Hash) (*types.Receipt, error) {
+	timeout := time.After(120 * time.Second)
+	for {
+		select {
+		case <-timeout:
+			curlCmd := fmt.Sprintf(`curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["%s"],"id":1}' %s`, txHash.Hex(), rpcUrl)
+			return nil, fmt.Errorf("timeout 120s waiting for receipt.\n   Manual check: %s", curlCmd)
+		default:
+			receipt, err := client.TransactionReceipt(context.Background(), txHash)
+			if err == nil {
+				return receipt, nil
+			}
+			if err != ethereum.NotFound {
+				return nil, err
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+func fetchNonceWithRetry(client *ethclient.Client, addr common.Address, expectedMin uint64) (uint64, error) {
+	var n uint64
+	var err error
+	for i := 1; i <= 5; i++ {
+		n, err = client.PendingNonceAt(context.Background(), addr)
+		if err != nil {
+			return 0, fmt.Errorf("lỗi RPC khi lấy nonce: %v", err)
+		}
+		if n >= expectedMin {
+			return n, nil
+		}
+		fmt.Printf("⚠️ Nonce lấy về (%d) nhỏ hơn mong đợi (%d) cho ví %s (lần %d/5). Thử lại sau 500ms...\n", n, expectedMin, addr.Hex(), i)
+		time.Sleep(500 * time.Millisecond)
+	}
+	return 0, fmt.Errorf("không thể lấy nonce hợp lệ (>= %d) sau 5 lần thử (nonce hiện tại: %d)", expectedMin, n)
+}
+
+type Wallet struct {
+	Address common.Address
+	PrivKey *ecdsa.PrivateKey
+	Nonce   uint64
+}
+
+func main() {
+	configPath := flag.String("config", "../config-local.json", "Path to config JSON")
+	keysPath := flag.String("keys", "../../../test_tps/gen_spam_keys/generated_keys.json", "Path to generated keys JSON")
+	abiPath := flag.String("abi", "../test_read_wire_xapian/abi/xapian.json", "Path to contract ABI JSON")
+	contractAddrStr := flag.String("contract", "", "Contract address (REQUIRED if not deploying)")
+	deployJsonPath := flag.String("deploy-json", "", "Path to JSON data file containing deploy action")
+	methodName := flag.String("method", "runStep1_Setup", "Method name to call (e.g., runStep1_Setup, runStep3_UpdateDoc)")
+	numWallets := flag.Int("wallets", 1000, "Number of wallets to use for spamming")
+	maxRounds := flag.Int("rounds", 2000, "Maximum number of rounds to execute")
+
+	flag.Parse()
+
+	if *contractAddrStr == "" && *deployJsonPath == "" {
+		log.Fatalf("❌ Vui lòng cung cấp -contract=<address> HOẶC -deploy-json=<path_to_json>")
+	}
+
+	rawCfg, err := os.ReadFile(*configPath)
+	if err != nil {
+		log.Fatalf("❌ Lỗi đọc config: %v", err)
+	}
+	var cfg Config
+	json.Unmarshal(rawCfg, &cfg)
+
+	client, err := ethclient.Dial(cfg.RPCUrl)
+	if err != nil {
+		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+	}
+	fmt.Printf("🔗 Kết nối RPC: %s (ChainID: %d)\n", cfg.RPCUrl, cfg.ChainID)
+
+	rawKeys, err := os.ReadFile(*keysPath)
+	if err != nil {
+		log.Fatalf("❌ Lỗi đọc file keys: %v", err)
+	}
+	var allKeys []KeyItem
+	if err := json.Unmarshal(rawKeys, &allKeys); err != nil {
+		log.Fatalf("❌ Lỗi parse JSON keys: %v", err)
+	}
+	if len(allKeys) < *numWallets {
+		log.Fatalf("❌ Số lượng ví trong file (%d) ít hơn số lượng yêu cầu (%d)", len(allKeys), *numWallets)
+	}
+
+	selectedKeys := allKeys[:*numWallets]
+	fmt.Printf("🔑 Đang lấy nonce khởi tạo cho %d ví (có thể mất chút thời gian)...\n", len(selectedKeys))
+
+	wallets := make([]*Wallet, len(selectedKeys))
+	for i, k := range selectedKeys {
+		pk, err := crypto.HexToECDSA(k.PrivateKey)
+		if err != nil {
+			log.Fatalf("❌ Lỗi parse private key ví thứ %d: %v", i, err)
+		}
+		addr := common.HexToAddress(k.Address)
+		nonce, err := fetchNonceWithRetry(client, addr, 0)
+		if err != nil {
+			log.Fatalf("❌ Lỗi lấy nonce cho ví %s: %v", addr.Hex(), err)
+		}
+		wallets[i] = &Wallet{
+			Address: addr,
+			PrivKey: pk,
+			Nonce:   nonce,
+		}
+	}
+	fmt.Printf("✅ Đã nạp %d ví sẵn sàng spam\n", len(wallets))
+
+	var contractAddr common.Address
+	if *contractAddrStr != "" {
+		contractAddr = common.HexToAddress(*contractAddrStr)
+	} else {
+		// Tự động deploy
+		fmt.Printf("⏳ Chế độ Tự Deploy kích hoạt (File: %s)...\n", *deployJsonPath)
+		rawJson, err := os.ReadFile(*deployJsonPath)
+		if err != nil {
+			log.Fatalf("❌ Lỗi đọc file json deploy: %v", err)
+		}
+		type TaskItem struct {
+			Action    string `json:"action"`
+			InputData string `json:"input_data"`
+		}
+		var tasks []TaskItem
+		if err := json.Unmarshal(rawJson, &tasks); err != nil {
+			log.Fatalf("❌ Lỗi parse json deploy: %v", err)
+		}
+		if len(tasks) == 0 || tasks[0].Action != "deploy" {
+			log.Fatalf("❌ File JSON không có action 'deploy' ở phần tử đầu tiên")
+		}
+		hexStr := tasks[0].InputData
+		if strings.HasPrefix(hexStr, "0x") {
+			hexStr = hexStr[2:]
+		}
+		bytecode, err := hex.DecodeString(hexStr)
+		if err != nil {
+			log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
+		}
+
+		deployer := wallets[0]
+		gasPrice, _ := client.SuggestGasPrice(context.Background())
+		gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
+			From:     deployer.Address,
+			GasPrice: gasPrice,
+			Data:     bytecode,
+		})
+		if err != nil {
+			gasLimit = 3000000
+		} else {
+			gasLimit += 50000
+		}
+		tx := types.NewContractCreation(deployer.Nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
+		signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), deployer.PrivKey)
+		if err != nil {
+			log.Fatalf("❌ Lỗi sign deploy tx: %v", err)
+		}
+		if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+			log.Fatalf("❌ Lỗi send deploy tx: %v", err)
+		}
+		fmt.Printf("🚀 Đã gửi tx Deploy (Hash: %s). Đang đợi receipt...\n", signedTx.Hash().Hex())
+		receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash())
+		if err != nil {
+			log.Fatalf("❌ Timeout khi đợi deploy receipt: %v", err)
+		}
+		if receipt.Status != 1 {
+			log.Fatalf("❌ Transaction deploy bị REVERT!")
+		}
+		deployer.Nonce++
+		contractAddr = receipt.ContractAddress
+		fmt.Printf("✅ Đã deploy thành công! Mới tạo Contract: %s (Gas used: %d)\n", contractAddr.Hex(), receipt.GasUsed)
+	}
+
+	rawAbi, err := os.ReadFile(*abiPath)
+	if err != nil {
+		log.Fatalf("❌ Lỗi đọc file ABI: %v", err)
+	}
+	parsedABI, err := abi.JSON(strings.NewReader(string(rawAbi)))
+	if err != nil {
+		log.Fatalf("❌ Lỗi parse ABI: %v", err)
+	}
+
+	callData, err := parsedABI.Pack(*methodName)
+	if err != nil {
+		log.Fatalf("❌ Lỗi pack method %s: %v", *methodName, err)
+	}
+	fmt.Printf("📦 Đã pack xong data cho hàm: %s\n", *methodName)
+
+	fmt.Println("\n🚀 BẮT ĐẦU SPAM XAPIAN LIÊN TỤC (Bấm Ctrl+C để dừng)")
+	fmt.Printf("   Method: %s\n", *methodName)
+	fmt.Printf("   Contract: %s\n", contractAddr.Hex())
+	fmt.Printf("   Chế độ: Đợi Receipt xong là gửi round tiếp theo KHÔNG NGỦ\n")
+	fmt.Println("--------------------------------------------------")
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	for round := 1; round <= *maxRounds; round++ {
+		select {
+		case <-quit:
+			fmt.Println("\n🛑 Dừng spam an toàn!")
+			os.Exit(0)
+		default:
+		}
+
+		fmt.Printf("\n🔄 [ROUND %d/%d] Đang gửi %d transactions...\n", round, *maxRounds, len(wallets))
+
+		var wg sync.WaitGroup
+		var successCount uint32
+		var failCount uint32
+		var revertCount uint32
+
+		gasPrice, err := client.SuggestGasPrice(context.Background())
+		if err != nil {
+			log.Printf("⚠️ Lỗi lấy gas price: %v. Dùng mặc định 0.", err)
+			gasPrice = big.NewInt(0)
+		}
+
+		startTime := time.Now()
+
+		for _, w := range wallets {
+			wg.Add(1)
+			go func(wallet *Wallet) {
+				defer wg.Done()
+
+				nonce := wallet.Nonce
+
+				gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
+					From:     wallet.Address,
+					To:       &contractAddr,
+					GasPrice: gasPrice,
+					Data:     callData,
+				})
+				if err != nil {
+					gasLimit = 200_000
+				} else {
+					gasLimit += 20_000
+				}
+
+				tx := types.NewTransaction(nonce, contractAddr, big.NewInt(0), gasLimit, gasPrice, callData)
+				signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), wallet.PrivKey)
+				if err != nil {
+					atomic.AddUint32(&failCount, 1)
+					return
+				}
+
+				err = client.SendTransaction(context.Background(), signedTx)
+				if err != nil {
+					atomic.AddUint32(&failCount, 1)
+					fmt.Printf("❌ Lỗi gửi Tx (Nonce %d): %v\n", nonce, err)
+
+					if strings.Contains(strings.ToLower(err.Error()), "nonce") || strings.Contains(strings.ToLower(err.Error()), "replacement") {
+						n, errFetch := fetchNonceWithRetry(client, wallet.Address, wallet.Nonce)
+						if errFetch == nil {
+							wallet.Nonce = n
+						}
+					}
+					return
+				}
+
+				wallet.Nonce++
+
+				receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash())
+				if err != nil {
+					atomic.AddUint32(&failCount, 1)
+					fmt.Printf("❌ Tx %s Timeout/Lỗi: %v\n", signedTx.Hash().Hex(), err)
+					return
+				}
+
+				if receipt.Status == 1 {
+					atomic.AddUint32(&successCount, 1)
+					fmt.Printf("✅ Tx %s THÀNH CÔNG (Gas: %d)\n", signedTx.Hash().Hex(), receipt.GasUsed)
+				} else {
+					atomic.AddUint32(&revertCount, 1)
+					fmt.Printf("⚠️ Tx %s BỊ REVERT!\n", signedTx.Hash().Hex())
+				}
+			}(w)
+		}
+
+		wg.Wait()
+		duration := time.Since(startTime)
+		fmt.Printf("✅ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v\n", round, successCount, revertCount, failCount, duration)
+	}
+	fmt.Printf("\n🎉 HOÀN TẤT TỔNG CỘNG %d ROUNDS SPAM!\n", *maxRounds)
+}

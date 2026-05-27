@@ -56,8 +56,8 @@ done
 
 if [ "$DO_STOP" = true ]; then
     TYPE="all" # Skip type validation when stopping
-elif [[ "$TYPE" != "spam" && "$TYPE" != "recovery" && "$TYPE" != "snapshot" ]]; then
-    echo "❌ Lỗi: Loại monitor không hợp lệ. Chỉ chấp nhận: spam, recovery, snapshot."
+elif [[ "$TYPE" != "spam" && "$TYPE" != "recovery" && "$TYPE" != "snapshot" && "$TYPE" != "spam_xapian" ]]; then
+    echo "❌ Lỗi: Loại monitor không hợp lệ. Chỉ chấp nhận: spam, recovery, snapshot, spam_xapian."
     exit 1
 fi
 
@@ -74,6 +74,10 @@ elif [ "$TYPE" = "recovery" ]; then
     MONITOR_NAME="ci_recovery_monitor"
     TEST_SCRIPT="test-node-recovery-gap.sh"
     LOGS_DIR_NAME="recovery_test_logs"
+elif [ "$TYPE" = "spam_xapian" ]; then
+    MONITOR_NAME="ci_spam_xapian_monitor"
+    TEST_SCRIPT="test-spam-xapian.sh"
+    LOGS_DIR_NAME="spam_xapian_logs"
 else
     MONITOR_NAME="ci_snapshot_monitor"
     TEST_SCRIPT="test-snapshot.sh"
@@ -130,7 +134,7 @@ cleanup_all_processes() {
     echo "🔪 Dọn dẹp TOÀN BỘ tiến trình cũ đang chạy ngầm..."
 
     # 1. Kill tất cả Python monitors
-    for m in "ci_monitor.py" "ci_recovery_monitor.py" "ci_snapshot_monitor.py"; do
+    for m in "ci_monitor.py" "ci_recovery_monitor.py" "ci_snapshot_monitor.py" "ci_spam_xapian_monitor.py"; do
         local pat="[${m:0:1}]${m:1}"
         PIDS_M=$(pgrep -f "$pat" 2>/dev/null)
         if [ -n "$PIDS_M" ]; then
@@ -142,7 +146,7 @@ cleanup_all_processes() {
     done
 
     # 2. Kill tất cả Shell test runners
-    for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh"; do
+    for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh" "test-spam-xapian.sh" "run_spam.sh"; do
         local pat="[${t:0:1}]${t:1}"
         PIDS_T=$(pgrep -f "$pat" 2>/dev/null)
         if [ -n "$PIDS_T" ]; then
@@ -154,7 +158,7 @@ cleanup_all_processes() {
     done
 
     # 3. Kill các tiến trình phụ trợ
-    for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc" "tx_sender"; do
+    for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc" "tx_sender" "spam_xapian_test"; do
         local pat="[${proc:0:1}]${proc:1}"
         if pgrep -f "$pat" >/dev/null; then
             echo "   → Tìm thấy $proc. Đang kill..."
