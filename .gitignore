@@ -12,3 +12,4 @@ scripts/error_report.txt
 **/*.key
 test-simple/test-rpc/test-history/history_records.json
 block/block_hash_checker/block_hash_checker
+block/block_hash_checker/metanode.code-workspace

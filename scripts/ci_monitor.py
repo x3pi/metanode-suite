@@ -232,7 +232,7 @@ def main():
 
     commit_short = last_commit[:8] if last_commit else "init"
     server_info = get_server_ip_info()
-    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
+    send_telegram_message(f"🚀 [CI Monitor -- 500 Test ] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
 
     with open(log_file, "w") as f:
         current_process = subprocess.Popen(
