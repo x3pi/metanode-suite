@@ -15,3 +15,7 @@ block/block_hash_checker/block_hash_checker
 block/block_hash_checker/metanode.code-workspace
 test-simple/test-rpc/metanode.code-workspace
 test-simple/test-rpc/spam_bin
+test-simple/test-rpc/spam_counter/counter_test
+test-simple/test-rpc/spam_counter/test-counter_TestCounter.abi
+test-simple/test-rpc/spam_counter/test-counter_TestCounter.bin
+test-simple/test-rpc/spam_counter/TestCounter.bin
