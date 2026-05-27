@@ -245,17 +245,20 @@ func main() {
 		}
 		fmt.Println("==================================================")
 
+		// Nếu có lỗi, luôn thoát bất kể loop hay không để tránh flood
+		if hasError {
+			fmt.Println("❌ Có lỗi xảy ra, dừng loop!")
+			os.Exit(1)
+		}
+
 		// Nếu không loop thì thoát
 		if !*loopFlag {
-			if hasError {
-				os.Exit(1)
-			}
 			break
 		}
 
 		// Loop mode: chờ rồi lặp lại
 		fmt.Printf("⏳ [LOOP] Chờ %ds trước vòng tiếp theo...\n", *delayFlag)
-		time.Sleep(time.Duration(*delayFlag) * time.Second)
+		// time.Sleep(time.Duration(*delayFlag) * time.Second)
 	}
 }
 
@@ -491,7 +494,11 @@ func executeCall(client *ethclient.Client, contractAddress common.Address, parse
 		Data: payloadData,
 	}
 
+	startTime := time.Now()
 	result, err := client.CallContract(context.Background(), msg, nil)
+	latency := time.Since(startTime)
+	fmt.Printf("   ⏱️  Thời gian phản hồi RPC: %v\n", latency)
+
 	if err != nil {
 		return fmt.Errorf("Lỗi gọi eth_call %s: %v", methodName, err)
 	}
@@ -589,7 +596,7 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 							fmt.Printf("      - Log [%d]: Topic0=%s (Không tìm thấy trong ABI)\n", i, vLog.Topics[0].Hex())
 							continue
 						}
-						
+
 						logStrBuilder := strings.Builder{}
 						fmt.Printf("      - Log [%d] Event: %s\n", i, event.Name)
 						for j, topic := range vLog.Topics {

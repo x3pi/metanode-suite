@@ -224,6 +224,12 @@ def main():
     print(f"[{datetime.datetime.now()}] Baseline commit (Remote): {last_commit}")
     
     current_process = None
+    
+    no_listen = False
+    if "--no-listen" in sys.argv:
+        no_listen = True
+        sys.argv.remove("--no-listen")
+
     args = [TEST_SCRIPT] + sys.argv[1:]
 
     # Dọn log cũ ngay cả trước lần chạy test đầu tiên
@@ -295,6 +301,10 @@ def main():
                         send_telegram_message(msg)
 
                     current_process = None
+                    
+                    if no_listen:
+                        print(f"[{datetime.datetime.now()}] Cờ --no-listen được bật. Chạy xong 1 lần, kết thúc.")
+                        break
                     
                 current_commit = get_remote_commit()
                 if not current_commit:

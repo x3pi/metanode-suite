@@ -13,3 +13,4 @@ scripts/error_report.txt
 test-simple/test-rpc/test-history/history_records.json
 block/block_hash_checker/block_hash_checker
 block/block_hash_checker/metanode.code-workspace
+test-simple/test-rpc/metanode.code-workspace

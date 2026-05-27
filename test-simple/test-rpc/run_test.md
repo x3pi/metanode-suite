@@ -25,6 +25,13 @@ go run main.go -config=config-local.json -data=data.json -loop -url=http://127.0
 
 ```bash
 # local
+
+go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-send.json
+go run main.go -config=./config-local-1.json -data=./test_read_wire_xapian/data-xapian-send.json
+go run main.go -config=./config-local-2.json -data=./test_read_wire_xapian/data-xapian-send.json
+
+
+
 #chạy v0
 go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-v0.json
 go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-v2.json

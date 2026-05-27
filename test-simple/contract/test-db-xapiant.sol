@@ -73,7 +73,7 @@ interface IFullDB {
     function getDataDocument(
         string memory dbname,
         uint256 docId
-    ) external returns (string memory);
+    ) external view returns (string memory);
     function setDataDocument(
         string memory dbname,
         uint256 docId,
@@ -107,19 +107,19 @@ interface IFullDB {
         uint256 docId,
         uint256 slot,
         bool isSerialise
-    ) external returns (string memory);
+    ) external view returns (string memory);
     function getTermsDocument(
         string memory dbname,
         uint256 docId
-    ) external returns (string[] memory);
+    ) external view returns (string[] memory);
     function search(
         string memory dbname,
         string memory query
-    ) external returns (string memory);
+    ) external view returns (string memory);
     function querySearch(
         string memory dbname,
         SearchParams memory params
-    ) external returns (SearchResultsPage memory);
+    ) external view returns (SearchResultsPage memory);
     function commit(string memory dbname) external returns (bool);
 }
 
@@ -373,6 +373,14 @@ contract TestFullDB {
         emit Read_Terms(docId, t.length);
     }
 
+    function runStep2_ReadBack_View() public view returns (string memory data, string memory value, string[] memory terms) {
+        uint256 docId = docIds[0];
+        require(docId > 0, "Run step1 first");
+        data = fullDB.getDataDocument(DB_NAME, docId);
+        value = fullDB.getValueDocument(DB_NAME, docId, 0, true);
+        terms = fullDB.getTermsDocument(DB_NAME, docId);
+    }
+
     // ════════════════════════════════════════════════════════════════
     // ③ UPDATE: setData + addValue mới + addTerm mới cho docId[0]
     // ════════════════════════════════════════════════════════════════
@@ -466,6 +474,14 @@ contract TestFullDB {
         return (page.total, page.results.length);
     }
 
+    function runStep5b_QuerySearch_View(
+        string memory query
+    ) public view returns (uint256 total, uint256 count) {
+        SearchParams memory params = _buildDefaultParams(query);
+        SearchResultsPage memory page = fullDB.querySearch(DB_NAME, params);
+        return (page.total, page.results.length);
+    }
+
     // ════════════════════════════════════════════════════════════════
     // ⑥ SEARCH RANGE: lọc theo khoảng giá (slot 0)
     // ════════════════════════════════════════════════════════════════
@@ -506,6 +522,31 @@ contract TestFullDB {
             abi.encodePacked("price:", minPrice, "-", maxPrice)
         );
         emit Search_Query(label, page.total, page.results.length);
+        return (page.total, page.results.length);
+    }
+
+    function runStep6_SearchRange_View(
+        string memory minPrice,
+        string memory maxPrice
+    ) public view returns (uint256 total, uint256 count) {
+        PrefixEntry[] memory prefixMap = _buildPrefixMap();
+        string[] memory stopWords = _buildStopWords();
+
+        RangeFilter[] memory ranges = new RangeFilter[](1);
+        ranges[0] = RangeFilter(0, minPrice, maxPrice);
+
+        SearchParams memory params = SearchParams({
+            queries: "",
+            prefixMap: prefixMap,
+            stopWords: stopWords,
+            offset: 0,
+            limit: 20,
+            sortByValueSlot: 0,
+            sortAscending: true,
+            rangeFilters: ranges
+        });
+
+        SearchResultsPage memory page = fullDB.querySearch(DB_NAME, params);
         return (page.total, page.results.length);
     }
 
