@@ -3,9 +3,9 @@
     "contract": "0x97748D54352283f64CC0Fb3405BFb170fAD6583a",
     "abi_path": "./test_read_wire_xapian/abi/xapian.json",
     "action": "call",
-    "method": "runStep5c_GetData_View",
+    "method": "runStep5b_QuerySearch_View",
     "args": [
-      "4"
+      "iphone"
     ]
   }
 ]
