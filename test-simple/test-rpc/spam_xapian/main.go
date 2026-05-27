@@ -231,8 +231,8 @@ func main() {
 	for round := 1; round <= *maxRounds; round++ {
 		select {
 		case <-quit:
-			fmt.Println("\n🛑 Dừng spam an toàn!")
-			os.Exit(0)
+			fmt.Println("\n🛑 Bị ép dừng (nhận tín hiệu ngắt)! Thoát với mã lỗi để CI Monitor cảnh báo lên Telegram...")
+			os.Exit(1)
 		default:
 		}
 
@@ -313,6 +313,12 @@ func main() {
 		wg.Wait()
 		duration := time.Since(startTime)
 		fmt.Printf("✅ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v\n", round, successCount, revertCount, failCount, duration)
+		
+		// Tự động ngắt khẩn cấp nếu 100% giao dịch thất bại (RPC sập, rớt mạng...)
+		if failCount == uint32(len(wallets)) && len(wallets) > 0 {
+			fmt.Println("\n🚨 TẤT CẢ GIAO DỊCH ĐỀU THẤT BẠI TRONG ROUND NÀY! Mạng RPC hoặc Node có thể đã sập. DỪNG KHẨN CẤP!")
+			os.Exit(1)
+		}
 	}
 	fmt.Printf("\n🎉 HOÀN TẤT TỔNG CỘNG %d ROUNDS SPAM!\n", *maxRounds)
 }
