@@ -1,2 +1,3 @@
 test-tcp/caller-tcp/logs
 contract/build
+node_modules/
