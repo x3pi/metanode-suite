@@ -8,9 +8,6 @@ go run main.go -config=config-local.json -data=data-test.json
 
 go run main.go -config=config-local.json -data=data.json
 
-go run main.go -config=config-local.json -data=data.json -loop
-
-
 go run main.go -config=config-local.json -data=data.json -url=http://localhost:8545
 
 # Lặp vô hạn, delay 5s

@@ -104,7 +104,7 @@ interface IFullDBV1 {
     function querySearch(
         string memory dbname,
         SearchParams memory params
-    ) external returns (SearchResultsPage memory);
+    ) external view returns (SearchResultsPage memory);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -188,7 +188,7 @@ contract TestFullDBV1 {
     // ─── Events ───────────────────────────────────────────────────────
     event Setup_DbCreated(string dbname);
     event Setup_DocCreated(uint256 index, uint256 docId, string title);
-    event Read_Data_Ext(uint256 docId, bytes data, ProductData productInfo);
+    event Read_Data(uint256 docId, string data);
     event Test_Math(uint256 base, uint256 calculated);
     event Read_Value(uint256 docId, uint256 slot, string value);
     event Read_Terms(uint256 docId, uint256 termCount);
@@ -219,13 +219,7 @@ contract TestFullDBV1 {
     );
 
     event Search_Query(string query, uint256 total, uint256 pageCount);
-    event Search_Item_Ext(
-        uint256 docid,
-        uint256 rank,
-        int256 percent,
-        bytes data,
-        ProductData productInfo
-    );
+    event Search_Item(uint256 docid, uint256 rank, int256 percent, string data);
 
     event Delete_Doc(uint256 docId, bool ok);
     event Debug_DocId(string msg, uint256 docId);
@@ -337,7 +331,16 @@ contract TestFullDBV1 {
         uint256 vatTax = (product.price * 10) / 100;
         emit Test_Math(product.price, vatTax);
 
-        emit Read_Data_Ext(docId, lastReadData, product);
+        string memory outputString = string(
+            abi.encodePacked(
+                product.name,
+                " ",
+                product.category,
+                " ",
+                product.brand
+            )
+        );
+        emit Read_Data(docId, outputString);
 
         string memory v = fullDB.getValueDocument(DB_NAME, docId, 0, true);
         lastReadValue = v;
@@ -402,18 +405,54 @@ contract TestFullDBV1 {
                 parsedData = abi.decode(rawBytes, (ProductData));
             }
 
-            emit Search_Item_Ext(
+            string memory outStr = "";
+            if (rawBytes.length > 0) {
+                outStr = string(
+                    abi.encodePacked(
+                        parsedData.name,
+                        " ",
+                        parsedData.category,
+                        " ",
+                        parsedData.brand
+                    )
+                );
+            }
+            emit Search_Item(
                 page.results[i].docid,
                 page.results[i].rank,
                 page.results[i].percent,
-                rawBytes,
-                parsedData
+                outStr
             );
         }
         emit Search_Query(query, page.total, page.results.length);
         return (page.total, page.results.length);
     }
 
+    // ════════════════════════════════════════════════════════════════
+    function runStep5c_GetData_View(
+        uint256 docId
+    ) public returns (ProductData memory) {
+        bytes memory rawBytes = fullDB.getDataDocument(DB_NAME, docId);
+        ProductData memory parsedData;
+        if (rawBytes.length > 0) {
+            parsedData = abi.decode(rawBytes, (ProductData));
+        }
+        return parsedData;
+    }
+
+    function runStep5d_GetValue_View(
+        uint256 docId,
+        uint32 valueSlot
+    ) public returns (string memory) {
+        return fullDB.getValueDocument(DB_NAME, docId, valueSlot, true);
+    }
+    function runStep5b_QuerySearch_View(
+        string memory query
+    ) public view returns (uint256 total, uint256 count) {
+        SearchParams memory params = _buildDefaultParams(query);
+        SearchResultsPage memory page = fullDB.querySearch(DB_NAME, params);
+        return (page.total, page.results.length);
+    }
     // ════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ════════════════════════════════════════════════════════════════

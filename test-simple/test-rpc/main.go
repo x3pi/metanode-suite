@@ -450,6 +450,7 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 	}
 
 	fmt.Printf("   📝 CHI TIẾT TX DEPLOY:\n")
+	fmt.Printf("      - From: %s\n", fromAddress.Hex())
 	fmt.Printf("      - Nonce: %d\n", signedTx.Nonce())
 	fmt.Printf("      - Gas Price: %s wei\n", gasPrice.String())
 	fmt.Printf("      - Gas Limit: %d\n", signedTx.Gas())
@@ -560,6 +561,7 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 	}
 
 	fmt.Printf("   📝 CHI TIẾT TX GỬI ĐI (%s):\n", methodName)
+	fmt.Printf("      - From: %s\n", fromAddress.Hex())
 	fmt.Printf("      - Hash: %s\n", signedTx.Hash().Hex())
 	fmt.Printf("      - Nonce: %d\n", signedTx.Nonce())
 	fmt.Printf("      - Gas Price: %s wei\n", gasPrice.String())

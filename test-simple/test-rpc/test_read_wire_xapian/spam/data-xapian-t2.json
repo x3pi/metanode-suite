@@ -1,0 +1,11 @@
+[
+  {
+    "contract": "0xc3Ae1dE2Fc9863A50b83928BB53C475d99540421",
+    "abi_path": "./test_read_wire_xapian/abi/xapian.json",
+    "action": "call",
+    "method": "runStep5c_GetData_View",
+    "args": [
+      "4"
+    ]
+  }
+]
