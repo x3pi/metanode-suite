@@ -204,11 +204,20 @@ def main():
     os.environ["MTN_TELE_ALERT"] = "true"
     os.makedirs(LOGS_DIR, exist_ok=True)
     
+    batch_size = "Default"
+    if "--batch" in sys.argv:
+        try:
+            batch_idx = sys.argv.index("--batch")
+            batch_size = sys.argv[batch_idx + 1]
+        except Exception:
+            pass
+
     print(f"=======================================================")
     print(f"🚀 METANODE 24/7 GITHUB CI/CD MONITOR")
     print(f"📂 Theo dõi repo: {METANODE_DIR}")
     print(f"🌐 Remote branch: origin/main (GitHub)")
     print(f"📂 Thư mục Logs: {LOGS_DIR}")
+    print(f"⚙️  Batch Size: {batch_size}")
     print(f"=======================================================\n")
     
     # Khởi tạo commit ban đầu từ remote
@@ -238,7 +247,7 @@ def main():
 
     commit_short = last_commit[:8] if last_commit else "init"
     server_info = get_server_ip_info()
-    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
+    send_telegram_message(f"🚀 [CI Monitor - BATCH: {batch_size}] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {commit_short}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Khởi động CI Monitor")
 
     with open(log_file, "w") as f:
         current_process = subprocess.Popen(
@@ -276,11 +285,11 @@ def main():
 
                         server_info = get_server_ip_info()
                         real_code = exit_code if exit_code > 0 else "0 (lỗi phát hiện qua log/sentinel)"
-                        msg = f"❌ [CI Monitor] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI (Exit Code: {real_code}).\n\n📄 *Trích xuất 50 dòng log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
+                        msg = f"❌ [CI Monitor - BATCH: {batch_size}] CẢNH BÁO LỖI PIPELINE!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) THẤT BẠI (Exit Code: {real_code}).\n\n📄 *Trích xuất 50 dòng log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra file log đầy đủ trên server."
                         send_telegram_message(msg)
                     else:
                         server_info = get_server_ip_info()
-                        msg = f"✅ [CI Monitor] HOÀN TẤT THÀNH CÔNG!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) chạy mượt mà không gặp lỗi phân nhánh hay lệch hash."
+                        msg = f"✅ [CI Monitor - BATCH: {batch_size}] HOÀN TẤT THÀNH CÔNG!\n\nServer: {server_info}\nBài test (Commit: {commit_short}) chạy mượt mà không gặp lỗi phân nhánh hay lệch hash."
                         send_telegram_message(msg)
 
                     current_process = None
@@ -324,7 +333,7 @@ def main():
                     print(f"[{datetime.datetime.now()}] Chạy bài test MỚI. Ghi log ra: {log_file}")
                     
                     server_info = get_server_ip_info()
-                    send_telegram_message(f"🚀 [CI Monitor] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {current_commit[:8]}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Phát hiện mã mới trên GitHub")
+                    send_telegram_message(f"🚀 [CI Monitor - BATCH: {batch_size}] BẮT ĐẦU CHẠY PIPELINE MỚI!\n\nServer: {server_info}\nCommit: {current_commit[:8]}\nThời gian: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\nLý do: Phát hiện mã mới trên GitHub")
                     
                     with open(log_file, "w") as f:
                         current_process = subprocess.Popen(

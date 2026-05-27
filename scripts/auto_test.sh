@@ -27,12 +27,14 @@ RPC_CLIENT_DIR="$METANODE_DIR/execution/cmd/rpc/cmd/rpc-client"
 STEPS_TO_RUN=""
 # Cấu hình chế độ deploy (mặc định là single)
 DEPLOY_MODE="single"
+BATCH_SIZE=""
 
 # Nhận tham số truyền vào từ command line (VD: ./auto_test.sh --steps "2,4,5" --mode multi)
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --step|--steps) STEPS_TO_RUN="$2"; shift ;;
         --mode) DEPLOY_MODE="$2"; shift ;;
+        --batch) BATCH_SIZE="$2"; shift ;;
     esac
     shift
 done
@@ -131,8 +133,8 @@ if [ -n "$STEPS_TO_RUN" ]; then
 else
     echo "🚀 BẮT ĐẦU AUTO TEST PIPELINE TỪ ĐẦU (ALL STEPS)..."
 fi
-echo "💡 Parameter hiện tại: MODE=$DEPLOY_MODE | STEPS_TO_RUN=${STEPS_TO_RUN:-ALL}"
-echo "💡 Usage: ./auto_test.sh [--step|--steps \"2,4,5\"] [--mode single|multi]"
+echo "💡 Parameter hiện tại: MODE=$DEPLOY_MODE | STEPS_TO_RUN=${STEPS_TO_RUN:-ALL} | BATCH_SIZE=${BATCH_SIZE:-Default}"
+echo "💡 Usage: ./auto_test.sh [--step|--steps \"2,4,5\"] [--mode single|multi] [--batch 10|500]"
 echo "=================================================="
 
 # ----------------------------------------------------
@@ -343,9 +345,9 @@ if should_run 8; then
     echo "📌 BƯỚC 8: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch=10 --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
     else
-        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500 --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch="${BATCH_SIZE:-500}" --amount 1
     fi
 fi
 
