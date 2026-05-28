@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -26,8 +27,9 @@ import (
 )
 
 type Config struct {
-	RPCUrl  string `json:"rpc_url"`
-	ChainID int64  `json:"chain_id"`
+	RPCUrl  string   `json:"rpc_url"`
+	RPCUrls []string `json:"rpc_urls"`
+	ChainID int64    `json:"chain_id"`
 }
 
 type KeyItem struct {
@@ -76,6 +78,31 @@ type Wallet struct {
 	Address common.Address
 	PrivKey *ecdsa.PrivateKey
 	Nonce   uint64
+}
+
+func checkNodesHealth(rpcUrls []string) error {
+	for _, url := range rpcUrls {
+		payload := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}`)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req, err := http.NewRequestWithContext(ctx, "POST", url, payload)
+		if err != nil {
+			cancel()
+			return fmt.Errorf("không thể tạo request cho node %s: %v", url, err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			cancel()
+			return fmt.Errorf("node %s KHÔNG HOẠT ĐỘNG (Lỗi kết nối hoặc timeout: %v)", url, err)
+		}
+		resp.Body.Close()
+		cancel()
+		if resp.StatusCode != 200 {
+			return fmt.Errorf("node %s KHÔNG HOẠT ĐỘNG (HTTP code: %d)", url, resp.StatusCode)
+		}
+	}
+	return nil
 }
 
 func main() {
@@ -236,6 +263,16 @@ func main() {
 		default:
 		}
 
+		// Kiểm tra sức khỏe của 5 node trước khi bắt đầu round mới
+		if len(cfg.RPCUrls) > 0 {
+			if err := checkNodesHealth(cfg.RPCUrls); err != nil {
+				errMsg := fmt.Sprintf("❌ PHÁT HIỆN NODE CHẾT TRONG QUÁ TRÌNH CHẠY SPAM XAPIAN!\n\nChi tiết: %v\n\n🚨 DỪNG CHƯƠNG TRÌNH KHẨN CẤP!", err)
+				fmt.Println("\n" + errMsg)
+				_ = os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(errMsg), 0644)
+				os.Exit(1)
+			}
+		}
+
 		fmt.Printf("\n🔄 [ROUND %d/%d] Đang gửi %d transactions...\n", round, *maxRounds, len(wallets))
 
 		var wg sync.WaitGroup
@@ -316,7 +353,9 @@ func main() {
 		
 		// Tự động ngắt khẩn cấp nếu 100% giao dịch thất bại (RPC sập, rớt mạng...)
 		if failCount == uint32(len(wallets)) && len(wallets) > 0 {
-			fmt.Println("\n🚨 TẤT CẢ GIAO DỊCH ĐỀU THẤT BẠI TRONG ROUND NÀY! Mạng RPC hoặc Node có thể đã sập. DỪNG KHẨN CẤP!")
+			errMsg := fmt.Sprintf("❌ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v\n\n🚨 TẤT CẢ GIAO DỊCH ĐỀU THẤT BẠI TRONG ROUND NÀY! Mạng RPC hoặc Node có thể đã sập. DỪNG KHẨN CẤP!", round, successCount, revertCount, failCount, duration)
+			fmt.Println("\n" + errMsg)
+			_ = os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(errMsg), 0644)
 			os.Exit(1)
 		}
 	}
