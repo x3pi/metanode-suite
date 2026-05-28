@@ -328,14 +328,21 @@ func main() {
 					return
 				}
 
-				wallet.Nonce++
-
 				receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash())
 				if err != nil {
 					atomic.AddUint32(&failCount, 1)
 					fmt.Printf("❌ Tx %s Timeout/Lỗi: %v\n", signedTx.Hash().Hex(), err)
+					
+					// If timeout, re-sync nonce from the network to avoid cascading actual > expected issues
+					n, errFetch := fetchNonceWithRetry(client, wallet.Address, wallet.Nonce)
+					if errFetch == nil {
+						wallet.Nonce = n
+					}
+					
 					return
 				}
+
+				wallet.Nonce++
 
 				if receipt.Status == 1 {
 					atomic.AddUint32(&successCount, 1)
