@@ -992,8 +992,8 @@ func checkTxOrderMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64
 					}
 					
 					sb.WriteString(fmt.Sprintf(
-						"    ❌ %s pos[%d]: LỆCH [%s] (tx: %s)\n",
-						r.name, i, strings.Join(reasons, " | "), shortHash(curE.Hash),
+						"    ❌ %s pos[%d]: LỆCH so với %s [%s] (tx: %s, grp: %s)\n",
+						r.name, i, ref.name, strings.Join(reasons, " | "), shortHash(curE.Hash), curE.GroupID,
 					))
 				}
 				diffs++
