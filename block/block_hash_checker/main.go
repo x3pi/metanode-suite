@@ -700,11 +700,18 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			if bi.IsError() {
 				errCount := 1
 				if prev, ok := prevState[node.Name]; ok {
-					errCount = prev.ConsecutiveErrors + 1
+					if bi.Error != "(block không tồn tại)" {
+						errCount = prev.ConsecutiveErrors + 1
+					} else {
+						errCount = 0 // Reset error count if node is responding but lagging
+					}
+				} else if bi.Error == "(block không tồn tại)" {
+					errCount = 0
 				}
-				if errCount == 5 { // Alert after 5 consecutive errors to avoid false positives (e.g. node crash)
+				
+				if errCount == 10 { // Alert after 10 consecutive real errors (e.g. connection refused)
 					logAnomaly("NODE_DOWN", r.blockNum,
-						fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 5 blocks! Lỗi: %s",
+						fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 10 blocks! Lỗi: %s",
 							node.Name, bi.Error))
 				}
 				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true, ConsecutiveErrors: errCount}
