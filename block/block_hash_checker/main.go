@@ -2098,6 +2098,9 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 		}
 	}
 
+	sb.WriteString("\n")
+	sb.WriteString(checkTxOrderMismatch(client, nodes, blockNum) + "\n")
+
 	if mismatchedFields["stateRoot"] {
 		// 1. Show curl commands
 		sb.WriteString("\n• 🔍 *Để kiểm tra thay đổi tài khoản chi tiết bằng curl:*\n")
