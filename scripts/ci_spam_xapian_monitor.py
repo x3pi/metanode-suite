@@ -241,10 +241,16 @@ def main():
                         if os.path.exists("/tmp/MTN_CHAIN_ERROR_STOP"):
                             with open("/tmp/MTN_CHAIN_ERROR_STOP", "r", errors="replace") as f:
                                 err_details = f.read().strip()
+                                if len(err_details) > 1500:
+                                    err_details = err_details[:1500] + "\n... (truncated)"
 
                         server_info = get_server_ip_info()
                         real_code = exit_code if exit_code > 0 else "Lỗi ngầm định"
                         
+                        # Truncate tail_logs if it's too long
+                        if len(tail_logs) > 1500:
+                            tail_logs = tail_logs[-1500:]
+
                         msg = f"❌ *[SPAM XAPIAN]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n"
                         if err_details:
                             msg += f"🚨 *Lỗi phát hiện:*\n{err_details}\n\n"
