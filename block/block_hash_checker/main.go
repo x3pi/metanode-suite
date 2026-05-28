@@ -400,13 +400,14 @@ func parseNodes(s string) []nodeInfo {
 
 // prevBlockState tracks sequential state for anomaly detection across consecutive blocks.
 type prevBlockState struct {
-	Timestamp       uint64
-	GEI             uint64
-	Epoch           uint64
-	StateRoot       string
-	StateRootStreak int // number of consecutive blocks with same stateRoot
-	BlockNum        uint64
-	IsNil           bool
+	Timestamp         uint64
+	GEI               uint64
+	Epoch             uint64
+	StateRoot         string
+	StateRootStreak   int // number of consecutive blocks with same stateRoot
+	BlockNum          uint64
+	IsNil             bool
+	ConsecutiveErrors int // Track consecutive errors to detect node crashes
 }
 
 func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatches []mismatch, matchCount, errorCount, skipCount uint64, nilBlocks []uint64, emptyBlocks []uint64) {
@@ -697,13 +698,16 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 		for _, node := range nodes {
 			bi := r.blocks[node.Name]
 			if bi.IsError() {
-				// CHECK 4: Block gap — previous was valid but current is NIL
-				// if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
-				// 	logAnomaly("BLOCK_GAP", r.blockNum,
-				// 		fmt.Sprintf("node=%s prev_block=#%d was OK, current block NOT FOUND (Gap in chain!)",
-				// 			node.Name, prev.BlockNum))
-				// }
-				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true}
+				errCount := 1
+				if prev, ok := prevState[node.Name]; ok {
+					errCount = prev.ConsecutiveErrors + 1
+				}
+				if errCount == 5 { // Alert after 5 consecutive errors to avoid false positives (e.g. node crash)
+					logAnomaly("NODE_DOWN", r.blockNum,
+						fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 5 blocks! Lỗi: %s",
+							node.Name, bi.Error))
+				}
+				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true, ConsecutiveErrors: errCount}
 				continue
 			}
 
