@@ -205,8 +205,10 @@ if should_run 2; then
     rm -f certificate.pem private.key certificate.csr
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
 
-    # Dọn dẹp session cũ nếu có
+    # Dọn dẹp session và tiến trình cũ nếu có
     tmux kill-session -t rpc-proxy 2>/dev/null || true
+    pkill -f "go run main.go --config config-rpc-node" || true
+    pkill -f "exe/main --config config-rpc-node" || true
 
     # Khởi động từng RPC Proxy cho 5 node
     declare -A NODE_PORTS=( [0]=8545 [1]=8547 [2]=8548 [3]=8549 [4]=8550 )
@@ -214,9 +216,10 @@ if should_run 2; then
     for node_id in 0 1 2 3 4; do
         port=${NODE_PORTS[$node_id]}
         echo "  -> Đang kiểm tra RPC Proxy Node $node_id ở port $port..."
-        if ! curl -s http://127.0.0.1:$port > /dev/null; then
+        if ! curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
             echo "     -> RPC Proxy Node $node_id chưa bật, đang khởi động..."
             tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
+            pkill -f "config-rpc-node$node_id.json" || true
             tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
             
             # Đợi khởi động (tối đa 50s để tránh lỗi timeout do biên dịch 'go run')
