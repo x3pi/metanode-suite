@@ -1470,6 +1470,11 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		diff := maxBlock - minBlock
 		if diff > 10 {
 			fmt.Printf(" ⚠️ CHÊNH %d blocks!", diff)
+			// Trigger Telegram alert if diff is huge (e.g. > 100 blocks)
+			if diff > 100 {
+				logAnomaly("NODE_LAGGING", minBlock,
+					fmt.Sprintf("Một số node đang bị tụt lại quá xa (chênh lệch %d blocks giữa max và min).", diff))
+			}
 		}
 	}
 
