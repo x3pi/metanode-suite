@@ -38,12 +38,12 @@ type KeyItem struct {
 }
 
 func waitReceipt(client *ethclient.Client, rpcUrl string, txHash common.Hash) (*types.Receipt, error) {
-	timeout := time.After(120 * time.Second)
+	timeout := time.After(350 * time.Second)
 	for {
 		select {
 		case <-timeout:
 			curlCmd := fmt.Sprintf(`curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["%s"],"id":1}' %s`, txHash.Hex(), rpcUrl)
-			return nil, fmt.Errorf("timeout 120s waiting for receipt.\n   Manual check: %s", curlCmd)
+			return nil, fmt.Errorf("timeout 350s waiting for receipt.\n   Manual check: %s", curlCmd)
 		default:
 			receipt, err := client.TransactionReceipt(context.Background(), txHash)
 			if err == nil {
@@ -90,7 +90,7 @@ func checkNodesHealth(rpcUrls []string) error {
 			return fmt.Errorf("không thể tạo request cho node %s: %v", url, err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			cancel()
@@ -331,15 +331,13 @@ func main() {
 				receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash())
 				if err != nil {
 					atomic.AddUint32(&failCount, 1)
-					fmt.Printf("❌ Tx %s Timeout/Lỗi: %v\n", signedTx.Hash().Hex(), err)
 					
-					// If timeout, re-sync nonce from the network to avoid cascading actual > expected issues
-					n, errFetch := fetchNonceWithRetry(client, wallet.Address, wallet.Nonce)
-					if errFetch == nil {
-						wallet.Nonce = n
-					}
-					
-					return
+					errMsg := fmt.Sprintf("❌ Tx %s Timeout/Lỗi: %v", signedTx.Hash().Hex(), err)
+					fmt.Println(errMsg)
+
+					// Write error to trigger CI monitor and stop execution immediately
+					_ = os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(errMsg), 0644)
+					os.Exit(1)
 				}
 
 				wallet.Nonce++
@@ -357,7 +355,7 @@ func main() {
 		wg.Wait()
 		duration := time.Since(startTime)
 		fmt.Printf("✅ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v\n", round, successCount, revertCount, failCount, duration)
-		
+
 		// Tự động ngắt khẩn cấp nếu 100% giao dịch thất bại (RPC sập, rớt mạng...)
 		if failCount == uint32(len(wallets)) && len(wallets) > 0 {
 			errMsg := fmt.Sprintf("❌ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v\n\n🚨 TẤT CẢ GIAO DỊCH ĐỀU THẤT BẠI TRONG ROUND NÀY! Mạng RPC hoặc Node có thể đã sập. DỪNG KHẨN CẤP!", round, successCount, revertCount, failCount, duration)
