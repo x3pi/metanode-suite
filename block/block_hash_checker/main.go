@@ -400,13 +400,14 @@ func parseNodes(s string) []nodeInfo {
 
 // prevBlockState tracks sequential state for anomaly detection across consecutive blocks.
 type prevBlockState struct {
-	Timestamp       uint64
-	GEI             uint64
-	Epoch           uint64
-	StateRoot       string
-	StateRootStreak int // number of consecutive blocks with same stateRoot
-	BlockNum        uint64
-	IsNil           bool
+	Timestamp         uint64
+	GEI               uint64
+	Epoch             uint64
+	StateRoot         string
+	StateRootStreak   int // number of consecutive blocks with same stateRoot
+	BlockNum          uint64
+	IsNil             bool
+	ConsecutiveErrors int // Track consecutive errors to detect node crashes
 }
 
 func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatches []mismatch, matchCount, errorCount, skipCount uint64, nilBlocks []uint64, emptyBlocks []uint64) {
@@ -697,13 +698,23 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 		for _, node := range nodes {
 			bi := r.blocks[node.Name]
 			if bi.IsError() {
-				// CHECK 4: Block gap — previous was valid but current is NIL
-				// if prev, ok := prevState[node.Name]; ok && !prev.IsNil {
-				// 	logAnomaly("BLOCK_GAP", r.blockNum,
-				// 		fmt.Sprintf("node=%s prev_block=#%d was OK, current block NOT FOUND (Gap in chain!)",
-				// 			node.Name, prev.BlockNum))
-				// }
-				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true}
+				errCount := 1
+				if prev, ok := prevState[node.Name]; ok {
+					if bi.Error != "(block không tồn tại)" {
+						errCount = prev.ConsecutiveErrors + 1
+					} else {
+						errCount = 0 // Reset error count if node is responding but lagging
+					}
+				} else if bi.Error == "(block không tồn tại)" {
+					errCount = 0
+				}
+				
+				if errCount == 10 { // Alert after 10 consecutive real errors (e.g. connection refused)
+					logAnomaly("NODE_DOWN", r.blockNum,
+						fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 10 blocks! Lỗi: %s",
+							node.Name, bi.Error))
+				}
+				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true, ConsecutiveErrors: errCount}
 				continue
 			}
 
@@ -1466,6 +1477,11 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		diff := maxBlock - minBlock
 		if diff > 10 {
 			fmt.Printf(" ⚠️ CHÊNH %d blocks!", diff)
+			// Trigger Telegram alert if diff is huge (e.g. > 100 blocks)
+			if diff > 100 {
+				logAnomaly("NODE_LAGGING", minBlock,
+					fmt.Sprintf("Một số node đang bị tụt lại quá xa (chênh lệch %d blocks giữa max và min).", diff))
+			}
 		}
 	}
 
