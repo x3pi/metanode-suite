@@ -689,6 +689,11 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				}
 			}
 
+			// Check TX execution order across nodes — only when hash mismatch is detected.
+			// This tells us whether the divergence is caused by different TX ordering.
+			txOrderSummary := checkTxOrderMismatch(client, nodes, r.blockNum)
+			sb.WriteString(txOrderSummary + "\n")
+
 			// Deferred stop flag trigger to watchOnce/main after backward binary search resolves the true first mismatch block.
 		} else {
 			matchCount++
@@ -852,6 +857,160 @@ func getSystemTxsCount(client *http.Client, url string, hexBlock string) (int, e
 	}
 
 	return len(txs), nil
+}
+
+// ===== TX Order Verification =====
+
+// txOrderEntry captures the execution-order metadata for one transaction in a block.
+type txOrderEntry struct {
+	Hash             string // tx hash
+	GroupID          string // groupId stamped by tx_processor (field "groupId" in RPC response)
+	TransactionIndex string // transactionIndex in block (sequential across groups)
+}
+
+// fetchTxOrder calls eth_getBlockByNumber with fullTx=true and extracts
+// the groupId + transactionIndex fields stamped by the execution engine.
+// Returns an ordered list of (hash, groupId, txIndex) matching block order.
+func fetchTxOrder(client *http.Client, nodeURL string, blockNum uint64) ([]txOrderEntry, error) {
+	hexBlock := fmt.Sprintf("0x%x", blockNum)
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_getBlockByNumber",
+		Params:  []interface{}{hexBlock, true},
+		ID:      1,
+	}
+	body, _ := json.Marshal(req)
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+
+	var rpcResp rpcResponse
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return nil, err
+	}
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+	}
+	if string(rpcResp.Result) == "null" {
+		return nil, nil
+	}
+
+	// Parse as a block with array-of-objects transactions
+	var raw struct {
+		Transactions []struct {
+			Hash             string `json:"hash"`
+			GroupID          string `json:"groupId"`
+			TransactionIndex string `json:"transactionIndex"`
+		} `json:"transactions"`
+	}
+	if err := json.Unmarshal(rpcResp.Result, &raw); err != nil {
+		return nil, err
+	}
+
+	entries := make([]txOrderEntry, 0, len(raw.Transactions))
+	for _, tx := range raw.Transactions {
+		entries = append(entries, txOrderEntry{
+			Hash:             tx.Hash,
+			GroupID:          tx.GroupID,
+			TransactionIndex: tx.TransactionIndex,
+		})
+	}
+	return entries, nil
+}
+
+// checkTxOrderMismatch compares the tx execution order across all nodes for one block.
+// Returns a human-readable summary: "✅ TX order identical" or a diff table.
+func checkTxOrderMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64) string {
+	type nodeOrder struct {
+		name    string
+		entries []txOrderEntry
+		err     error
+	}
+	results := make([]nodeOrder, len(nodes))
+	var wg sync.WaitGroup
+	for i, node := range nodes {
+		wg.Add(1)
+		go func(idx int, n nodeInfo) {
+			defer wg.Done()
+			entries, err := fetchTxOrder(client, n.URL, blockNum)
+			results[idx] = nodeOrder{name: n.Name, entries: entries, err: err}
+		}(i, node)
+	}
+	wg.Wait()
+
+	// Find the first non-error result as reference
+	refIdx := -1
+	for i, r := range results {
+		if r.err == nil && len(r.entries) > 0 {
+			refIdx = i
+			break
+		}
+	}
+	if refIdx < 0 {
+		return "  🔍 *TX Order:* không thể fetch (all nodes error hoặc block rỗng)"
+	}
+
+	ref := results[refIdx]
+	allMatch := true
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("  🔍 *TX Order Check* (block #%d, %d txs trên %s):\n", blockNum, len(ref.entries), ref.name))
+
+	for _, r := range results {
+		if r.err != nil {
+			sb.WriteString(fmt.Sprintf("    ❌ %s: fetch error: %v\n", r.name, r.err))
+			allMatch = false
+			continue
+		}
+		if len(r.entries) != len(ref.entries) {
+			sb.WriteString(fmt.Sprintf("    ❌ %s: %d txs (ref=%s: %d txs) — COUNT DIFF!\n",
+				r.name, len(r.entries), ref.name, len(ref.entries)))
+			allMatch = false
+			continue
+		}
+		// Compare entry by entry
+		diffs := 0
+		for i := range ref.entries {
+			if i >= len(r.entries) {
+				break
+			}
+			refE := ref.entries[i]
+			curE := r.entries[i]
+			if refE.Hash != curE.Hash || refE.GroupID != curE.GroupID || refE.TransactionIndex != curE.TransactionIndex {
+				if diffs < 5 { // show at most 5 diffs to keep log compact
+					sb.WriteString(fmt.Sprintf(
+						"    ❌ %s pos[%d]: hash=%s grp=%s txIdx=%s | ref(%s): hash=%s grp=%s txIdx=%s\n",
+						r.name, i,
+						shortHash(curE.Hash), curE.GroupID, curE.TransactionIndex,
+						ref.name,
+						shortHash(refE.Hash), refE.GroupID, refE.TransactionIndex,
+					))
+				}
+				diffs++
+				allMatch = false
+			}
+		}
+		if diffs == 0 {
+			sb.WriteString(fmt.Sprintf("    ✅ %s: TX order identical (%d txs, groups match)\n", r.name, len(r.entries)))
+		} else if diffs > 5 {
+			sb.WriteString(fmt.Sprintf("    ... và %d diff(s) khác (bỏ qua để tiết kiệm log)\n", diffs-5))
+		}
+	}
+
+	if allMatch {
+		return "  🔍 *TX Order:* ✅ Tất cả nodes cùng thứ tự giao dịch → lỗi KHÔNG do thứ tự TX"
+	}
+	return sb.String()
+}
+
+// shortHash trims a 0x-prefixed hash to first 8 + last 4 chars for compact display.
+func shortHash(h string) string {
+	if len(h) > 14 && strings.HasPrefix(h, "0x") {
+		return h[:8] + "..." + h[len(h)-4:]
+	}
+	return h
 }
 
 func getBlockInfo(client *http.Client, url string, blockNum uint64) (blockInfo, error) {
