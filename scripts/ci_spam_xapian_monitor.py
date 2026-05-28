@@ -247,7 +247,7 @@ def main():
                         
                         msg = f"❌ *[SPAM XAPIAN]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n"
                         if err_details:
-                            msg += f"🚨 *Lỗi phát hiện:* `{err_details}`\n\n"
+                            msg += f"🚨 *Lỗi phát hiện:*\n{err_details}\n\n"
                         msg += f"📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n"
                         send_telegram_message(msg)
                     else:

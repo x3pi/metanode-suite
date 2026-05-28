@@ -263,6 +263,11 @@ func main() {
 		default:
 		}
 
+		if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
+			fmt.Println("\n🛑 PHÁT HIỆN CỜ LỖI (/tmp/MTN_CHAIN_ERROR_STOP) TỪ BLOCK CHECKER! DỪNG SPAM KHẨN CẤP!")
+			os.Exit(1)
+		}
+
 		// Kiểm tra sức khỏe của 5 node trước khi bắt đầu round mới
 		if len(cfg.RPCUrls) > 0 {
 			if err := checkNodesHealth(cfg.RPCUrls); err != nil {
