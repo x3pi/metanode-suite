@@ -980,12 +980,20 @@ func checkTxOrderMismatch(client *http.Client, nodes []nodeInfo, blockNum uint64
 			curE := r.entries[i]
 			if refE.Hash != curE.Hash || refE.GroupID != curE.GroupID || refE.TransactionIndex != curE.TransactionIndex {
 				if diffs < 5 { // show at most 5 diffs to keep log compact
+					var reasons []string
+					if curE.Hash != refE.Hash {
+						reasons = append(reasons, fmt.Sprintf("Hash: %s != %s", shortHash(curE.Hash), shortHash(refE.Hash)))
+					}
+					if curE.GroupID != refE.GroupID {
+						reasons = append(reasons, fmt.Sprintf("Grp: %s != %s", curE.GroupID, refE.GroupID))
+					}
+					if curE.TransactionIndex != refE.TransactionIndex {
+						reasons = append(reasons, fmt.Sprintf("TxIdx: %s != %s", curE.TransactionIndex, refE.TransactionIndex))
+					}
+					
 					sb.WriteString(fmt.Sprintf(
-						"    ❌ %s pos[%d]: hash=%s grp=%s txIdx=%s | ref(%s): hash=%s grp=%s txIdx=%s\n",
-						r.name, i,
-						shortHash(curE.Hash), curE.GroupID, curE.TransactionIndex,
-						ref.name,
-						shortHash(refE.Hash), refE.GroupID, refE.TransactionIndex,
+						"    ❌ %s pos[%d]: LỆCH [%s] (tx: %s)\n",
+						r.name, i, strings.Join(reasons, " | "), shortHash(curE.Hash),
 					))
 				}
 				diffs++
