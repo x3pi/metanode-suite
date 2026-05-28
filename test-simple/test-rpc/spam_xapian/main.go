@@ -11,11 +11,9 @@ import (
 	"math/big"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -189,10 +187,7 @@ func main() {
 		if len(tasks) == 0 || tasks[0].Action != "deploy" {
 			log.Fatalf("❌ File JSON không có action 'deploy' ở phần tử đầu tiên")
 		}
-		hexStr := tasks[0].InputData
-		if strings.HasPrefix(hexStr, "0x") {
-			hexStr = hexStr[2:]
-		}
+		hexStr := strings.TrimPrefix(tasks[0].InputData, "0x")
 		bytecode, err := hex.DecodeString(hexStr)
 		if err != nil {
 			log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
@@ -252,16 +247,7 @@ func main() {
 	fmt.Printf("   Chế độ: Đợi Receipt xong là gửi round tiếp theo KHÔNG NGỦ\n")
 	fmt.Println("--------------------------------------------------")
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
 	for round := 1; round <= *maxRounds; round++ {
-		select {
-		case <-quit:
-			fmt.Println("\n🛑 Bị ép dừng (nhận tín hiệu ngắt)! Thoát với mã lỗi để CI Monitor cảnh báo lên Telegram...")
-			os.Exit(1)
-		default:
-		}
 
 		if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
 			fmt.Println("\n🛑 PHÁT HIỆN CỜ LỖI (/tmp/MTN_CHAIN_ERROR_STOP) TỪ BLOCK CHECKER! DỪNG SPAM KHẨN CẤP!")
@@ -336,7 +322,7 @@ func main() {
 				receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash())
 				if err != nil {
 					atomic.AddUint32(&failCount, 1)
-					
+
 					errMsg := fmt.Sprintf("❌ Tx %s Timeout/Lỗi: %v", signedTx.Hash().Hex(), err)
 					fmt.Println(errMsg)
 
