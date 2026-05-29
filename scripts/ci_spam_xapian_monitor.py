@@ -12,6 +12,7 @@ import socket
 TEST_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "metanode")
 TEST_SCRIPT = "./test-spam-xapian.sh"
+TEST_SCRIPT_NO_START = "./test-spam-xapian-no-deploy.sh"
 LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "spam_xapian_logs")
 
 TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
@@ -183,23 +184,27 @@ def has_real_error(exit_code, log_file):
 def main():
     os.environ["MTN_TELE_ALERT"] = "true"
     os.makedirs(LOGS_DIR, exist_ok=True)
+
+    current_process = None
+    no_listen = "--no-listen" in sys.argv
+    if no_listen:
+        sys.argv.remove("--no-listen")
+    no_start = "--no-start" in sys.argv
+    if no_start:
+        sys.argv.remove("--no-start")
+    selected_script = TEST_SCRIPT_NO_START if no_start else TEST_SCRIPT
+    args = [selected_script] + sys.argv[1:]
     
     print(f"=======================================================")
     print(f"🚀 SPAM XAPIAN - GITHUB CI/CD MONITOR")
     print(f"📂 Theo dõi repo: {METANODE_DIR}")
-    print(f"📜 Script thực thi: {TEST_SCRIPT}")
+    print(f"📜 Script thực thi: {selected_script}")
     print(f"📂 Thư mục Logs: {LOGS_DIR}")
     print(f"=======================================================\n")
     
     last_commit = get_remote_commit()
     if not last_commit:
         last_commit = get_local_commit()
-        
-    current_process = None
-    no_listen = "--no-listen" in sys.argv
-    if no_listen:
-        sys.argv.remove("--no-listen")
-    args = [TEST_SCRIPT] + sys.argv[1:]
 
     clean_old_logs()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
