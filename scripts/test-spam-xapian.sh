@@ -24,7 +24,7 @@ echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker) CHO QUÁ TR�
 (
     cd "$SCRIPT_DIR/../block/block_hash_checker"
     go build -o block_hash_checker_bin main.go
-    ./block_hash_checker_bin --watch --interval 5s --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" > block_hash_checker_spam.log 2>&1
+    ./block_hash_checker_bin --watch --interval 5s > block_hash_checker_spam.log 2>&1
 ) &
 CHECKER_PID=$!
 

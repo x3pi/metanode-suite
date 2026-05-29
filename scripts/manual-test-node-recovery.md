@@ -88,7 +88,7 @@ go run main.go -config config-local.json -action verify -file /tmp/pending_check
 Chạy Hash Checker xem Node 1 sau khi sống lại có đồng bộ block hash giống hệt các node khác không.
 ```bash
 cd /home/abc/nhat/con-chain-v2/metanode-suite/block/block_hash_checker
-go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748"
+go run main.go --watch --interval 5s
 ```
 Nếu bị lệch hash, script trên sẽ dừng và báo lỗi, ghi log vào `hash_mismatch_alert.log`.
 

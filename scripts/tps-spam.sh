@@ -26,8 +26,6 @@ LOAD_BALANCE="${LOAD_BALANCE:-false}"
 
 # ── Cấu hình block_hash_checker ───────────────────────────────────
 CHECKER_INTERVAL="${CHECKER_INTERVAL:-5s}"
-CHECKER_LAST="${CHECKER_LAST:-100}"
-CHECKER_NODES="${CHECKER_NODES:-m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748}"
 
 # ── Log files ─────────────────────────────────────────────────────
 LOG_DIR="$SCRIPT_DIR/logs"
@@ -184,7 +182,7 @@ case "$ACTION" in
 
             # Window 2: block_hash_checker
             tmux new-window -t "$SESSION" -n "hash-check" \
-                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL --check-last $CHECKER_LAST --nodes \"$CHECKER_NODES\" 2>> \"$ERR_LOG\" || { echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] ❌ LỖI: Block Hash Checker đã dừng do phát hiện lệch hash. Tiến hành Kill TPS test...\" >> \"$ERR_LOG\"; touch \"$FLAG_STOP\"; pkill -f \"main.go.*--count\"; pkill -f \"tps_blast_cc\"; tmux send-keys -t \"${SESSION}:tps\" C-c; }; exec bash"
+                "cd $CHECKER_DIR && go run main.go --watch --interval $CHECKER_INTERVAL 2>> \"$ERR_LOG\" || { echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] ❌ LỖI: Block Hash Checker đã dừng do phát hiện lệch hash. Tiến hành Kill TPS test...\" >> \"$ERR_LOG\"; touch \"$FLAG_STOP\"; pkill -f \"main.go.*--count\"; pkill -f \"tps_blast_cc\"; tmux send-keys -t \"${SESSION}:tps\" C-c; }; exec bash"
 
             # Quay lại window TPS (window đầu)
             tmux select-window -t "${SESSION}:tps"

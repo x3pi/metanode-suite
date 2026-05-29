@@ -530,7 +530,7 @@ wait_for_sync_to_highest_block() {
     echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Timeout 30s)..."
     cd $HASH_CHECKER_DIR
     rm -f hash_mismatch_alert.log
-    timeout 30s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
+    timeout 30s go run main.go --watch --interval 5s || true
     analyze_mismatch "$TARGET_NODE"
     echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
@@ -562,7 +562,7 @@ wait_for_sync_to_highest_block() {
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
     cd $HASH_CHECKER_DIR
     rm -f hash_mismatch_alert.log
-    timeout 40s go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" || true
+    timeout 40s go run main.go --watch --interval 5s || true
     analyze_mismatch "$TARGET_NODE"
 
     echo "⏳ Đang chờ tiến trình bắn giao dịch ngầm ($PID_OTH) hoàn tất..."

@@ -22,6 +22,11 @@ import (
 var ghostMutex sync.Mutex
 var loggedBlocks = make(map[uint64]bool)
 
+// noStopFlag disables writing /tmp/MTN_CHAIN_ERROR_STOP and os.Exit on mismatch.
+// Enabled via --no-stop-flag CLI flag. Useful for passive observation without
+// halting the CI pipeline or sending Telegram alerts.
+var noStopFlag bool
+
 func clearLoggedBlocks() {
 	ghostMutex.Lock()
 	defer ghostMutex.Unlock()
@@ -116,6 +121,10 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 }
 
 func triggerStopFlag(reason string) {
+	if noStopFlag {
+		logger.Info("\n🔕 [--no-stop-flag] Bỏ qua ghi cờ dừng (/tmp/MTN_CHAIN_ERROR_STOP)")
+		return
+	}
 	err := os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 	if err == nil {
 		logger.Info("\n🛑 ĐÃ KÍCH HOẠT CỜ DỪNG AUTO_TEST (/tmp/MTN_CHAIN_ERROR_STOP)")
@@ -229,20 +238,55 @@ func main() {
 	timeout := flag.Duration("timeout", 5*time.Second, "Timeout cho mỗi RPC call")
 	watchMode := flag.Bool("watch", false, "Chế độ giám sát liên tục — kiểm tra block mới nhất định kỳ")
 	watchInterval := flag.Duration("interval", 10*time.Second, "Khoảng thời gian giữa mỗi lần check (watch mode)")
-	checkLast := flag.Int("check-last", 5, "Số block gần nhất cần check mỗi cycle (watch mode)")
 	lagThreshold := flag.Int("lag-threshold", 1000, "Ngưỡng chênh lệch block để kích hoạt cảnh báo NODE_LAGGING (0 = disable)")
+	noStop := flag.Bool("no-stop-flag", false, "Không ghi /tmp/MTN_CHAIN_ERROR_STOP và không os.Exit khi phát hiện lệch hash (chỉ log, không báo Telegram/CI)")
 	flag.Parse()
 
+	// Apply global flag
+	noStopFlag = *noStop
+
 	if *nodesFlag == "" {
-		fmt.Println("❌ Thiếu --nodes flag")
-		fmt.Println()
-		fmt.Println("Cách dùng:")
-		fmt.Println(`  # Quét 1 lần:`)
-		fmt.Println(`  ./block_hash_checker --nodes "master=http://localhost:8747,node4=http://localhost:10748" --from 1 --to 5000`)
-		fmt.Println()
-		fmt.Println(`  # Giám sát liên tục:`)
-		fmt.Println(`  ./block_hash_checker --watch --nodes "master=http://localhost:8747,node4=http://localhost:10748" --interval 10s`)
-		os.Exit(1)
+		configData, err := os.ReadFile("config.json")
+		if err == nil {
+			var config struct {
+				NodesRaw json.RawMessage `json:"nodes"`
+			}
+			if err := json.Unmarshal(configData, &config); err == nil && len(config.NodesRaw) > 0 {
+				var nodesStr string
+				if err := json.Unmarshal(config.NodesRaw, &nodesStr); err == nil {
+					*nodesFlag = nodesStr
+				} else {
+					var nodesMap map[string]string
+					if err := json.Unmarshal(config.NodesRaw, &nodesMap); err == nil {
+						var keys []string
+						for k := range nodesMap {
+							keys = append(keys, k)
+						}
+						sort.Strings(keys)
+						var parts []string
+						for _, k := range keys {
+							parts = append(parts, fmt.Sprintf("%s=%s", k, nodesMap[k]))
+						}
+						*nodesFlag = strings.Join(parts, ",")
+					}
+				}
+				if *nodesFlag != "" {
+					fmt.Printf("📂 Load nodes từ config.json (%d nodes)\n", len(strings.Split(*nodesFlag, ",")))
+				}
+			}
+		}
+
+		if *nodesFlag == "" {
+			fmt.Println("❌ Thiếu --nodes flag và không tìm thấy cấu hình hợp lệ trong config.json")
+			fmt.Println()
+			fmt.Println("Cách dùng:")
+			fmt.Println(`  # Quét 1 lần:`)
+			fmt.Println(`  ./block_hash_checker --nodes "master=http://localhost:8747,node4=http://localhost:10748" --from 1 --to 5000`)
+			fmt.Println()
+			fmt.Println(`  # Giám sát liên tục:`)
+			fmt.Println(`  ./block_hash_checker --watch --nodes "master=http://localhost:8747,node4=http://localhost:10748" --interval 10s`)
+			os.Exit(1)
+		}
 	}
 
 	// Parse nodes
@@ -262,7 +306,7 @@ func main() {
 
 	// ===== Watch mode =====
 	if *watchMode {
-		runWatch(client, nodes, *watchInterval, *checkLast, *lagThreshold)
+		runWatch(client, nodes, *watchInterval, *lagThreshold)
 		return
 	}
 
@@ -1493,10 +1537,14 @@ func writeMismatchCSV(filename string, nodes []nodeInfo, mismatches []mismatch) 
 
 const mismatchAlertFile = "hash_mismatch_alert.log"
 
-func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, checkLast int, lagThreshold int) {
-	fmt.Printf("👁️  WATCH MODE — kiểm tra %d blocks gần nhất mỗi %v\n", checkLast, interval)
+func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, lagThreshold int) {
+	fmt.Printf("👁️  WATCH MODE — khoảng thời gian %v\n", interval)
 	fmt.Println("   Nhấn Ctrl+C để dừng")
-	fmt.Println("   🛑 Tự động DỪNG khi phát hiện lệch hash (ghi vào " + mismatchAlertFile + ")")
+	if noStopFlag {
+		fmt.Println("   🔕 --no-stop-flag: KHÔNG ghi cờ dừng và KHÔNG dừng khi phát hiện lệch hash")
+	} else {
+		fmt.Println("   🛑 Tự động DỪNG khi phát hiện lệch hash (ghi vào " + mismatchAlertFile + ")")
+	}
 	fmt.Println()
 
 	// Handle Ctrl+C
@@ -1513,7 +1561,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	nodeWasDead := make(map[string]bool)
 
 	// Run immediately on start
-	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead, lagThreshold) {
+	if watchOnce(client, nodes, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead, lagThreshold) {
 		fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 		fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 		os.Exit(1)
@@ -1522,7 +1570,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	for {
 		select {
 		case <-ticker.C:
-			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead, lagThreshold) {
+			if watchOnce(client, nodes, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead, lagThreshold) {
 				fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 				fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 				os.Exit(1)
@@ -1536,7 +1584,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 }
 
 // watchOnce returns true if mismatch detected (caller should stop)
-func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64, nodeWasDead map[string]bool, lagThreshold int) bool {
+func watchOnce(client *http.Client, nodes []nodeInfo, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64, nodeWasDead map[string]bool, lagThreshold int) bool {
 	*totalChecks++
 	now := time.Now().Format("15:04:05")
 

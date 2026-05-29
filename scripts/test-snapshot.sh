@@ -94,7 +94,7 @@ for ((i=1; i<=LOOPS; i++)); do
     # 1. Khởi động block_hash_checker chạy ngầm
     echo "👉 Bước 1: Khởi động block_hash_checker chạy ngầm..."
     cd "$CHECKER_DIR" || exit 1
-    go run main.go --watch --interval 5s --check-last 100 --lag-threshold 1000 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" > "hash_checker_loop_${i}.log" 2>&1 &
+    go run main.go --watch --interval 5s --lag-threshold 1000 > "hash_checker_loop_${i}.log" 2>&1 &
     CHECKER_PID=$!
     echo "   ✅ Đã chạy block_hash_checker với PID $CHECKER_PID"
 
