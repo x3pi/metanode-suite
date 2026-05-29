@@ -289,6 +289,9 @@ def main():
                         print(f"[{datetime.datetime.now()}] Cờ --no-listen được bật. Chạy xong 1 lần, kết thúc.")
                         break
                     
+                if no_listen:
+                    continue
+
                 current_commit = get_remote_commit()
                 if not current_commit:
                     continue

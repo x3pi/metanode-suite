@@ -286,6 +286,9 @@ def main():
                     if no_listen:
                         break
                     
+                if no_listen:
+                    continue
+
                 current_commit = get_remote_commit()
                 if not current_commit or current_commit == last_commit:
                     continue
