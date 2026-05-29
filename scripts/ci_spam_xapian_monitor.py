@@ -8,6 +8,7 @@ import sys
 import urllib.request
 import urllib.parse
 import socket
+import analyze_tx_order
 
 TEST_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "metanode")
@@ -259,11 +260,26 @@ def main():
                         msg = f"❌ *[SPAM XAPIAN]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n"
                         if err_details:
                             msg += f"🚨 *Lỗi phát hiện:*\n```\n{err_details}\n```\n\n"
+                            
+                        # Phân tích thứ tự giao dịch
+                        count, order_details = analyze_tx_order.parse_logs()
+                        if count > 0:
+                            msg += f"🚨 *Lỗi lệch thứ tự TX:*\n```\n{order_details}\n```\n\n"
+                        else:
+                            msg += f"✅ *Thứ tự TX:* Khớp nhau giữa các node.\n\n"
+
                         msg += f"📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n"
                         send_telegram_message(msg)
                     else:
                         server_info = get_server_ip_info()
-                        msg = f"✅ *[SPAM XAPIAN]* HOÀN TẤT THÀNH CÔNG!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) chạy ổn định không lỗi."
+                        msg = f"✅ *[SPAM XAPIAN]* HOÀN TẤT THÀNH CÔNG!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) chạy ổn định không lỗi.\n\n"
+                        
+                        count, order_details = analyze_tx_order.parse_logs()
+                        if count > 0:
+                            msg += f"⚠️ *Cảnh báo: Phát hiện lệch thứ tự TX!*\n```\n{order_details}\n```\n"
+                        else:
+                            msg += f"✅ Thứ tự TX khớp nhau giữa tất cả các node."
+                            
                         send_telegram_message(msg)
 
                     current_process = None
