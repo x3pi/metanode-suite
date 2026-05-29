@@ -10,9 +10,10 @@
 #   3. Khởi động loại Monitor được chỉ định (mặc định: spam)
 #
 # Cách dùng:
-#   ./ci_monitor.sh --type spam [--clean-logs] [--mode single]
-#   ./ci_monitor.sh --type recovery [--clean-logs]
-#   ./ci_monitor.sh --type snapshot [--clean-logs]
+#   ./ci_monitor.sh --type spam [--clean-logs] [--mode single] [--no-start]
+#   ./ci_monitor.sh --type recovery [--clean-logs] [--no-start]
+#   ./ci_monitor.sh --type snapshot [--clean-logs] [--no-start]
+#   ./ci_monitor.sh --type spam_xapian [--clean-logs] [--no-start]
 # =============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -31,6 +32,7 @@ fi
 # Mặc định các thông số
 TYPE="spam"
 CLEAN_LOGS=false
+NO_START=false
 CI_ARGS=()
 
 # Parse arguments
@@ -43,6 +45,10 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --clean-logs)
             CLEAN_LOGS=true
+            ;;
+        --no-start)
+            NO_START=true
+            CI_ARGS+=("$1")
             ;;
         stop|--stop|kill|--kill)
             DO_STOP=true
@@ -153,13 +159,15 @@ cleanup_all_processes() {
     fi
 
     # Dừng các dịch vụ systemd của metanode nếu đang hoạt động
-    if systemctl list-units --type=service | grep -qE "metanode-"; then
-        echo "   → Phát hiện các dịch vụ systemd metanode đang chạy. Đang dừng các dịch vụ..."
-        if ! $SUDO_CMD systemctl stop metanode-consensus-0 metanode-consensus-1 metanode-consensus-2 metanode-consensus-3 metanode-consensus-4 \
-                                 metanode-execution-0 metanode-execution-1 metanode-execution-2 metanode-execution-3 metanode-execution-4 \
-                                 metanode-rpc-0 metanode-rpc-1 metanode-rpc-2 metanode-rpc-3 metanode-rpc-4 \
-                                 metanode-consensus.service metanode-execution.service metanode.service; then
-            echo "   ⚠️  Warning: Failed to stop some systemd metanode services. Ensure you have sudo privileges or stop them manually."
+    if [ "$NO_START" != "true" ]; then
+        if systemctl list-units --type=service | grep -qE "metanode-"; then
+            echo "   → Phát hiện các dịch vụ systemd metanode đang chạy. Đang dừng các dịch vụ..."
+            if ! $SUDO_CMD systemctl stop metanode-consensus-0 metanode-consensus-1 metanode-consensus-2 metanode-consensus-3 metanode-consensus-4 \
+                                     metanode-execution-0 metanode-execution-1 metanode-execution-2 metanode-execution-3 metanode-execution-4 \
+                                     metanode-rpc-0 metanode-rpc-1 metanode-rpc-2 metanode-rpc-3 metanode-rpc-4 \
+                                     metanode-consensus.service metanode-execution.service metanode.service; then
+                echo "   ⚠️  Warning: Failed to stop some systemd metanode services. Ensure you have sudo privileges or stop them manually."
+            fi
         fi
     fi
 
@@ -202,33 +210,37 @@ cleanup_all_processes() {
     pkill -9 -f "main.go -loop" 2>/dev/null || true
     pkill -9 -f "main.go --watch" 2>/dev/null || true
 
-    # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
-    echo "   → Tắt dịch vụ Nginx (giải quyết lỗi 502 Bad Gateway)..."
-    pkill -9 nginx 2>/dev/null || true
+    if [ "$NO_START" != "true" ]; then
+        # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
+        echo "   → Tắt dịch vụ Nginx (giải quyết lỗi 502 Bad Gateway)..."
+        pkill -9 nginx 2>/dev/null || true
 
-    # 4. Kill các session tmux liên quan đến cluster
-    echo "   → Tìm và tắt các tmux sessions go-master, metanode, rpc-proxy..."
-    for session in $(tmux list-sessions -F '#S' 2>/dev/null | grep -E '^(go-master-|metanode-|rpc-proxy)'); do
-        echo "     - Tắt tmux session: $session"
-        tmux kill-session -t "$session" 2>/dev/null || true
-    done
+        # 4. Kill các session tmux liên quan đến cluster
+        echo "   → Tìm và tắt các tmux sessions go-master, metanode, rpc-proxy..."
+        for session in $(tmux list-sessions -F '#S' 2>/dev/null | grep -E '^(go-master-|metanode-|rpc-proxy)'); do
+            echo "     - Tắt tmux session: $session"
+            tmux kill-session -t "$session" 2>/dev/null || true
+        done
 
-    # 5. Tắt triệt để các tiến trình Go/Rust và các RPC proxy server
-    echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client, config-rpc..."
-    pkill -9 -f "[s]imple_chain" 2>/dev/null || true
-    pkill -9 -f "[m]etanode" 2>/dev/null || true
-    pkill -9 -f "[r]pc-client" 2>/dev/null || true
-    pkill -9 -f "config-rpc-node" 2>/dev/null || true
-    pkill -9 -f "config-client-tcp" 2>/dev/null || true
+        # 5. Tắt triệt để các tiến trình Go/Rust và các RPC proxy server
+        echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client, config-rpc..."
+        pkill -9 -f "[s]imple_chain" 2>/dev/null || true
+        pkill -9 -f "[m]etanode" 2>/dev/null || true
+        pkill -9 -f "[r]pc-client" 2>/dev/null || true
+        pkill -9 -f "config-rpc-node" 2>/dev/null || true
+        pkill -9 -f "config-client-tcp" 2>/dev/null || true
 
-    # 6. Giải phóng port của cluster
-    echo "   → Giải phóng các port của cụm cluster..."
-    wait_for_ports_to_release 8545 8547 8548 8549 8550 8757 10746 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 10100 10101 10102 10103 10104 6060 6061 6062 6063 6064 6065 6200 6201 6202 6203 6204 6211 6221 6241 4201 9080 9081 9082 9083 9084 8600 8601 8602 8603 8604
+        # 6. Giải phóng port của cluster
+        echo "   → Giải phóng các port của cụm cluster..."
+        wait_for_ports_to_release 8545 8547 8548 8549 8550 8757 10746 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 10100 10101 10102 10103 10104 6060 6061 6062 6063 6064 6065 6200 6201 6202 6203 6204 6211 6221 6241 4201 9080 9081 9082 9083 9084 8600 8601 8602 8603 8604
+    else
+        echo "   → Bỏ qua việc kill tiến trình cluster và giải phóng port do có flag --no-start"
+    fi
 
     # Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm
     rm -f /tmp/MTN_CHAIN_ERROR_STOP
 
-    echo "   ✅ Đã dọn sạch toàn bộ tiến trình và giải phóng các port."
+    echo "   ✅ Đã dọn sạch các tiến trình."
 }
 
 if [ "$DO_STOP" = true ]; then
@@ -297,7 +309,11 @@ if [ -d "$AUTO_TEST_LOGS" ]; then
 fi
 
 # Đợi các port cũ giải phóng hoàn toàn
-wait_for_ports_to_release 8545 8547 8548 8549 8550 8757 10746 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 10100 10101 10102 10103 10104 6060 6061 6062 6063 6064 6065 6200 6201 6202 6203 6204 6211 6221 6241 4201 9080 9081 9082 9083 9084 8600 8601 8602 8603 8604
+if [ "$NO_START" != "true" ]; then
+    wait_for_ports_to_release 8545 8547 8548 8549 8550 8757 10746 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 10100 10101 10102 10103 10104 6060 6061 6062 6063 6064 6065 6200 6201 6202 6203 6204 6211 6221 6241 4201 9080 9081 9082 9083 9084 8600 8601 8602 8603 8604
+else
+    echo "   → Bỏ qua bước chờ giải phóng port do có flag --no-start"
+fi
 
 
 export MTN_TELE_ALERT=true
