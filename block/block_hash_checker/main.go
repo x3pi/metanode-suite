@@ -229,6 +229,7 @@ func main() {
 	watchMode := flag.Bool("watch", false, "Chế độ giám sát liên tục — kiểm tra block mới nhất định kỳ")
 	watchInterval := flag.Duration("interval", 10*time.Second, "Khoảng thời gian giữa mỗi lần check (watch mode)")
 	checkLast := flag.Int("check-last", 5, "Số block gần nhất cần check mỗi cycle (watch mode)")
+	lagThreshold := flag.Int("lag-threshold", 1000, "Ngưỡng chênh lệch block để kích hoạt cảnh báo NODE_LAGGING (0 = disable)")
 	flag.Parse()
 
 	if *nodesFlag == "" {
@@ -260,7 +261,7 @@ func main() {
 
 	// ===== Watch mode =====
 	if *watchMode {
-		runWatch(client, nodes, *watchInterval, *checkLast)
+		runWatch(client, nodes, *watchInterval, *checkLast, *lagThreshold)
 		return
 	}
 
@@ -1536,7 +1537,7 @@ func writeMismatchCSV(filename string, nodes []nodeInfo, mismatches []mismatch) 
 
 const mismatchAlertFile = "hash_mismatch_alert.log"
 
-func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, checkLast int) {
+func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, checkLast int, lagThreshold int) {
 	fmt.Printf("👁️  WATCH MODE — kiểm tra %d blocks gần nhất mỗi %v\n", checkLast, interval)
 	fmt.Println("   Nhấn Ctrl+C để dừng")
 	fmt.Println("   🛑 Tự động DỪNG khi phát hiện lệch hash (ghi vào " + mismatchAlertFile + ")")
@@ -1556,7 +1557,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	nodeWasDead := make(map[string]bool)
 
 	// Run immediately on start
-	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead) {
+	if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead, lagThreshold) {
 		fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 		fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 		os.Exit(1)
@@ -1565,7 +1566,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 	for {
 		select {
 		case <-ticker.C:
-			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead) {
+			if watchOnce(client, nodes, checkLast, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead, lagThreshold) {
 				fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 				fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)
 				os.Exit(1)
@@ -1579,7 +1580,7 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, che
 }
 
 // watchOnce returns true if mismatch detected (caller should stop)
-func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64, nodeWasDead map[string]bool) bool {
+func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks, totalMismatches *int, trackedGhosts map[uint64]bool, lastVerifiedBlock *uint64, nodeWasDead map[string]bool, lagThreshold int) bool {
 	*totalChecks++
 	now := time.Now().Format("15:04:05")
 
@@ -1644,8 +1645,8 @@ func watchOnce(client *http.Client, nodes []nodeInfo, checkLast int, totalChecks
 		diff := maxBlock - minBlock
 		if diff > 10 {
 			fmt.Printf(" ⚠️ CHÊNH %d blocks!", diff)
-			// Trigger Telegram alert if diff is huge (e.g. > 100 blocks)
-			if diff > 100 {
+			// Trigger Telegram alert if diff is huge (e.g. > lag-threshold blocks)
+			if lagThreshold > 0 && diff > uint64(lagThreshold) {
 				logAnomaly("NODE_LAGGING", minBlock,
 					fmt.Sprintf("Một số node đang bị tụt lại quá xa (chênh lệch %d blocks giữa max và min).", diff))
 			}

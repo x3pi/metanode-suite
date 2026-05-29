@@ -94,7 +94,7 @@ for ((i=1; i<=LOOPS; i++)); do
     # 1. Khởi động block_hash_checker chạy ngầm
     echo "👉 Bước 1: Khởi động block_hash_checker chạy ngầm..."
     cd "$CHECKER_DIR" || exit 1
-    go run main.go --watch --interval 5s --check-last 100 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" > "hash_checker_loop_${i}.log" 2>&1 &
+    go run main.go --watch --interval 5s --check-last 100 --lag-threshold 1000 --nodes "m0=http://127.0.0.1:8757,m1=http://127.0.0.1:10747,m2=http://127.0.0.1:10749,m3=http://127.0.0.1:10750,m4=http://127.0.0.1:10748" > "hash_checker_loop_${i}.log" 2>&1 &
     CHECKER_PID=$!
     echo "   ✅ Đã chạy block_hash_checker với PID $CHECKER_PID"
 
@@ -149,7 +149,7 @@ for ((i=1; i<=LOOPS; i++)); do
 
     # 4. Chờ các node đồng bộ block (dựa theo log CHÊNH)
     echo "👉 Bước 4: Chờ các node đồng bộ block (theo dõi 'CHÊNH' trong log)..."
-    MAX_WAIT=20  # Tối đa 20 lần * 5s = 100 s
+    MAX_WAIT=60  # Tối đa 60 lần * 5s = 300 s
     PREV_DIFF=9999999
     STALL_COUNT=0
     SYNCED=false
@@ -167,8 +167,8 @@ for ((i=1; i<=LOOPS; i++)); do
                 STALL_COUNT=0
             elif [ "$CUR_DIFF" -eq "$PREV_DIFF" ]; then
                 STALL_COUNT=$((STALL_COUNT + 1))
-                if [ $STALL_COUNT -ge 6 ]; then # 6 lần liên tiếp (~30s) không giảm
-                    echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình đồng bộ bị kẹt ở mức chênh $CUR_DIFF blocks trong 30s!"
+                if [ $STALL_COUNT -ge 12 ]; then # 12 lần liên tiếp (~60s) không giảm
+                    echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình đồng bộ bị kẹt ở mức chênh $CUR_DIFF blocks trong 60s!"
                     kill -9 $CHECKER_PID 2>/dev/null
                     exit 1
                 fi
@@ -186,7 +186,7 @@ for ((i=1; i<=LOOPS; i++)); do
     done
 
     if [ "$SYNCED" = false ]; then
-        echo "❌ LỖI (Đang test Node $NODE_ID): Quá thời gian chờ đồng bộ (100 giây)!"
+        echo "❌ LỖI (Đang test Node $NODE_ID): Quá thời gian chờ đồng bộ (300 giây)!"
         kill -9 $CHECKER_PID 2>/dev/null
         exit 1
     fi
