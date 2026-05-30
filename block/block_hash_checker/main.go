@@ -175,18 +175,18 @@ type rpcError struct {
 }
 
 type blockResult struct {
-	Hash             string        `json:"hash"`
-	Number           string        `json:"number"`
-	ParentHash       string        `json:"parentHash"`
-	StateRoot        string        `json:"stateRoot"`
-	TransactionsRoot string        `json:"transactionsRoot"`
-	ReceiptsRoot     string        `json:"receiptsRoot"`
-	Timestamp        string        `json:"timestamp"`
-	Miner            string        `json:"miner"`
-	GlobalExecIndex    string        `json:"globalExecIndex"`
-	Epoch              string        `json:"epoch"`
-	StakeStatesRoot    string        `json:"stakeStatesRoot"`
-	AggregateSignature string        `json:"aggregateSignature"`
+	Hash               string         `json:"hash"`
+	Number             string         `json:"number"`
+	ParentHash         string         `json:"parentHash"`
+	StateRoot          string         `json:"stateRoot"`
+	TransactionsRoot   string         `json:"transactionsRoot"`
+	ReceiptsRoot       string         `json:"receiptsRoot"`
+	Timestamp          string         `json:"timestamp"`
+	Miner              string         `json:"miner"`
+	GlobalExecIndex    string         `json:"globalExecIndex"`
+	Epoch              string         `json:"epoch"`
+	StakeStatesRoot    string         `json:"stakeStatesRoot"`
+	AggregateSignature string         `json:"aggregateSignature"`
 	CommitIndex        string         `json:"commitIndex"`
 	Transactions       []txOrderEntry `json:"transactions"`
 }
@@ -194,13 +194,13 @@ type blockResult struct {
 // ===== Block info (parsed from blockResult) =====
 
 type blockInfo struct {
-	Hash             string
-	ParentHash       string
-	StateRoot        string
-	TransactionsRoot string
-	ReceiptsRoot     string
-	Timestamp        string
-	Miner            string
+	Hash               string
+	ParentHash         string
+	StateRoot          string
+	TransactionsRoot   string
+	ReceiptsRoot       string
+	Timestamp          string
+	Miner              string
 	GlobalExecIndex    string
 	Epoch              string
 	StakeStatesRoot    string
@@ -627,8 +627,8 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 			} else {
 				for j := range ref.TxOrder {
 					if b.TxOrder[j].Hash != ref.TxOrder[j].Hash ||
-					   b.TxOrder[j].GroupID != ref.TxOrder[j].GroupID ||
-					   b.TxOrder[j].TransactionIndex != ref.TxOrder[j].TransactionIndex {
+						b.TxOrder[j].GroupID != ref.TxOrder[j].GroupID ||
+						b.TxOrder[j].TransactionIndex != ref.TxOrder[j].TransactionIndex {
 						mismatchedFields["txOrder"] = true
 						break
 					}
@@ -738,12 +738,12 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 						}
 						fieldVals = append(fieldVals, fmt.Sprintf("%s: `%s`", f, val))
 					}
-					
+
 					// Add context fields
 					geiVal := parseHexStr(bi.GlobalExecIndex)
 					epochVal := parseHexStr(bi.Epoch)
-					
-					sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n", 
+
+					sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n",
 						node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
 				}
 			}
@@ -772,7 +772,7 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 				} else if bi.Error == "(block không tồn tại)" {
 					errCount = 0
 				}
-				
+
 				if errCount == 10 { // Alert after 10 consecutive real errors (e.g. connection refused)
 					logAnomaly("NODE_DOWN", r.blockNum,
 						fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 10 blocks! Lỗi: %s",
@@ -1529,12 +1529,12 @@ func printMismatchDetail(m mismatch, nodes []nodeInfo) {
 		printField("hash", bi.Hash, hashDiff)
 		printField("parentHash", bi.ParentHash, parentDiff)
 		printField("stateRoot", bi.StateRoot, stateDiff)
-		
-		if stateDiff {
-			verifyRes := checkVerifyHistoricalRoot(http.DefaultClient, n.URL, m.BlockNumber)
-			fmt.Printf("       - \033[1;36m%-16s: %s\033[0m\n", "verifyRoot", verifyRes)
-		}
-		
+
+		// if stateDiff {
+		// 	verifyRes := checkVerifyHistoricalRoot(http.DefaultClient, n.URL, m.BlockNumber)
+		// 	fmt.Printf("       - \033[1;36m%-16s: %s\033[0m\n", "verifyRoot", verifyRes)
+		// }
+
 		printField("txRoot", bi.TransactionsRoot, txDiff)
 		printField("receiptsRoot", bi.ReceiptsRoot, rcpDiff)
 		printField("timestamp", fmt.Sprintf("%s (%d)", bi.Timestamp, parseHexStr(bi.Timestamp)), timeDiff)
@@ -1983,7 +1983,7 @@ func watchOnce(client *http.Client, nodes []nodeInfo, totalChecks, totalMismatch
 		surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch-1, "⏮️  BLOCK TRƯỚC ĐÓ"))
 	}
 	surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch, "🚨 BLOCK LỆCH ĐẦU TIÊN"))
-	
+
 	surroundingDetails.WriteString(formatFullBlockDetails(client, nodes, realFirstMismatch+1, "⏭️  BLOCK SAU ĐÓ"))
 	surroundingDetails.WriteString("================================================================================\n")
 
@@ -2173,12 +2173,12 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 			}
 			geiVal := parseHexStr(bi.GlobalExecIndex)
 			epochVal := parseHexStr(bi.Epoch)
-			sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n", 
+			sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n",
 				node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
-				
+
 			if mismatchedFields["stateRoot"] {
-				verifyRes := checkVerifyHistoricalRoot(client, node.URL, blockNum)
-				sb.WriteString(fmt.Sprintf("    ↳ %s\n", verifyRes))
+				// verifyRes := checkVerifyHistoricalRoot(client, node.URL, blockNum)
+				// sb.WriteString(fmt.Sprintf("    ↳ %s\n", verifyRes))
 			}
 		}
 	}
