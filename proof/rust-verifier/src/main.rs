@@ -24,13 +24,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if param == "latest" || param == "pending" {
             json!(param)
         } else {
-            // Hex format block number like "0xc8" for 200
-            let num: u64 = param.parse().unwrap_or(0);
-            if num > 0 {
-                json!(format!("0x{:x}", num))
+            // Hex format block number
+            let block_number = if let Ok(num) = param.parse::<u64>() {
+                format!("0x{:x}", num)
             } else {
-                json!(param)
-            }
+                param.to_string()
+            };
+            json!(block_number)
         }
     } else {
         json!("latest")
