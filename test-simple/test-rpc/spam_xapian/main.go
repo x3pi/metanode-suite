@@ -373,6 +373,10 @@ func main() {
 			}
 		}
 
+		startBlock, err := client.BlockNumber(context.Background())
+		if err != nil {
+			startBlock = 0
+		}
 		startEpoch, err := getLatestEpoch(cfg.RPCUrl)
 		if err != nil {
 			fmt.Printf("⚠️ Không thể lấy start epoch trước round %d: %v\n", round, err)
@@ -461,6 +465,10 @@ func main() {
 		tps := float64(successCount) / duration.Seconds()
 		fmt.Printf("✅ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v - TPS: %.2f\n", round, successCount, revertCount, failCount, duration, tps)
 
+		endBlock, err := client.BlockNumber(context.Background())
+		if err != nil {
+			endBlock = 0
+		}
 		endEpoch, err := getLatestEpoch(cfg.RPCUrl)
 		if err != nil {
 			fmt.Printf("⚠️ Không thể lấy end epoch sau round %d: %v\n", round, err)
@@ -479,7 +487,7 @@ func main() {
 				// Cảnh báo nếu TPS giảm hơn 40% so với trung bình các round trước
 				if tps < avgTps*0.6 {
 					dropPercent := (avgTps - tps) / avgTps * 100
-					msg := fmt.Sprintf("🚨 [METANODE ALERT] Cảnh báo TPS giảm bất thường!\nRound: %d\nTPS hiện tại: %.2f\nTPS trung bình trước đó: %.2f\n📉 Mức giảm: %.2f%%\nThời gian round: %v", round, tps, avgTps, dropPercent, duration)
+					msg := fmt.Sprintf("🚨 [METANODE ALERT] Cảnh báo TPS giảm bất thường!\nRound: %d\nTPS hiện tại: %.2f\nTPS trung bình trước đó: %.2f\n📉 Mức giảm: %.2f%%\nThời gian round: %v\n📦 Block: %d ➡️ %d\n⏱️ Epoch: %d ➡️ %d", round, tps, avgTps, dropPercent, duration, startBlock, endBlock, startEpoch, endEpoch)
 					fmt.Println(msg)
 					sendTelegramAlert(msg, "SPAM XAPIAN")
 				}

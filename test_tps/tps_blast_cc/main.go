@@ -1348,7 +1348,7 @@ func main() {
 
 				if processingTPS < avgTps*0.6 {
 					dropPercent := (avgTps - processingTPS) / avgTps * 100
-					msg := fmt.Sprintf("🚨 Cảnh báo TPS giảm bất thường trong TPS Blast CC!\nRound: %d\nTPS hiện tại: %.2f\nTPS trung bình trước đó: %.2f\n📉 Mức giảm: %.2f%%\nThời gian round: %s", round, processingTPS, avgTps, dropPercent, totalDuration.Round(time.Millisecond))
+					msg := fmt.Sprintf("🚨 Cảnh báo TPS giảm bất thường trong TPS Blast CC!\nRound: %d\nTPS hiện tại: %.2f\nTPS trung bình trước đó: %.2f\n📉 Mức giảm: %.2f%%\nThời gian round: %s\n📦 Block: %d ➡️ %d\n⏱️ Epoch: %d ➡️ %d", round, processingTPS, avgTps, dropPercent, totalDuration.Round(time.Millisecond), startBlock, endBlock, startEpochBeforeBlast, endEpoch)
 					fmt.Println(msg)
 					sendTelegramAlert(msg, "TPS BLAST CC")
 				}
