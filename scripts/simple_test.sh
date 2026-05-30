@@ -4,8 +4,7 @@
 export GOMAXPROCS=2
 export CARGO_BUILD_JOBS=2
 
-# Dừng pipeline nếu có bất kỳ lệnh nào bị lỗi
-# set -e
+set -euo pipefail
 
 # Tự động lấy thư mục gốc của project tool-test
 TOOL_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

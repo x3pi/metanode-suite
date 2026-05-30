@@ -304,7 +304,10 @@ def main():
                     
                     if no_listen:
                         print(f"[{datetime.datetime.now()}] Cờ --no-listen được bật. Chạy xong 1 lần, kết thúc.")
-                        break
+                        if has_real_error(exit_code, log_file):
+                            sys.exit(1)
+                        else:
+                            sys.exit(0)
                     
                 if no_listen:
                     continue
