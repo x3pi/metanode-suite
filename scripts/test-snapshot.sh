@@ -207,6 +207,26 @@ for ((i=1; i<=LOOPS; i++)); do
         go run main.go -config config-local.json -action verify -file "/tmp/pending_check_${NODE_ID}.json" -target-node "$NODE_ID"
     )
 
+    echo "🔎 Gọi API meta_verifyHistoricalRoot để kiểm chứng tính toàn vẹn của State Trie trên Node $NODE_ID..."
+    if [ "$NODE_ID" = "0" ]; then TARGET_PORT=8757; fi
+    if [ "$NODE_ID" = "1" ]; then TARGET_PORT=10747; fi
+    if [ "$NODE_ID" = "2" ]; then TARGET_PORT=10749; fi
+    if [ "$NODE_ID" = "3" ]; then TARGET_PORT=10750; fi
+    if [ "$NODE_ID" = "4" ]; then TARGET_PORT=10748; fi
+
+    VERIFY_RES=$(curl -s -X POST http://127.0.0.1:$TARGET_PORT \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"meta_verifyHistoricalRoot","params":["latest"],"id":1}')
+    
+    if echo "$VERIFY_RES" | grep -q '"match":true'; then
+        echo "   ✅ VerifyHistoricalRoot thành công: StateRoot hoàn toàn khớp với Database sau khi khôi phục!"
+    else
+        echo "❌ LỖI NGHIÊM TRỌNG (Đang test Node $NODE_ID): StateRoot không khớp (MISMATCH) sau khi khôi phục Snapshot!"
+        echo "   Kết quả API: $VERIFY_RES"
+        kill -9 $CHECKER_PID 2>/dev/null
+        exit 1
+    fi
+
     # 5. Chạy test giao dịch
     echo "👉 Bước 5: Chạy giao dịch kiểm tra trên node vừa khôi phục..."
     echo "   ⏳ Đợi 10s cho node $NODE_ID ổn định sau khi restore..."

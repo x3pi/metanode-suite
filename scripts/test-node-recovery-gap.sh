@@ -518,6 +518,26 @@ wait_for_sync_to_highest_block() {
             cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
             go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
         )
+
+        echo "🔎 Gọi API meta_verifyHistoricalRoot để kiểm chứng tính toàn vẹn của State Trie trên Node $TARGET_NODE..."
+        if [ "$TARGET_NODE" = "0" ]; then TARGET_PORT=8757; fi
+        if [ "$TARGET_NODE" = "1" ]; then TARGET_PORT=10747; fi
+        if [ "$TARGET_NODE" = "2" ]; then TARGET_PORT=10749; fi
+        if [ "$TARGET_NODE" = "3" ]; then TARGET_PORT=10750; fi
+        if [ "$TARGET_NODE" = "4" ]; then TARGET_PORT=10748; fi
+
+        VERIFY_RES=$(curl -s -X POST http://127.0.0.1:$TARGET_PORT \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","method":"meta_verifyHistoricalRoot","params":["latest"],"id":1}')
+        
+        if echo "$VERIFY_RES" | grep -q '"match":true'; then
+            echo "   ✅ VerifyHistoricalRoot thành công: StateRoot hoàn toàn khớp với Database sau khi Sync Gap!"
+        else
+            echo "❌ LỖI NGHIÊM TRỌNG (Đang test Node $TARGET_NODE): StateRoot không khớp (MISMATCH) sau khi Sync Gap!"
+            echo "   Kết quả API: $VERIFY_RES"
+            echo "DATA_INTEGRITY_FAILED: Node $TARGET_NODE bị lỗi State Root Mismatch sau khi sync gap" > /tmp/MTN_CHAIN_ERROR_STOP
+            exit 1
+        fi
     else
         echo "📤 Xác minh trạng thái lịch sử trên mạng (node 0)..."
         (

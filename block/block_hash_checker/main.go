@@ -1326,6 +1326,67 @@ func getLatestBlockNumber(client *http.Client, url string) (uint64, error) {
 	return num, nil
 }
 
+// checkVerifyHistoricalRoot calls meta_verifyHistoricalRoot to diagnose state root mismatches
+func checkVerifyHistoricalRoot(client *http.Client, nodeURL string, blockNum uint64) string {
+	hexBlock := fmt.Sprintf("0x%x", blockNum)
+	req := rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "meta_verifyHistoricalRoot",
+		Params:  []interface{}{hexBlock},
+		ID:      1,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "[Verify: req_error]"
+	}
+
+	// Use a shorter timeout for this specific call so it doesn't block the alert too long
+	// client.Timeout is applied by default, but verify might take a bit if it's full rebuild
+	resp, err := client.Post(nodeURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "[Verify: rpc_error]"
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "[Verify: read_error]"
+	}
+
+	var rpcResp rpcResponse
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return "[Verify: parse_error]"
+	}
+
+	if rpcResp.Error != nil {
+		return fmt.Sprintf("[Verify: ERR %s]", rpcResp.Error.Message)
+	}
+
+	if string(rpcResp.Result) == "null" {
+		return "[Verify: null]"
+	}
+
+	var verifyRes map[string]interface{}
+	if err := json.Unmarshal(rpcResp.Result, &verifyRes); err != nil {
+		return "[Verify: result_parse_error]"
+	}
+
+	match, ok := verifyRes["match"].(bool)
+	if !ok {
+		return "[Verify: unknown]"
+	}
+
+	if match {
+		if fastPath, ok := verifyRes["fast_path"].(bool); ok && fastPath {
+			return "[Verify: MATCH (Fast Path)]"
+		}
+		return "[Verify: MATCH (Full)]"
+	}
+
+	return "[Verify: MISMATCH]"
+}
+
 type peerInfoResp struct {
 	Epoch           uint64 `json:"epoch"`
 	GlobalExecIndex uint64 `json:"global_exec_index"`
@@ -1468,6 +1529,12 @@ func printMismatchDetail(m mismatch, nodes []nodeInfo) {
 		printField("hash", bi.Hash, hashDiff)
 		printField("parentHash", bi.ParentHash, parentDiff)
 		printField("stateRoot", bi.StateRoot, stateDiff)
+		
+		if stateDiff {
+			verifyRes := checkVerifyHistoricalRoot(http.DefaultClient, n.URL, m.BlockNumber)
+			fmt.Printf("       - \033[1;36m%-16s: %s\033[0m\n", "verifyRoot", verifyRes)
+		}
+		
 		printField("txRoot", bi.TransactionsRoot, txDiff)
 		printField("receiptsRoot", bi.ReceiptsRoot, rcpDiff)
 		printField("timestamp", fmt.Sprintf("%s (%d)", bi.Timestamp, parseHexStr(bi.Timestamp)), timeDiff)
@@ -2108,6 +2175,11 @@ func triggerStopFlagForFirstMismatch(client *http.Client, nodes []nodeInfo, bloc
 			epochVal := parseHexStr(bi.Epoch)
 			sb.WriteString(fmt.Sprintf("  - *%s*: %s (gei=%d, epoch=%d)\n", 
 				node.Name, strings.Join(fieldVals, ", "), geiVal, epochVal))
+				
+			if mismatchedFields["stateRoot"] {
+				verifyRes := checkVerifyHistoricalRoot(client, node.URL, blockNum)
+				sb.WriteString(fmt.Sprintf("    ↳ %s\n", verifyRes))
+			}
 		}
 	}
 
