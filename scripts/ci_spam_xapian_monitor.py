@@ -284,7 +284,10 @@ def main():
 
                     current_process = None
                     if no_listen:
-                        break
+                        if has_real_error(exit_code, log_file):
+                            sys.exit(1)
+                        else:
+                            sys.exit(0)
                     
                 if no_listen:
                     continue

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Tự động xuất traceback cho debugging
 export GOTRACEBACK=all

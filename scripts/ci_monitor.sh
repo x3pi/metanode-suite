@@ -317,17 +317,32 @@ fi
 
 
 export MTN_TELE_ALERT=true
-nohup "$CI_MONITOR" "${CI_ARGS[@]}" > "$CI_LOG" 2>&1 &
-NEW_PID=$!
 
-# Đợi 1 giây rồi kiểm tra xem process có sống không
-sleep 1
-if kill -0 "$NEW_PID" 2>/dev/null; then
-    echo "   ✅ Đã khởi động thành công! (PID: $NEW_PID)"
+IS_NO_LISTEN=false
+for arg in "${CI_ARGS[@]}"; do
+    if [ "$arg" = "--no-listen" ]; then
+        IS_NO_LISTEN=true
+        break
+    fi
+done
+
+if [ "$IS_NO_LISTEN" = "true" ]; then
+    echo "   → Chạy đồng bộ trong foreground (do có cờ --no-listen)..."
+    "$CI_MONITOR" "${CI_ARGS[@]}" 2>&1 | tee "$CI_LOG"
+    exit ${PIPESTATUS[0]}
 else
-    echo "   ❌ Process đã chết ngay sau khi khởi động! Kiểm tra log:"
-    cat "$CI_LOG" 2>/dev/null
-    exit 1
+    nohup "$CI_MONITOR" "${CI_ARGS[@]}" > "$CI_LOG" 2>&1 &
+    NEW_PID=$!
+
+    # Đợi 1 giây rồi kiểm tra xem process có sống không
+    sleep 1
+    if kill -0 "$NEW_PID" 2>/dev/null; then
+        echo "   ✅ Đã khởi động thành công! (PID: $NEW_PID)"
+    else
+        echo "   ❌ Process đã chết ngay sau khi khởi động! Kiểm tra log:"
+        cat "$CI_LOG" 2>/dev/null
+        exit 1
+    fi
 fi
 
 # Chờ tối đa 5 giây để Python monitor thực hiện git ls-remote/pull và tạo log file mới

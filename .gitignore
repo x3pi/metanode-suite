@@ -20,3 +20,4 @@ test-simple/test-rpc/spam_counter/test-counter_TestCounter.abi
 test-simple/test-rpc/spam_counter/test-counter_TestCounter.bin
 test-simple/test-rpc/spam_counter/TestCounter.bin
 scripts/__pycache__/analyze_tx_order.cpython-312.pyc
+block/block_hash_checker/block_hash_checker_bin
