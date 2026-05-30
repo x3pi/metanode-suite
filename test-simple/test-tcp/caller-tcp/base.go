@@ -46,6 +46,7 @@ func main() {
 		"get_logs":      runGetLogs,
 		"account_state": runAccountState,
 		"get_chain_id":  runGetChainID,
+		"get_devicekey": runGetDeviceKey,
 	}
 
 	runType := strings.ToLower(strings.TrimSpace(toolCfg.Type))
@@ -165,12 +166,32 @@ func runAccountState(cli *client_tcp.Client, cfg ToolConfig) (string, error) {
 		return "", fmt.Errorf("params.address is not a valid hex address")
 	}
 
-	nonce, err := cli.ChainGetNonce(common.HexToAddress(address))
+	addr := common.HexToAddress(address)
+
+	as, err := cli.GetAccountState(addr, 10*time.Second)
 	if err != nil {
 		return "", err
 	}
 
-	return fmt.Sprintf("nonce=%d", nonce), nil
+	nonce := as.Nonce()
+	balance := "0"
+	if as.Balance() != nil {
+		balance = as.Balance().String()
+	}
+	pendingBalance := "0"
+	if as.PendingBalance() != nil {
+		pendingBalance = as.PendingBalance().String()
+	}
+	lastHash := as.LastHash()
+	deviceKey := as.DeviceKey()
+
+	return fmt.Sprintf("nonce=%d | balance=%s | pending_balance=%s | last_hash=%s | device_key=%s",
+		nonce,
+		balance,
+		pendingBalance,
+		hexutil.Encode(lastHash.Bytes()),
+		hexutil.Encode(deviceKey.Bytes()),
+	), nil
 }
 
 func runGetChainID(cli *client_tcp.Client, _ ToolConfig) (string, error) {
@@ -179,6 +200,38 @@ func runGetChainID(cli *client_tcp.Client, _ ToolConfig) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("chain_id=%d", chainID), nil
+}
+
+func runGetDeviceKey(cli *client_tcp.Client, cfg ToolConfig) (string, error) {
+	hashStr, ok := readStringParam(cfg.Params, "hash")
+	if !ok {
+		return "", fmt.Errorf("params.hash is required")
+	}
+
+	hash := common.HexToHash(hashStr)
+
+	parentConn := cli.GetClientContext().ConnectionsManager.ParentConnection()
+	if parentConn == nil || !parentConn.IsConnect() {
+		return "", fmt.Errorf("parent connection not available")
+	}
+
+	err := cli.GetClientContext().MessageSender.SendBytes(
+		parentConn,
+		"GetDeviceKey",
+		hash.Bytes(),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to send GetDeviceKey: %w", err)
+	}
+
+	select {
+	case receiveDeviceKey := <-cli.GetDeviceKeyChan():
+		lastDeviceKeyHex := hexutil.Encode(receiveDeviceKey.LastDeviceKeyFromServer)
+		txHashHex := hexutil.Encode(receiveDeviceKey.TransactionHash)
+		return fmt.Sprintf("TransactionHash=%s | LastDeviceKey=%s", txHashHex, lastDeviceKeyHex), nil
+	case <-time.After(5 * time.Second):
+		return "", fmt.Errorf("timeout waiting for device key")
+	}
 }
 
 func parseAddressList(raw interface{}) ([]common.Address, error) {

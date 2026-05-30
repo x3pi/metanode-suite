@@ -22,6 +22,9 @@ Hoac chi dinh file config:
 
 ```bash
 go run -tags tool base.go -config=./base/config-get-logs.json
+go run -tags tool base.go -config=./base/get-devicekey.json
+go run -tags tool base.go -config=./base/get-account-state.json
+
 ```
 
 ## 2) Cau hinh mau

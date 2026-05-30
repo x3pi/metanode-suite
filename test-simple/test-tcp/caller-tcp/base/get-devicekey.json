@@ -1,0 +1,11 @@
+{
+    "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
+    "version": "0.0.1.0",
+    "connection_addresses": [
+        "139.59.243.85:4200"
+    ],
+    "type": "get_devicekey",
+    "params": {
+        "hash": "0x178a39bb03293c4284ca836c3c6abc754439924f139982b81076dc9ff39037d8"
+    }
+}

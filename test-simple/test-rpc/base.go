@@ -397,7 +397,16 @@ func runGetTransactionReceipt(url string, cfg Config) (string, error) {
 	txIndex, _ := receipt["transactionIndex"].(string)
 	status, _ := receipt["status"].(string)
 
-	return fmt.Sprintf("blockNumber=%s | blockHash=%s | txIndex=%s | status=%s", blockNumber, blockHash, txIndex, status), nil
+	var groupIdStr string
+	if gID, ok := receipt["groupIndex"]; ok && gID != nil {
+		groupIdStr = fmt.Sprintf("%v", gID)
+	} else if gID, ok := receipt["groupId"]; ok && gID != nil {
+		groupIdStr = fmt.Sprintf("%v", gID)
+	} else {
+		groupIdStr = "N/A"
+	}
+
+	return fmt.Sprintf("blockNumber=%s | blockHash=%s | txIndex=%s | groupIndex=%s | status=%s", blockNumber, blockHash, txIndex, groupIdStr, status), nil
 }
 
 func runGetBlockTransactions(url string, cfg Config) (string, error) {
@@ -410,7 +419,7 @@ func runGetBlockTransactions(url string, cfg Config) (string, error) {
 		return "", fmt.Errorf("params.block: %w", err)
 	}
 
-	result, err := callRPC(url, cfg.TimeoutSeconds, "eth_getBlockByNumber", []interface{}{block, false})
+	result, err := callRPC(url, cfg.TimeoutSeconds, "eth_getBlockByNumber", []interface{}{block, true})
 	if err != nil {
 		return "", err
 	}
@@ -434,14 +443,33 @@ func runGetBlockTransactions(url string, cfg Config) (string, error) {
 		return "0 transactions", nil
 	}
 
-	var txHashes []string
-	for _, tx := range txsRaw {
-		if hashStr, ok := tx.(string); ok {
-			txHashes = append(txHashes, hashStr)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%d transactions:\n", txCount))
+	for i, txIntf := range txsRaw {
+		if txObj, ok := txIntf.(map[string]interface{}); ok {
+			hash, _ := txObj["hash"].(string)
+			
+			var groupIdStr string
+			if gID, ok := txObj["groupId"]; ok {
+				groupIdStr = fmt.Sprintf("%v", gID)
+			} else {
+				groupIdStr = "N/A"
+			}
+			
+			var txIdxStr string
+			if txIdx, ok := txObj["transactionIndex"]; ok {
+				txIdxStr = fmt.Sprintf("%v", txIdx)
+			} else {
+				txIdxStr = "N/A"
+			}
+			
+			sb.WriteString(fmt.Sprintf("    [%d] Hash: %s | GroupID: %s | TxIndex: %s\n", i, hash, groupIdStr, txIdxStr))
+		} else if hashStr, ok := txIntf.(string); ok {
+			sb.WriteString(fmt.Sprintf("    [%d] Hash: %s (no full tx data)\n", i, hashStr))
 		}
 	}
 
-	return fmt.Sprintf("%d transactions: %v", txCount, txHashes), nil
+	return "\n" + sb.String(), nil
 }
 
 func runGetSystemTransactionsByBlockNumber(url string, cfg Config) (string, error) {
