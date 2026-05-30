@@ -142,7 +142,8 @@ func NewClient(
 	// Set pending RPC requests vào handler (sync.Map)
 	clientContext.Handler.SetPendingRpcRequests(&client.pendingRpcRequests)
 	clientContext.Handler.SetPendingChainRequests(&client.pendingChainRequests)
-	clientContext.SocketServer, _ = p_network.NewSocketServer(
+	var err error
+	clientContext.SocketServer, err = p_network.NewSocketServer(
 		nil,
 		clientContext.KeyPair,
 		clientContext.ConnectionsManager,
@@ -150,6 +151,9 @@ func NewClient(
 		config.NodeType(),
 		config.Version(),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create socket server: %w", err)
+	}
 
 	retryCount := 0
 	for {
