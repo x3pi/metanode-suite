@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -19,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -35,11 +38,18 @@ type KeyItem struct {
 	Address    string `json:"address"`
 }
 
-func waitReceipt(client *ethclient.Client, rpcUrl string, txHash common.Hash) (*types.Receipt, error) {
+func waitReceipt(client *ethclient.Client, rpcUrl string, txHash common.Hash, startEpoch uint64) (*types.Receipt, error) {
 	timeout := time.After(350 * time.Second)
 	for {
 		select {
 		case <-timeout:
+			if startEpoch != 0 {
+				currentEpoch, errEpoch := getLatestEpoch(rpcUrl)
+				if errEpoch == nil && currentEpoch == startEpoch {
+					msg := fmt.Sprintf("🚨 Giao dịch %s bị Timeout (chờ 350s) nhưng KHÔNG có chuyển đổi epoch! (Epoch: %d)", txHash.Hex(), startEpoch)
+					sendTelegramAlert(msg, "SPAM XAPIAN")
+				}
+			}
 			curlCmd := fmt.Sprintf(`curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["%s"],"id":1}' %s`, txHash.Hex(), rpcUrl)
 			return nil, fmt.Errorf("timeout 350s waiting for receipt.\n   Manual check: %s", curlCmd)
 		default:
@@ -101,6 +111,103 @@ func checkNodesHealth(rpcUrls []string) error {
 		}
 	}
 	return nil
+}
+
+func getLatestEpoch(rpcUrl string) (uint64, error) {
+	payload := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", false],"id":1}`)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", rpcUrl, payload)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Result struct {
+			Epoch *hexutil.Uint64 `json:"epoch"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	if result.Result.Epoch == nil {
+		return 0, fmt.Errorf("không tìm thấy trường epoch trong block")
+	}
+	return uint64(*result.Result.Epoch), nil
+}
+
+func getSystemIPInfo() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "Unknown"
+	}
+
+	var localIPs []string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					localIPs = append(localIPs, ipnet.IP.String())
+				}
+			}
+		}
+	}
+	localIPStr := "Unknown"
+	if len(localIPs) > 0 {
+		localIPStr = strings.Join(localIPs, ", ")
+	}
+
+	publicIP := "Unknown"
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			publicIP = strings.TrimSpace(string(body))
+		}
+	}
+
+	if publicIP != "Unknown" {
+		return fmt.Sprintf("%s (Static/Private IP: %s, Public IP: %s)", hostname, localIPStr, publicIP)
+	}
+	return fmt.Sprintf("%s (Static/Private IP: %s)", hostname, localIPStr)
+}
+
+func sendTelegramAlert(message string, testName string) {
+	if os.Getenv("MTN_TELE_ALERT") != "true" {
+		return
+	}
+	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	chatID := "-1003867050625"
+	ipInfo := getSystemIPInfo()
+
+	fullMessage := fmt.Sprintf("❌ *[%s]* CẢNH BÁO LỖI!\n\n*Server:* `%s`\n\n%s", testName, ipInfo, message)
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	payload := map[string]string{
+		"chat_id": chatID,
+		"text":    fullMessage,
+		"parse_mode": "Markdown",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert, status code: %d\n", resp.StatusCode)
+	}
 }
 
 func main() {
@@ -214,7 +321,7 @@ func main() {
 			log.Fatalf("❌ Lỗi send deploy tx: %v", err)
 		}
 		fmt.Printf("🚀 Đã gửi tx Deploy (Hash: %s). Đang đợi receipt...\n", signedTx.Hash().Hex())
-		receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash())
+		receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash(), 0)
 		if err != nil {
 			log.Fatalf("❌ Timeout khi đợi deploy receipt: %v", err)
 		}
@@ -247,6 +354,8 @@ func main() {
 	fmt.Printf("   Chế độ: Đợi Receipt xong là gửi round tiếp theo KHÔNG NGỦ\n")
 	fmt.Println("--------------------------------------------------")
 
+	var tpsHistory []float64
+
 	for round := 1; round <= *maxRounds; round++ {
 
 		if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
@@ -262,6 +371,11 @@ func main() {
 				_ = os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(errMsg), 0644)
 				os.Exit(1)
 			}
+		}
+
+		startEpoch, err := getLatestEpoch(cfg.RPCUrl)
+		if err != nil {
+			fmt.Printf("⚠️ Không thể lấy start epoch trước round %d: %v\n", round, err)
 		}
 
 		fmt.Printf("\n🔄 [ROUND %d/%d] Đang gửi %d transactions...\n", round, *maxRounds, len(wallets))
@@ -318,7 +432,7 @@ func main() {
 					return
 				}
 
-				receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash())
+				receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash(), startEpoch)
 				if err != nil {
 					atomic.AddUint32(&failCount, 1)
 
@@ -344,7 +458,37 @@ func main() {
 
 		wg.Wait()
 		duration := time.Since(startTime)
-		fmt.Printf("✅ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v\n", round, successCount, revertCount, failCount, duration)
+		tps := float64(successCount) / duration.Seconds()
+		fmt.Printf("✅ Đã kết thúc Round %d: %d thành công, %d Revert, %d thất bại (Mạng nghẽn/Lỗi Gửi) - Thời gian: %v - TPS: %.2f\n", round, successCount, revertCount, failCount, duration, tps)
+
+		endEpoch, err := getLatestEpoch(cfg.RPCUrl)
+		if err != nil {
+			fmt.Printf("⚠️ Không thể lấy end epoch sau round %d: %v\n", round, err)
+		}
+
+		if startEpoch != 0 && endEpoch != 0 && startEpoch != endEpoch {
+			fmt.Printf("🔄 Phát hiện chuyển đổi Epoch (%d -> %d) trong Round %d. Giao dịch có thể bị chậm, bỏ qua cảnh báo TPS.\n", startEpoch, endEpoch, round)
+		} else {
+			if len(tpsHistory) >= 3 {
+				var sum float64
+				for _, v := range tpsHistory {
+					sum += v
+				}
+				avgTps := sum / float64(len(tpsHistory))
+
+				// Cảnh báo nếu TPS giảm hơn 40% so với trung bình các round trước
+				if tps < avgTps*0.6 {
+					dropPercent := (avgTps - tps) / avgTps * 100
+					msg := fmt.Sprintf("🚨 [METANODE ALERT] Cảnh báo TPS giảm bất thường!\nRound: %d\nTPS hiện tại: %.2f\nTPS trung bình trước đó: %.2f\n📉 Mức giảm: %.2f%%\nThời gian round: %v", round, tps, avgTps, dropPercent, duration)
+					fmt.Println(msg)
+					sendTelegramAlert(msg, "SPAM XAPIAN")
+				}
+			}
+			tpsHistory = append(tpsHistory, tps)
+			if len(tpsHistory) > 10 {
+				tpsHistory = tpsHistory[1:] // Giữ lịch sử 10 round gần nhất
+			}
+		}
 
 		// Tự động ngắt khẩn cấp nếu 100% giao dịch thất bại (RPC sập, rớt mạng...)
 		if failCount == uint32(len(wallets)) && len(wallets) > 0 {

@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -236,6 +237,75 @@ func logErrorToFile(msg string) {
 	defer f.Close()
 	ts := time.Now().Format("2006-01-02 15:04:05")
 	f.WriteString(fmt.Sprintf("[%s] %s\n", ts, msg))
+}
+
+func getSystemIPInfo() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "Unknown"
+	}
+
+	var localIPs []string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					localIPs = append(localIPs, ipnet.IP.String())
+				}
+			}
+		}
+	}
+	localIPStr := "Unknown"
+	if len(localIPs) > 0 {
+		localIPStr = strings.Join(localIPs, ", ")
+	}
+
+	publicIP := "Unknown"
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			publicIP = strings.TrimSpace(string(body))
+		}
+	}
+
+	if publicIP != "Unknown" {
+		return fmt.Sprintf("%s (Static/Private IP: %s, Public IP: %s)", hostname, localIPStr, publicIP)
+	}
+	return fmt.Sprintf("%s (Static/Private IP: %s)", hostname, localIPStr)
+}
+
+func sendTelegramAlert(message string, testName string) {
+	if os.Getenv("MTN_TELE_ALERT") != "true" {
+		return
+	}
+	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	chatID := "-1003867050625"
+	ipInfo := getSystemIPInfo()
+
+	fullMessage := fmt.Sprintf("❌ *[%s]* CẢNH BÁO LỖI!\n\n*Server:* `%s`\n\n%s", testName, ipInfo, message)
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	payload := map[string]string{
+		"chat_id": chatID,
+		"text":    fullMessage,
+		"parse_mode": "Markdown",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert, status code: %d\n", resp.StatusCode)
+	}
 }
 
 func main() {
@@ -1238,6 +1308,10 @@ func main() {
 		}
 
 		endBlock, _ := rpcClient.GetBlockNumber()
+		endEpoch := uint64(0)
+		if blk, err := rpcClient.GetBlockByNumber(endBlock); err == nil && blk != nil {
+			endEpoch = blk.Epoch
+		}
 
 		// Block statistics
 		blockCount := 0
@@ -1259,6 +1333,27 @@ func main() {
 		totalDuration := blastDuration + processingDuration
 		processingTPS := float64(totalTxsInBlocks) / totalDuration.Seconds()
 		allRoundTPS = append(allRoundTPS, processingTPS)
+
+		if startEpochBeforeBlast != 0 && endEpoch != 0 && startEpochBeforeBlast != endEpoch {
+			fmt.Printf("🔄 Phát hiện chuyển đổi Epoch (%d -> %d) trong Round %d. Giao dịch có thể bị chậm, bỏ qua cảnh báo TPS.\n", startEpochBeforeBlast, endEpoch, round)
+		} else {
+			if len(allRoundTPS) >= 4 { // Đủ 3 round trước + 1 round hiện tại
+				var sum float64
+				count := 0
+				for i := len(allRoundTPS) - 2; i >= 0 && count < 10; i-- {
+					sum += allRoundTPS[i]
+					count++
+				}
+				avgTps := sum / float64(count)
+
+				if processingTPS < avgTps*0.6 {
+					dropPercent := (avgTps - processingTPS) / avgTps * 100
+					msg := fmt.Sprintf("🚨 Cảnh báo TPS giảm bất thường trong TPS Blast CC!\nRound: %d\nTPS hiện tại: %.2f\nTPS trung bình trước đó: %.2f\n📉 Mức giảm: %.2f%%\nThời gian round: %s", round, processingTPS, avgTps, dropPercent, totalDuration.Round(time.Millisecond))
+					fmt.Println(msg)
+					sendTelegramAlert(msg, "TPS BLAST CC")
+				}
+			}
+		}
 
 		roundSummaries = append(roundSummaries, RoundSummary{
 			Round:         round,
