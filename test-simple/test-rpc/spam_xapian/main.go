@@ -283,7 +283,6 @@ func main() {
 			wg.Add(1)
 			go func(wallet *Wallet) {
 				defer wg.Done()
-
 				nonce := wallet.Nonce
 
 				gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{

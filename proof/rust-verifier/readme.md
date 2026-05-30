@@ -1,0 +1,3 @@
+cargo run -- "0x824fef8A3cE4b93C546209CC254D97E5Fee804e0" 200
+cargo run -- "0x824fef8A3cE4b93C546209CC254D97E5Fee804e0" latest
+
