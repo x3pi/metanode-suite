@@ -171,6 +171,12 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out cer
 tmux kill-session -t rpc-proxy 2>/dev/null || true
 pkill -f "go run main.go --config config-rpc-node" || true
 pkill -f "exe/main --config config-rpc-node" || true
+pkill -f "rpc-client-bin --config config-rpc-node" || true
+
+# Biên dịch rpc-client trước khi chạy các node để tránh compile nhiều lần bằng go run
+echo "  -> Đang build rpc-client binary..."
+rm -f rpc-client-bin
+go build -o rpc-client-bin .
 
 # Khởi động từng RPC Proxy cho 5 node
 declare -A NODE_PORTS=( [0]=8545 [1]=8547 [2]=8548 [3]=8549 [4]=8550 )
@@ -192,7 +198,7 @@ for node_id in 0 1 2 3 4; do
         sleep 0.2
     done
     
-    tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
+    tmux new-session -d -s rpc-proxy-$node_id "./rpc-client-bin --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
     
     # Đợi khởi động (thăm dò nhanh 200ms mỗi lần, tối đa 50s để tránh lỗi timeout do biên dịch 'go run')
     for i in {1..250}; do

@@ -1135,6 +1135,12 @@ func main() {
 		expectedTxHashes := make(map[string]bool)
 		for _, tx := range allTxs {
 			expectedTxHashes[strings.ToLower(tx.txHash.Hex())] = true
+			internalTx := &transaction.Transaction{}
+			if err := internalTx.Unmarshal(tx.bytes); err == nil {
+				if ethTx := internalTx.ToEthTransaction(); ethTx != nil {
+					expectedTxHashes[strings.ToLower(ethTx.Hash().Hex())] = true
+				}
+			}
 		}
 
 		var processingDuration time.Duration

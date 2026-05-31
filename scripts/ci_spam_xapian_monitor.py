@@ -287,7 +287,19 @@ def main():
                         if has_real_error(exit_code, log_file):
                             sys.exit(1)
                         else:
-                            sys.exit(0)
+                            print(f"[{datetime.datetime.now()}] Cờ --no-listen được bật. Chạy xong 1 vòng không lỗi. Tiếp tục chạy vòng test mới...")
+                            clean_up_orphans()
+                            time.sleep(5)
+                            clean_old_logs()
+                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            log_file = os.path.join(LOGS_DIR, f"spam_xapian_{last_commit[:8] if last_commit else 'init'}_{timestamp}.log")
+                            server_info = get_server_ip_info()
+                            send_telegram_message(f"🚀 *[SPAM XAPIAN]* TIẾP TỤC VÒNG SPAM MỚI (no-listen)!\n\n*Server:* `{server_info}`\n*Commit:* `{commit_short}`\n*Thời gian:* `{datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}`")
+                            with open(log_file, "w") as f:
+                                current_process = subprocess.Popen(
+                                    args, cwd=TEST_SCRIPT_DIR, stdout=f, stderr=subprocess.STDOUT, preexec_fn=os.setsid
+                                )
+                            continue
                     
                 if no_listen:
                     continue

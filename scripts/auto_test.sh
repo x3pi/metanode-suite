@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Dừng pipeline nếu có bất kỳ lệnh nào bị lỗi
-# set -e
+set -euo pipefail
 
 # Tự động xuất traceback cho debugging
 export GOTRACEBACK=all
