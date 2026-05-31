@@ -39,19 +39,19 @@ type KeyItem struct {
 }
 
 func waitReceipt(client *ethclient.Client, rpcUrl string, txHash common.Hash, startEpoch uint64) (*types.Receipt, error) {
-	timeout := time.After(350 * time.Second)
+	timeout := time.After(1800 * time.Second)
 	for {
 		select {
 		case <-timeout:
 			if startEpoch != 0 {
 				currentEpoch, errEpoch := getLatestEpoch(rpcUrl)
 				if errEpoch == nil && currentEpoch == startEpoch {
-					msg := fmt.Sprintf("🚨 Giao dịch %s bị Timeout (chờ 350s) nhưng KHÔNG có chuyển đổi epoch! (Epoch: %d)", txHash.Hex(), startEpoch)
+					msg := fmt.Sprintf("🚨 Giao dịch %s bị Timeout (chờ 1800s) nhưng KHÔNG có chuyển đổi epoch! (Epoch: %d)", txHash.Hex(), startEpoch)
 					sendTelegramAlert(msg, "SPAM XAPIAN")
 				}
 			}
 			curlCmd := fmt.Sprintf(`curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["%s"],"id":1}' %s`, txHash.Hex(), rpcUrl)
-			return nil, fmt.Errorf("timeout 350s waiting for receipt.\n   Manual check: %s", curlCmd)
+			return nil, fmt.Errorf("timeout 1800s waiting for receipt.\n   Manual check: %s", curlCmd)
 		default:
 			receipt, err := client.TransactionReceipt(context.Background(), txHash)
 			if err == nil {

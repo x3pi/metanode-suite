@@ -196,7 +196,7 @@ cleanup_all_processes() {
     done
 
     # 3. Kill các tiến trình phụ trợ
-    for proc in "block_hash_checker" "rpc-tcp-simple" "tps_blast_cc" "tx_sender" "spam_xapian_test"; do
+    for proc in "block_hash_checker_ci" "rpc-tcp-simple" "tps_blast_cc" "tx_sender" "spam_xapian_test"; do
         local pat="[${proc:0:1}]${proc:1}"
         if pgrep -f "$pat" >/dev/null; then
             echo "   → Tìm thấy $proc. Đang kill..."
@@ -208,7 +208,6 @@ cleanup_all_processes() {
 
     # 3.1. Kill các tool chạy qua go run (watch/loop)
     pkill -9 -f "main.go -loop" 2>/dev/null || true
-    pkill -9 -f "main.go --watch" 2>/dev/null || true
 
     if [ "$NO_START" != "true" ]; then
         # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
@@ -227,6 +226,7 @@ cleanup_all_processes() {
         pkill -9 -f "[s]imple_chain" 2>/dev/null || true
         pkill -9 -f "[m]etanode" 2>/dev/null || true
         pkill -9 -f "[r]pc-client" 2>/dev/null || true
+        pkill -9 -f "rpc-client-bin" 2>/dev/null || true
         pkill -9 -f "config-rpc-node" 2>/dev/null || true
         pkill -9 -f "config-client-tcp" 2>/dev/null || true
 
@@ -318,29 +318,56 @@ fi
 
 export MTN_TELE_ALERT=true
 
-IS_NO_LISTEN=false
-for arg in "${CI_ARGS[@]}"; do
-    if [ "$arg" = "--no-listen" ]; then
-        IS_NO_LISTEN=true
-        break
+# Khởi chạy python monitor dưới nền bằng nohup
+nohup "$CI_MONITOR" "${CI_ARGS[@]}" > "$CI_LOG" 2>&1 &
+NEW_PID=$!
+
+echo "   → Đang kiểm tra quá trình khởi tạo và build/deploy cụm node..."
+SUCCESS=false
+# Chờ tối đa 150 giây để quá trình compile và deploy cụm node hoàn tất
+for i in {1..150}; do
+    # Kiểm tra xem tiến trình Python có bị chết không
+    if ! kill -0 "$NEW_PID" 2>/dev/null; then
+        echo "   ❌ Monitor process đã chết đột ngột! Kiểm tra log chính:"
+        cat "$CI_LOG" 2>/dev/null
+        exit 1
     fi
+
+    # Kiểm tra file sentinel báo lỗi dừng khẩn cấp
+    if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
+        echo "   ❌ Phát hiện lỗi dừng khẩn cấp trong quá trình khởi tạo!"
+        cat /tmp/MTN_CHAIN_ERROR_STOP
+        exit 1
+    fi
+
+    # Lấy file log test mới nhất
+    LATEST_LOG_FILE=""
+    if [ -d "$AUTO_TEST_LOGS" ]; then
+        LATEST_LOG_FILE=$(ls -t "$AUTO_TEST_LOGS"/*.log 2>/dev/null | head -n 1)
+    fi
+
+    # Nếu có file log mới và file này khác file cũ, kiểm tra nội dung
+    if [ -n "$LATEST_LOG_FILE" ] && [ "$LATEST_LOG_FILE" != "$PREV_LATEST" ]; then
+        # Kiểm tra xem đã hoàn thành việc deploy cụm RPC proxy hoặc deploy cluster chưa
+        if grep -qE "RPC Proxy Node 4 đã khởi động thành công|DEPLOYMENT COMPLETE!" "$LATEST_LOG_FILE" 2>/dev/null; then
+            SUCCESS=true
+            break
+        fi
+    fi
+    sleep 1
 done
 
-if [ "$IS_NO_LISTEN" = "true" ]; then
-    echo "   → Chạy đồng bộ trong foreground (do có cờ --no-listen)..."
-    "$CI_MONITOR" "${CI_ARGS[@]}" 2>&1 | tee "$CI_LOG"
-    exit ${PIPESTATUS[0]}
+if [ "$SUCCESS" = "true" ]; then
+    echo "   ✅ Đã khởi động và deploy cluster thành công! (PID: $NEW_PID)"
+    echo "   🚀 Tiến trình test tiếp tục chạy ngầm trong background."
 else
-    nohup "$CI_MONITOR" "${CI_ARGS[@]}" > "$CI_LOG" 2>&1 &
-    NEW_PID=$!
-
-    # Đợi 1 giây rồi kiểm tra xem process có sống không
-    sleep 1
+    # Nếu hết 150 giây mà chưa thấy tín hiệu thành công
+    echo "   ⚠️ Hết thời gian chờ (150s) nhưng chưa nhận dạng được trạng thái hoàn thành deploy."
+    echo "   Kiểm tra xem process có còn chạy hay không..."
     if kill -0 "$NEW_PID" 2>/dev/null; then
-        echo "   ✅ Đã khởi động thành công! (PID: $NEW_PID)"
+        echo "   ✅ Process vẫn đang chạy ngầm. (PID: $NEW_PID)"
     else
-        echo "   ❌ Process đã chết ngay sau khi khởi động! Kiểm tra log:"
-        cat "$CI_LOG" 2>/dev/null
+        echo "   ❌ Process đã chết."
         exit 1
     fi
 fi
