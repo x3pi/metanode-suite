@@ -158,29 +158,39 @@ for ((i=1; i<=LOOPS; i++)); do
         # Lấy dòng log mới nhất có chứa "Heights:"
         LAST_LINE=$(grep "Heights:" "$CHECKER_DIR/hash_checker_loop_${i}.log" | tail -n 1)
         
-        if [[ "$LAST_LINE" =~ CHÊNH\ ([0-9]+)\ blocks! ]]; then
-            CUR_DIFF="${BASH_REMATCH[1]}"
-            echo "   ⏳ Đang chờ đồng bộ... Chênh lệch: $CUR_DIFF blocks"
+        if [[ "$LAST_LINE" == *"Heights:"* ]]; then
+            NODE_HEIGHT_STR=$(echo "$LAST_LINE" | grep -o "m${NODE_ID}=[0-9]*" || echo "")
+            NODE_HEIGHT=${NODE_HEIGHT_STR#*=}
             
-            if [ "$CUR_DIFF" -lt "$PREV_DIFF" ]; then
-                PREV_DIFF=$CUR_DIFF
-                STALL_COUNT=0
-            elif [ "$CUR_DIFF" -eq "$PREV_DIFF" ]; then
-                STALL_COUNT=$((STALL_COUNT + 1))
-                if [ $STALL_COUNT -ge 12 ]; then # 12 lần liên tiếp (~60s) không giảm
-                    echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình đồng bộ bị kẹt ở mức chênh $CUR_DIFF blocks trong 60s!"
-                    kill -9 $CHECKER_PID 2>/dev/null
-                    exit 1
-                fi
+            if [ -z "$NODE_HEIGHT" ] || [ "$NODE_HEIGHT" == "ERR" ]; then
+                echo "   ⏳ Đang chờ Node $NODE_ID phản hồi..."
             else
-                PREV_DIFF=$CUR_DIFF
-                STALL_COUNT=0
+                MAX_HEIGHT=$(echo "$LAST_LINE" | grep -o "m[0-4]=[0-9]*" | cut -d= -f2 | sort -nr | head -n1)
+                
+                NODE_DIFF=$(( MAX_HEIGHT - NODE_HEIGHT ))
+                if [ "$NODE_DIFF" -le 10 ]; then
+                    echo "   ✅ Node $NODE_ID đã đồng bộ đủ gần nhau (chênh lệch: $NODE_DIFF blocks)!"
+                    SYNCED=true
+                    break
+                else
+                    CUR_DIFF=$NODE_DIFF
+                    echo "   ⏳ Đang chờ Node $NODE_ID đồng bộ... Chênh lệch: $CUR_DIFF blocks (Max: $MAX_HEIGHT, Node: $NODE_HEIGHT)"
+                    if [ "$CUR_DIFF" -lt "$PREV_DIFF" ]; then
+                        PREV_DIFF=$CUR_DIFF
+                        STALL_COUNT=0
+                    elif [ "$CUR_DIFF" -eq "$PREV_DIFF" ]; then
+                        STALL_COUNT=$((STALL_COUNT + 1))
+                        if [ $STALL_COUNT -ge 12 ]; then # 12 lần liên tiếp (~60s) không giảm
+                            echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình đồng bộ của Node $NODE_ID bị kẹt ở mức chênh $CUR_DIFF blocks trong 60s!"
+                            kill -9 $CHECKER_PID 2>/dev/null
+                            exit 1
+                        fi
+                    else
+                        PREV_DIFF=$CUR_DIFF
+                        STALL_COUNT=0
+                    fi
+                fi
             fi
-        else
-            # Nếu không tìm thấy chữ CHÊNH, tức là khoảng cách <= 10 blocks (đã đồng bộ)
-            echo "   ✅ Các node đã đồng bộ đủ gần nhau!"
-            SYNCED=true
-            break
         fi
         sleep 5
     done
