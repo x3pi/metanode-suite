@@ -1672,9 +1672,8 @@ func watchOnce(client *http.Client, nodes []nodeInfo, totalChecks, totalMismatch
 
 		if err == nil {
 			if nodeWasDead[n.Name] {
-				fmt.Printf("\n🔄 NODE %s ĐÃ SỐNG LẠI! Tiến hành đặt lại mốc kiểm tra để quét lại từ đầu (block 1)...\n", n.Name)
+				fmt.Printf("\n🔄 NODE %s ĐÃ SỐNG LẠI! Tiếp tục kiểm tra từ mốc đồng bộ hiện tại...\n", n.Name)
 				nodeWasDead[n.Name] = false
-				*lastVerifiedBlock = 0
 			}
 		} else {
 			hasNodeError = true
