@@ -299,7 +299,7 @@ def main():
                             sys.exit(1)
                         else:
                             print(f"[{datetime.datetime.now()}] Cờ --no-listen được bật. Chạy xong 1 vòng không lỗi. Tiếp tục chạy vòng test mới...")
-                            subprocess.run(["pkill", "-f", "block_hash_checker"], capture_output=True)
+                            subprocess.run(["pkill", "-f", "block_hash_checker_ci"], capture_output=True)
                             print(f"[{datetime.datetime.now()}] Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
                             time.sleep(5)
                             clean_old_logs()
@@ -343,7 +343,7 @@ def main():
                     if current_process and current_process.poll() is None:
                         kill_process_group(current_process)
                     
-                    subprocess.run(["pkill", "-f", "block_hash_checker"], capture_output=True)
+                    subprocess.run(["pkill", "-f", "block_hash_checker_ci"], capture_output=True)
                     print(f"[{datetime.datetime.now()}] Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
                     time.sleep(5)
                     

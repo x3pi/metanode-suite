@@ -126,7 +126,7 @@ def get_local_commit():
 def clean_up_orphans():
     """Dọn dẹp các tiến trình có thể còn sót lại của bài test trước"""
     processes_to_kill = [
-        "block_hash_checker",
+        "block_hash_checker_ci",
         "rpc-tcp-simple",
         "tps_blast_cc",
         "test-node-recovery-gap"

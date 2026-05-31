@@ -126,7 +126,7 @@ def get_local_commit():
 
 def clean_up_orphans():
     processes_to_kill = [
-        "block_hash_checker",
+        "block_hash_checker_ci",
         "rpc-tcp-simple",
         "tps_blast_cc",
         "test-spam-xapian",
