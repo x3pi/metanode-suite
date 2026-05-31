@@ -38,12 +38,12 @@ type KeyItem struct {
 	Address    string `json:"address"`
 }
 
-func waitReceipt(client *ethclient.Client, rpcUrl string, txHash common.Hash, startEpoch uint64) (*types.Receipt, error) {
+func waitReceipt(client *ethclient.Client, rpcUrl string, txHash common.Hash, startEpoch int64) (*types.Receipt, error) {
 	timeout := time.After(1800 * time.Second)
 	for {
 		select {
 		case <-timeout:
-			if startEpoch != 0 {
+			if startEpoch >= 0 {
 				currentEpoch, errEpoch := getLatestEpoch(rpcUrl)
 				if errEpoch == nil && currentEpoch == startEpoch {
 					msg := fmt.Sprintf("🚨 Giao dịch %s bị Timeout (chờ 1800s) nhưng KHÔNG có chuyển đổi epoch! (Epoch: %d)", txHash.Hex(), startEpoch)
@@ -113,18 +113,18 @@ func checkNodesHealth(rpcUrls []string) error {
 	return nil
 }
 
-func getLatestEpoch(rpcUrl string) (uint64, error) {
+func getLatestEpoch(rpcUrl string) (int64, error) {
 	payload := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", false],"id":1}`)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "POST", rpcUrl, payload)
 	if err != nil {
-		return 0, err
+		return -1, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, err
+		return -1, err
 	}
 	defer resp.Body.Close()
 	var result struct {
@@ -133,12 +133,12 @@ func getLatestEpoch(rpcUrl string) (uint64, error) {
 		} `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 0, err
+		return -1, err
 	}
 	if result.Result.Epoch == nil {
-		return 0, fmt.Errorf("không tìm thấy trường epoch trong block")
+		return -1, fmt.Errorf("không tìm thấy trường epoch trong block")
 	}
-	return uint64(*result.Result.Epoch), nil
+	return int64(*result.Result.Epoch), nil
 }
 
 func getSystemIPInfo() string {
@@ -321,7 +321,7 @@ func main() {
 			log.Fatalf("❌ Lỗi send deploy tx: %v", err)
 		}
 		fmt.Printf("🚀 Đã gửi tx Deploy (Hash: %s). Đang đợi receipt...\n", signedTx.Hash().Hex())
-		receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash(), 0)
+		receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash(), -1)
 		if err != nil {
 			log.Fatalf("❌ Timeout khi đợi deploy receipt: %v", err)
 		}
@@ -474,7 +474,7 @@ func main() {
 			fmt.Printf("⚠️ Không thể lấy end epoch sau round %d: %v\n", round, err)
 		}
 
-		if startEpoch != 0 && endEpoch != 0 && startEpoch != endEpoch {
+		if startEpoch >= 0 && endEpoch >= 0 && startEpoch != endEpoch {
 			fmt.Printf("🔄 Phát hiện chuyển đổi Epoch (%d -> %d) trong Round %d. Giao dịch có thể bị chậm, bỏ qua cảnh báo TPS.\n", startEpoch, endEpoch, round)
 		} else {
 			if len(tpsHistory) >= 3 {
