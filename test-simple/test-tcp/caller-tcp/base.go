@@ -172,26 +172,7 @@ func runAccountState(cli *client_tcp.Client, cfg ToolConfig) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	nonce := as.Nonce()
-	balance := "0"
-	if as.Balance() != nil {
-		balance = as.Balance().String()
-	}
-	pendingBalance := "0"
-	if as.PendingBalance() != nil {
-		pendingBalance = as.PendingBalance().String()
-	}
-	lastHash := as.LastHash()
-	deviceKey := as.DeviceKey()
-
-	return fmt.Sprintf("nonce=%d | balance=%s | pending_balance=%s | last_hash=%s | device_key=%s",
-		nonce,
-		balance,
-		pendingBalance,
-		hexutil.Encode(lastHash.Bytes()),
-		hexutil.Encode(deviceKey.Bytes()),
-	), nil
+	return fmt.Sprintf("%s", as.String()), nil
 }
 
 func runGetChainID(cli *client_tcp.Client, _ ToolConfig) (string, error) {
