@@ -1,4 +1,5 @@
 //go:build ignore
+
 package main
 
 import (
@@ -159,6 +160,10 @@ func main() {
 	tx1 := types.NewTransaction(nonceDummy, contractAddr, depositAmount, 100000, gasPrice, dataDeposit)
 	signedTx1, _ := types.SignTx(tx1, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), dummyReceiverKey)
 
+	nonceDummy++
+	tx1_1 := types.NewTransaction(nonceDummy, contractAddr, depositAmount, 100000, gasPrice, dataDeposit)
+	signedTx1_1, _ := types.SignTx(tx1_1, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), dummyReceiverKey)
+
 	// Tx 2: dummyReceiver chuyển 8 coin trả lại cho Master
 	nonceDummy++
 	returnAmount := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
@@ -188,12 +193,19 @@ func main() {
 		return
 	}
 
-	fmt.Println("⏳ Đang đợi cả 3 Tx được đóng block (cùng lúc)...")
+	fmt.Println("⏳ Đang đợi cả 4 Tx được đóng block (cùng lúc)...")
 	rcpt1, err1 := waitReceipt(client, signedTx1.Hash())
 	if err1 != nil || rcpt1.Status == 0 {
 		fmt.Printf("❌ Tx 1 thất bại hoặc timeout: %v\n", err1)
 	} else {
 		fmt.Printf("✅ Tx 1 (Deposit): BlockNumber = %v, TxIndex = %v\n", rcpt1.BlockNumber, rcpt1.TransactionIndex)
+	}
+
+	rcpt1_1, err1_1 := waitReceipt(client, signedTx1_1.Hash())
+	if err1_1 != nil || rcpt1_1.Status == 0 {
+		fmt.Printf("❌ Tx 1_1 thất bại hoặc timeout: %v\n", err1_1)
+	} else {
+		fmt.Printf("✅ Tx 1_1 (Deposit): BlockNumber = %v, TxIndex = %v\n", rcpt1_1.BlockNumber, rcpt1_1.TransactionIndex)
 	}
 
 	rcpt2, err2 := waitReceipt(client, signedTx2.Hash())
