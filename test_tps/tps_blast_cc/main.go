@@ -722,7 +722,7 @@ func main() {
 		allTxs = append(allTxs, rawTx{
 			bytes:  bTx,
 			addr:   acc.Address,
-			txHash: internalTx.Hash(),
+			txHash: internalTx.ToEthTransaction().Hash(),
 			target: targetContract,
 			amount: txAmount,
 		})
@@ -1003,7 +1003,7 @@ func main() {
 				allTxs = append(allTxs, rawTx{
 					bytes:  bTx,
 					addr:   acc.Address,
-					txHash: internalTx.Hash(),
+					txHash: internalTx.ToEthTransaction().Hash(),
 					target: targetContract,
 					amount: txAmount,
 				})
@@ -1180,10 +1180,10 @@ func main() {
 			// Check epoch transition timeout
 			if !epochTransitioned && epochWait > 0 {
 				if time.Since(epochWaitStart) > time.Duration(epochWait)*time.Second {
-					errMsg := fmt.Sprintf("\n🛑 FATAL: Quá %d giây không có epoch mới! (startEpoch: %d) | Time: %s", epochWait, startEpoch, time.Now().Format("15:04:05.000"))
+					errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (startEpoch: %d) | Time: %s", epochWait, startEpoch, time.Now().Format("15:04:05.000"))
 					fmt.Println(errMsg)
 					logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
-					os.Exit(1)
+					break
 				}
 			}
 

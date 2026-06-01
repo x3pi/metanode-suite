@@ -581,7 +581,7 @@ func (t *Transaction) Hash() common.Hash {
 		AccessList:    t.proto.AccessList,
 	}
 
-	bHashPb, _ := proto.Marshal(hashPb)
+	bHashPb, _ := proto.MarshalOptions{Deterministic: true}.Marshal(hashPb)
 
 	// Tính giá trị băm
 	hash := crypto.Keccak256Hash(bHashPb)
@@ -618,7 +618,7 @@ func (t *Transaction) RHash() common.Hash {
 		AccessList:    t.proto.AccessList,
 	}
 
-	bHashPb, _ := proto.Marshal(hashPb)
+	bHashPb, _ := proto.MarshalOptions{Deterministic: true}.Marshal(hashPb)
 
 	// Tính giá trị băm
 	hash := crypto.Keccak256Hash(bHashPb)
