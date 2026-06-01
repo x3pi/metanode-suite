@@ -131,17 +131,22 @@ if (opCode == mvm::FunctionSelector::XAPIAN_GET_OR_CREATE_DB) {
 > **`registry.registerManager(mvmId, manager)`** — Đây là bước quan trọng nhất!
 > Nó liên kết `XapianManager` với `mvmId` (địa chỉ contract + txHash). Nhờ vậy, khi TX kết thúc, hệ thống biết **manager nào cần commit/revert**.
 
+> [!NOTE]
+> **FORK-SAFETY**: Đối với các thao tác read-only (ví dụ: `GET_DOCUMENT`, `GET_DATA_DOCUMENT`, v.v.), `manager` sẽ **không được đăng ký** vào Registry. Việc đăng ký sẽ làm `comprehensive_log` của manager tham gia vào quá trình tính hash của giao dịch (ảnh hưởng state hash), có thể gây ra fork giữa các node. Các thao tác ghi (Write) vẫn gọi `registerManager` bình thường.
+
 ---
 
 ## 📦 Phase 3: XapianManager — Ghi Dữ Liệu Có Versioning
 
 ### 3.1 Tạo Document Mới
 
+Trong phiên bản mới, tất cả các hàm ghi/xóa dữ liệu (`new_document`, `add_term`, `index_text`, v.v.) từ `xapian_handlers.cpp` đều truyền thêm `mvmId` xuống `XapianManager`. Điều này giúp hệ thống lưu trữ context giao dịch chính xác hơn.
+
 [new_document()](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/linker/src/xapian/xapian_manager.cpp#L252-L302):
 
 ```cpp
 // xapian_manager.cpp, line 252
-Xapian::docid XapianManager::new_document(const std::string &data, uint256_t blockNumber) {
+Xapian::docid XapianManager::new_document(const std::string &data, uint256_t blockNumber, unsigned char* mvmId) {
     touch();  // Cập nhật last_access_time (cho cleaner thread)
     std::lock_guard<std::shared_mutex> lock(changes_mutex);  // Thread-safe
 
@@ -206,13 +211,63 @@ else {
 > **Slot 254** = `deleted_at_block` — block number mà document version này bị "soft delete".  
 > Đọc dữ liệu luôn kiểm tra 2 slot này để xác định document có **active** tại block number hiện tại hay không.
 
+> [!TIP]
+> **Tối ưu hóa hiệu năng**: Lời gọi `dump_all_documents(blockNumber)` đã được **loại bỏ** khỏi tất cả các thao tác ghi (trước đây gọi sau mỗi lệnh write) nhằm khắc phục tình trạng suy giảm TPS nghiêm trọng (độ phức tạp O(N^2)).
+
 ---
 
-## 🔒 Phase 4: Transaction Commit/Revert
+## 🔀 Phase 4: Điều Phối Thực Thi Song Song (Parallel Execution) ở Tầng Go
 
-Sau khi MVM thực thi xong toàn bộ Smart Contract code, Go runtime quyết định commit hay revert.
+Trong `tx_processor.go` (hàm `processGroupsConcurrently`), các nhóm giao dịch (Groups) được thực thi **song song** trên nhiều worker (goroutines). Việc này đặt ra một bài toán lớn: làm sao để Xapian ở tầng C++ biết được thay đổi nào thuộc về giao dịch của luồng (group) nào, từ đó commit/revert chính xác mà không gây xung đột (data race) hay chia rẽ trạng thái (fork)?
 
-### 4.1 Luồng Quyết Định
+### 4.1 Sinh `mvmId` Độc Nhất (Deterministic) Cho Từng Nhóm
+
+Trước khi đưa vào Worker Pool chạy song song, tầng Go sinh ra một mã định danh `mvmId` hoàn toàn riêng biệt và deterministic cho mỗi nhóm:
+
+```go
+var ethAddressBytes [20]byte
+ethAddressBytes[0] = 0xFE  // Đảm bảo không trùng với contract address
+copy(ethAddressBytes[1:16], lastBlockHeader.LastBlockHash().Bytes()[:15])
+binary.BigEndian.PutUint32(ethAddressBytes[16:], uint32(groupID))
+mvmId := common.Address(ethAddressBytes)
+```
+
+> [!NOTE]
+> Prefix `0xFE` kết hợp với `LastBlockHash` và `GroupID` đảm bảo `mvmId` này là **duy nhất** cho mỗi nhóm và **hoàn toàn giống nhau** trên toàn bộ các node trong mạng lưới, giúp đạt chuẩn deterministic.
+
+### 4.2 Cách Ly Dữ Liệu Bằng `mvmId` (Isolation)
+
+Khi các nhóm được đưa vào thực thi song song, `mvmId` độc nhất này được truyền qua EVM xuống tận tầng C++ (các hàm ghi/xóa ở **Phase 3**).
+- **Worker A chạy Nhóm 0**: Gọi xuống Xapian kèm `mvmId_0`. Xapian sẽ log tất cả thay đổi của nhóm này vào danh sách quản lý của `mvmId_0`.
+- **Worker B chạy Nhóm 1**: Gọi xuống Xapian kèm `mvmId_1`. Xapian sẽ log tất cả thay đổi của nhóm này vào danh sách quản lý của `mvmId_1`.
+
+Nhờ cơ chế này, `XapianRegistry` phân loại minh bạch được những thay đổi nào thuộc về group nào đang chạy. Các thao tác ghi đồng thời (concurrency) không bị trộn lẫn vào nhau, bảo đảm Fork-Safety và Thread-Safety tuyệt đối cho dữ liệu.
+
+---
+
+## 🔒 Phase 5: Transaction Commit/Revert
+
+Sau khi MVM thực thi xong toàn bộ Smart Contract code, hệ thống quyết định commit hay revert dựa trên ngữ cảnh và trạng thái lỗi.
+
+### 5.1 Xử Lý Exception Tại MVM (C++)
+
+Nếu trong quá trình gọi precompile có lỗi xảy ra (ví dụ: revert từ smart contract), `MVM` (trong [processor.cpp](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/c_mvm/src/processor.cpp)) sẽ ưu tiên bắt các lỗi này và trích xuất nguyên bản `exception message` từ `returnData` của nested call thay vì dùng chuỗi lỗi mặc định:
+
+```cpp
+if (result.ex == ET::ErrExecutionReverted) {
+    // ...
+    // ✅ Ưu tiên sử dụng exception message từ returnData (từ nested call)
+    if (!ctxt->returnData.empty()) {
+        std::string original_msg(ctxt->returnData.begin(), ctxt->returnData.end());
+        result.exmsg = original_msg;
+    } else {
+        result.exmsg = ex_.what();
+    }
+}
+```
+Điều này đảm bảo thông báo lỗi (panic/revert) từ bên trong C++ (như Xapian handler) được đưa đẩy chính xác lên tầng Go, giúp việc debug giao dịch dễ dàng hơn.
+
+### 5.2 Luồng Quyết Định Commit/Revert (Tầng Go)
 
 Xem [block_processor_commit.go](file:///home/abc/nhat/con-chain-v2/metanode/execution/cmd/simple_chain/processor/block_processor_commit.go#L72-L116):
 
@@ -247,7 +302,7 @@ if job.ProcessResults != nil {
 }
 ```
 
-### 4.2 CommitFullDb() — FFI Go → C++
+### 5.3 CommitFullDb() — FFI Go → C++
 
 [mvm_api.go, line 922-931](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/mvm_api.go#L922-L931):
 
@@ -275,7 +330,7 @@ void XapianRegistry::commitTransaction(unsigned char *mvmId) {
 }
 ```
 
-### 4.3 RevertFullDb() — Hủy Tất Cả Thay Đổi
+### 5.4 RevertFullDb() — Hủy Tất Cả Thay Đổi
 
 [cancelTransaction()](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/linker/src/xapian/xapian_registry.cpp#L476-L503):
 
@@ -300,11 +355,11 @@ void XapianRegistry::cancelTransaction(unsigned char *mvmId) {
 
 ---
 
-## 🔐 Phase 5: Hash Consensus — Đảm Bảo Tất Cả Node Giống Nhau
+## 🔐 Phase 6: Hash Consensus — Đảm Bảo Tất Cả Node Giống Nhau
 
 Trước khi commit, mỗi node tính **hash của tất cả thay đổi Xapian** để so sánh với node khác:
 
-### 5.1 Tính Hash Cho Từng Manager
+### 6.1 Tính Hash Cho Từng Manager
 
 [getComprehensiveStateHash()](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/linker/src/xapian/xapian_manager.cpp#L929-L948):
 
@@ -321,7 +376,7 @@ std::array<uint8_t, 32u> XapianManager::getComprehensiveStateHash() {
 }
 ```
 
-### 5.2 Nhóm Theo Contract Address
+### 6.2 Nhóm Theo Contract Address
 
 [getGroupHashForMvmId()](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/linker/src/xapian/xapian_registry.cpp#L266-L319):
 
@@ -342,9 +397,9 @@ graph LR
 
 ---
 
-## 🧹 Phase 6: Cleanup — Dọn Dẹp Tài Nguyên
+## 🧹 Phase 7: Cleanup — Dọn Dẹp Tài Nguyên
 
-### 6.1 Cleaner Thread (Background — Mỗi 1 Phút)
+### 7.1 Cleaner Thread (Background — Mỗi 1 Phút)
 
 [xapian_manager.cpp, line 956-1008](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/linker/src/xapian/xapian_manager.cpp#L956-L1008):
 
@@ -372,7 +427,7 @@ std::thread cleaner_thread([] {
 });
 ```
 
-### 6.2 destroyInstance() — Đóng DB Tường Minh
+### 7.2 destroyInstance() — Đóng DB Tường Minh
 
 [xapian_manager.cpp, line 1144-1194](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/linker/src/xapian/xapian_manager.cpp#L1144-L1194):
 
@@ -394,7 +449,7 @@ bool XapianManager::destroyInstance(const std::string &db_path_str) {
 }
 ```
 
-### 6.3 Registry Cleanup — Sau Mỗi TX
+### 7.3 Registry Cleanup — Sau Mỗi TX
 
 [xapian_registry.cpp, line 431](file:///home/abc/nhat/con-chain-v2/metanode/execution/pkg/mvm/linker/src/xapian/xapian_registry.cpp#L394-L434):
 
@@ -432,7 +487,7 @@ sequenceDiagram
     
     loop For each product (x3)
         EVM->>FFI: FullDatabase(XAPIAN_NEW_DOCUMENT)
-        FFI->>XM: new_document(rawData, blockNumber)
+        FFI->>XM: new_document(rawData, blockNumber, mvmId)
         XM->>XDB: begin_transaction() (chỉ lần đầu)
         XM->>XDB: add_document(doc) → docid
         XM->>XM: comprehensive_log.push_back(NEW_DOC)
