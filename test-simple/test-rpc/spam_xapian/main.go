@@ -83,9 +83,10 @@ func fetchNonceWithRetry(client *ethclient.Client, addr common.Address, expected
 }
 
 type Wallet struct {
-	Address common.Address
-	PrivKey *ecdsa.PrivateKey
-	Nonce   uint64
+	Address        common.Address
+	PrivKey        *ecdsa.PrivateKey
+	Nonce          uint64
+	TargetContract common.Address
 }
 
 func checkNodesHealth(rpcUrls []string) error {
@@ -194,8 +195,8 @@ func sendTelegramAlert(message string, testName string) {
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	payload := map[string]string{
-		"chat_id": chatID,
-		"text":    fullMessage,
+		"chat_id":    chatID,
+		"text":       fullMessage,
 		"parse_mode": "Markdown",
 	}
 	body, _ := json.Marshal(payload)
@@ -214,11 +215,12 @@ func main() {
 	configPath := flag.String("config", "../config-local.json", "Path to config JSON")
 	keysPath := flag.String("keys", "../../../test_tps/gen_spam_keys/generated_keys.json", "Path to generated keys JSON")
 	abiPath := flag.String("abi", "../test_read_wire_xapian/abi/xapian.json", "Path to contract ABI JSON")
-	contractAddrStr := flag.String("contract", "", "Contract address (REQUIRED if not deploying)")
+	contractAddrStr := flag.String("contract", "", "Contract address(es) separated by comma (REQUIRED if not deploying)")
 	deployJsonPath := flag.String("deploy-json", "", "Path to JSON data file containing deploy action")
 	methodName := flag.String("method", "runStep1_Setup", "Method name to call (e.g., runStep1_Setup, runStep3_UpdateDoc)")
 	numWallets := flag.Int("wallets", 1000, "Number of wallets to use for spamming")
 	maxRounds := flag.Int("rounds", 2000, "Maximum number of rounds to execute")
+	numContracts := flag.Int("num-contracts", 1, "Number of contracts to deploy/use (wallets will share them round-robin)")
 
 	flag.Parse()
 
@@ -273,9 +275,13 @@ func main() {
 	}
 	fmt.Printf("✅ Đã nạp %d ví sẵn sàng spam\n", len(wallets))
 
-	var contractAddr common.Address
+	var allTargetContracts []common.Address
+
 	if *contractAddrStr != "" {
-		contractAddr = common.HexToAddress(*contractAddrStr)
+		addrs := strings.Split(*contractAddrStr, ",")
+		for _, addrStr := range addrs {
+			allTargetContracts = append(allTargetContracts, common.HexToAddress(strings.TrimSpace(addrStr)))
+		}
 	} else {
 		// Tự động deploy
 		fmt.Printf("⏳ Chế độ Tự Deploy kích hoạt (File: %s)...\n", *deployJsonPath)
@@ -300,37 +306,102 @@ func main() {
 			log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
 		}
 
-		deployer := wallets[0]
-		gasPrice, _ := client.SuggestGasPrice(context.Background())
-		gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
-			From:     deployer.Address,
-			GasPrice: gasPrice,
-			Data:     bytecode,
-		})
-		if err != nil {
-			gasLimit = 3000000
+		if *numContracts > 1 {
+			actualNum := *numContracts
+			if actualNum > len(wallets) {
+				actualNum = len(wallets)
+			}
+			fmt.Printf("⏳ Chế độ Tự Deploy %d Contracts kích hoạt...\n", actualNum)
+			deployer := wallets[0]
+			gasPrice, _ := client.SuggestGasPrice(context.Background())
+			gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
+				From:     deployer.Address,
+				GasPrice: gasPrice,
+				Data:     bytecode,
+			})
+			if err != nil {
+				gasLimit = 3000000
+			} else {
+				gasLimit += 50000
+			}
+
+			var wgDeploy sync.WaitGroup
+			var failDeploy uint32
+			deployedContracts := make([]common.Address, actualNum)
+
+			for i := 0; i < actualNum; i++ {
+				wgDeploy.Add(1)
+				go func(wallet *Wallet, index int) {
+					defer wgDeploy.Done()
+					tx := types.NewContractCreation(wallet.Nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
+					signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), wallet.PrivKey)
+					if err != nil {
+						fmt.Printf("❌ Lỗi sign deploy tx ví %d: %v\n", index, err)
+						atomic.AddUint32(&failDeploy, 1)
+						return
+					}
+					if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+						fmt.Printf("❌ Lỗi send deploy tx ví %d: %v\n", index, err)
+						atomic.AddUint32(&failDeploy, 1)
+						return
+					}
+					receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash(), -1)
+					if err != nil {
+						fmt.Printf("❌ Timeout khi đợi deploy receipt ví %d: %v\n", index, err)
+						atomic.AddUint32(&failDeploy, 1)
+						return
+					}
+					if receipt.Status != 1 {
+						fmt.Printf("❌ Transaction deploy ví %d bị REVERT!\n", index)
+						atomic.AddUint32(&failDeploy, 1)
+						return
+					}
+					wallet.Nonce++
+					deployedContracts[index] = receipt.ContractAddress
+					fmt.Printf("✅ Ví %d đã deploy thành công! Contract: %s\n", index, receipt.ContractAddress.Hex())
+				}(wallets[i], i)
+			}
+			wgDeploy.Wait()
+
+			if failDeploy > 0 {
+				log.Fatalf("❌ Có %d contract deploy thất bại. DỪNG KHẨN CẤP!", failDeploy)
+			}
+			fmt.Printf("✅ Đã deploy thành công %d contracts!\n", actualNum)
+
+			allTargetContracts = deployedContracts
 		} else {
-			gasLimit += 50000
+			deployer := wallets[0]
+			gasPrice, _ := client.SuggestGasPrice(context.Background())
+			gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
+				From:     deployer.Address,
+				GasPrice: gasPrice,
+				Data:     bytecode,
+			})
+			if err != nil {
+				gasLimit = 3000000
+			} else {
+				gasLimit += 50000
+			}
+			tx := types.NewContractCreation(deployer.Nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
+			signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), deployer.PrivKey)
+			if err != nil {
+				log.Fatalf("❌ Lỗi sign deploy tx: %v", err)
+			}
+			if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+				log.Fatalf("❌ Lỗi send deploy tx: %v", err)
+			}
+			fmt.Printf("🚀 Đã gửi tx Deploy (Hash: %s). Đang đợi receipt...\n", signedTx.Hash().Hex())
+			receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash(), -1)
+			if err != nil {
+				log.Fatalf("❌ Timeout khi đợi deploy receipt: %v", err)
+			}
+			if receipt.Status != 1 {
+				log.Fatalf("❌ Transaction deploy bị REVERT!")
+			}
+			deployer.Nonce++
+			allTargetContracts = []common.Address{receipt.ContractAddress}
+			fmt.Printf("✅ Đã deploy thành công! Mới tạo Contract: %s (Gas used: %d)\n", receipt.ContractAddress.Hex(), receipt.GasUsed)
 		}
-		tx := types.NewContractCreation(deployer.Nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
-		signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), deployer.PrivKey)
-		if err != nil {
-			log.Fatalf("❌ Lỗi sign deploy tx: %v", err)
-		}
-		if err := client.SendTransaction(context.Background(), signedTx); err != nil {
-			log.Fatalf("❌ Lỗi send deploy tx: %v", err)
-		}
-		fmt.Printf("🚀 Đã gửi tx Deploy (Hash: %s). Đang đợi receipt...\n", signedTx.Hash().Hex())
-		receipt, err := waitReceipt(client, cfg.RPCUrl, signedTx.Hash(), -1)
-		if err != nil {
-			log.Fatalf("❌ Timeout khi đợi deploy receipt: %v", err)
-		}
-		if receipt.Status != 1 {
-			log.Fatalf("❌ Transaction deploy bị REVERT!")
-		}
-		deployer.Nonce++
-		contractAddr = receipt.ContractAddress
-		fmt.Printf("✅ Đã deploy thành công! Mới tạo Contract: %s (Gas used: %d)\n", contractAddr.Hex(), receipt.GasUsed)
 	}
 
 	rawAbi, err := os.ReadFile(*abiPath)
@@ -350,13 +421,28 @@ func main() {
 
 	fmt.Println("\n🚀 BẮT ĐẦU SPAM XAPIAN LIÊN TỤC (Bấm Ctrl+C để dừng)")
 	fmt.Printf("   Method: %s\n", *methodName)
-	fmt.Printf("   Contract: %s\n", contractAddr.Hex())
+	if *contractAddrStr != "" {
+		fmt.Printf("   Contracts: Được cung cấp qua tham số (Chia đều cho %d ví)\n", len(wallets))
+	} else {
+		if *numContracts > 1 {
+			fmt.Printf("   Contracts: %d Contracts (Chia đều %d ví, mỗi contract có %d ví gọi)\n", *numContracts, len(wallets), len(wallets) / *numContracts)
+		} else {
+			fmt.Printf("   Contract: %s\n", allTargetContracts[0].Hex())
+		}
+	}
+	fmt.Printf("   Tính năng: Đảo contract (xoay vòng Target Contract) mỗi khi qua Round mới!\n")
 	fmt.Printf("   Chế độ: Đợi Receipt xong là gửi round tiếp theo KHÔNG NGỦ\n")
 	fmt.Println("--------------------------------------------------")
 
 	var tpsHistory []float64
 
 	for round := 1; round <= *maxRounds; round++ {
+
+		if len(allTargetContracts) > 0 {
+			for i, w := range wallets {
+				w.TargetContract = allTargetContracts[(i+round)%len(allTargetContracts)]
+			}
+		}
 
 		if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
 			fmt.Println("\n🛑 PHÁT HIỆN CỜ LỖI (/tmp/MTN_CHAIN_ERROR_STOP) TỪ BLOCK CHECKER! DỪNG SPAM KHẨN CẤP!")
@@ -405,7 +491,7 @@ func main() {
 
 				gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
 					From:     wallet.Address,
-					To:       &contractAddr,
+					To:       &wallet.TargetContract,
 					GasPrice: gasPrice,
 					Data:     callData,
 				})
@@ -415,7 +501,7 @@ func main() {
 					gasLimit += 20_000
 				}
 
-				tx := types.NewTransaction(nonce, contractAddr, big.NewInt(0), gasLimit, gasPrice, callData)
+				tx := types.NewTransaction(nonce, wallet.TargetContract, big.NewInt(0), gasLimit, gasPrice, callData)
 				signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), wallet.PrivKey)
 				if err != nil {
 					atomic.AddUint32(&failCount, 1)

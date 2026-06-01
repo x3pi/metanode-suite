@@ -42,7 +42,8 @@ go run main.go \
     -config="config-local.json" \
     -deploy-json="../test_read_wire_xapian/data-xapian-v2.json" \
     -method="runStep1_Setup" \
-    -wallets=1000 || {
+    -wallets=2000 \
+    --num-contracts=200|| {
     if [ ! -s /tmp/MTN_CHAIN_ERROR_STOP ]; then
         echo "Lỗi Spam Xapian!" > /tmp/MTN_CHAIN_ERROR_STOP
     fi
