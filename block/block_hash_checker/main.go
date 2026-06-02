@@ -232,6 +232,7 @@ type mismatch struct {
 
 func main() {
 	nodesFlag := flag.String("nodes", "", `Danh sách node, format: "name=url,name2=url2"`)
+	configFlag := flag.String("config", "config.json", "Đường dẫn file cấu hình JSON")
 	fromBlock := flag.Uint64("from", 1, "Block bắt đầu kiểm tra")
 	toBlock := flag.Uint64("to", 0, "Block kết thúc (0 = lấy block mới nhất)")
 	batchSize := flag.Int("batch", 50, "Số block kiểm tra song song mỗi lần")
@@ -246,7 +247,7 @@ func main() {
 	noStopFlag = *noStop
 
 	if *nodesFlag == "" {
-		configData, err := os.ReadFile("config.json")
+		configData, err := os.ReadFile(*configFlag)
 		if err == nil {
 			var config struct {
 				NodesRaw json.RawMessage `json:"nodes"`
@@ -271,13 +272,13 @@ func main() {
 					}
 				}
 				if *nodesFlag != "" {
-					fmt.Printf("📂 Load nodes từ config.json (%d nodes)\n", len(strings.Split(*nodesFlag, ",")))
+					fmt.Printf("📂 Load nodes từ %s (%d nodes)\n", *configFlag, len(strings.Split(*nodesFlag, ",")))
 				}
 			}
 		}
 
 		if *nodesFlag == "" {
-			fmt.Println("❌ Thiếu --nodes flag và không tìm thấy cấu hình hợp lệ trong config.json")
+			fmt.Printf("❌ Thiếu --nodes flag và không tìm thấy cấu hình hợp lệ trong %s\n", *configFlag)
 			fmt.Println()
 			fmt.Println("Cách dùng:")
 			fmt.Println(`  # Quét 1 lần:`)

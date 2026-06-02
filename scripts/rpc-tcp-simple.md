@@ -36,6 +36,7 @@ Bạn có thể dùng cờ `--node` để script tự động thiết lập đú
 # Test Node 2 (RPC :8548 và TCP :6211)
 ./rpc-tcp-simple.sh --node 2
 ./rpc-tcp-simple.sh --node 1
+./rpc-tcp-simple.sh --node 0
 
 # Test Node 4 (RPC :8550 và TCP :6241)
 ./rpc-tcp-simple.sh --node 4

@@ -25,7 +25,7 @@ RPC_CLIENT_DIR="$METANODE_DIR/execution/cmd/rpc/cmd/rpc-client"
 # Cấu hình danh sách các bước cụ thể để chạy (mặc định = chạy tất cả)
 STEPS_TO_RUN=""
 # Cấu hình chế độ deploy (mặc định là single)
-DEPLOY_MODE="single"
+export DEPLOY_MODE="single"
 BATCH_SIZE=""
 
 # Nhận tham số truyền vào từ command line (VD: ./auto_test.sh --steps "2,4,5" --mode multi)
@@ -184,87 +184,25 @@ if should_run 2; then
         run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
     else
         cd "$METANODE_SCRIPT_DIR"
-        run_and_capture "Deploy Cluster Single (Bước 2)" ./deploy_cluster.sh --env deploy-3machines.env --all
+        run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_cluster.sh --env deploy-3nodes.env --all
     fi
 
     # Đợi 1 chút để các HTTP server start up hoàn toàn
     sleep 5
 fi
 
-# ----------------------------------------------------
-# BƯỚC 2.5: Bật RPC Proxy
-# ----------------------------------------------------
-if should_run 2; then
-    echo ""
-    echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node..."
-    cd "$RPC_CLIENT_DIR"
-    
-    # Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
-    echo "  -> Khởi tạo lại TLS cert/key..."
-    rm -f certificate.pem private.key certificate.csr
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
 
-    # Dọn dẹp session và tiến trình cũ nếu có
-    tmux kill-session -t rpc-proxy 2>/dev/null || true
-    pkill -f "go run main.go --config config-rpc-node" || true
-    pkill -f "exe/main --config config-rpc-node" || true
-
-    # Khởi động từng RPC Proxy cho 5 node
-    declare -A NODE_PORTS=( [0]=8545 [1]=8547 [2]=8548 [3]=8549 [4]=8550 )
-
-    for node_id in 0 1 2 3 4; do
-        port=${NODE_PORTS[$node_id]}
-        echo "  -> Đang kiểm tra RPC Proxy Node $node_id ở port $port..."
-        if ! curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
-            echo "     -> RPC Proxy Node $node_id chưa bật, đang khởi động..."
-            tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
-            pkill -f "config-rpc-node$node_id.json" || true
-            tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
-            
-            # Đợi khởi động (tối đa 50s để tránh lỗi timeout do biên dịch 'go run')
-            for i in {1..50}; do
-                if curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
-                    break
-                fi
-                sleep 1
-            done
-            
-            # Kiểm tra lại xem đã lên chưa
-            if ! curl -s http://127.0.0.1:$port -m 2 > /dev/null; then
-                echo "     ❌ Khởi động RPC Proxy Node $node_id thất bại!"
-                echo "     📄 Tmux Pane Output:"
-                echo "--------------------------------------------------"
-                tmux capture-pane -p -t rpc-proxy-$node_id || echo "Cannot capture tmux pane"
-                echo "--------------------------------------------------"
-                
-                # Tìm file log mới nhất trong node{node_id}_data/logs
-                LATEST_LOG=$(find "$RPC_CLIENT_DIR" -maxdepth 3 -path "*/node${node_id}_data/logs/*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
-                if [ -n "$LATEST_LOG" ]; then
-                    echo "     📄 File log: $LATEST_LOG"
-                    echo "--------------------------------------------------"
-                    tail -n 30 "$LATEST_LOG"
-                    echo "--------------------------------------------------"
-                else
-                    echo "     ⚠️ Không tìm thấy file log nào trong $RPC_CLIENT_DIR/node${node_id}_data/logs/"
-                fi
-                exit 1
-            else
-                echo "     ✅ RPC Proxy Node $node_id đã khởi động thành công ở port $port."
-            fi
-        else
-            echo "     ✅ RPC Proxy Node $node_id đã hoạt động ở port $port."
-        fi
-    done
-fi
-
-# ----------------------------------------------------
 # BẬT GIÁM SÁT LỆCH HASH & LỊCH SỬ STATE (CHẠY NGẦM)
 # ----------------------------------------------------
 echo ""
 echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
 (
     cd "$TOOL_TEST_DIR/block/block_hash_checker"
-    go run main.go --watch --interval 200ms > block_hash_checker_auto.log 2>&1
+    if [ "$DEPLOY_MODE" == "single" ]; then
+        go run main.go --watch --interval 200ms > block_hash_checker_auto.log 2>&1
+    else
+        go run main.go --watch --interval 5s --config config-3nodes.json > block_hash_checker_auto.log 2>&1
+    fi
     if grep -q "bị lệch hash" block_hash_checker_auto.log; then
         echo -e "\n\n🚨 Phân tích từ log: Phát hiện blocks bị lệch hash!"
         echo -e "🚨🚨🚨 PHÁT HIỆN LỆCH HASH! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
@@ -349,7 +287,7 @@ if should_run 8; then
     if [ "$DEPLOY_MODE" == "single" ]; then
         run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
     else
-        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch="${BATCH_SIZE:-500}" --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
     fi
 fi
 

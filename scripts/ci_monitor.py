@@ -66,7 +66,6 @@ def get_server_ip_info():
 
 
 def send_telegram_message(message):
-
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = urllib.parse.urlencode({
@@ -75,8 +74,21 @@ def send_telegram_message(message):
             'parse_mode': 'Markdown'
         }).encode('utf-8')
         req = urllib.request.Request(url, data=data)
-        with urllib.request.urlopen(req) as response:
-            pass
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                pass
+        except Exception as e:
+            if getattr(e, 'code', None) == 400:
+                # Fallback to plain text
+                data_plain = urllib.parse.urlencode({
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': message.replace('```', '')  # Loại bỏ backtick ảo nếu bị fallback
+                }).encode('utf-8')
+                req_plain = urllib.request.Request(url, data=data_plain)
+                with urllib.request.urlopen(req_plain, timeout=10) as response_plain:
+                    pass
+            else:
+                raise e
     except Exception as e:
         print(f"[{datetime.datetime.now()}] ⚠️ Error sending telegram message: {e}")
 
