@@ -30,7 +30,7 @@ type Config struct {
 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	fmt.Printf("Đang chờ receipt cho tx %s...\n", txHash.Hex())
-	timeout := time.After(60 * time.Second)
+	timeout := time.After(30 * time.Second)
 	for {
 		select {
 		case <-timeout:
@@ -133,16 +133,16 @@ func main() {
 	}
 	dummyReceiverAddr := crypto.PubkeyToAddress(dummyReceiverKey.PublicKey)
 
-	// 4. Master chuyển 10 coin cho dummyReceiver
-	fmt.Println("\n🚀 [4] Master chuyển 10 coin cho dummyReceiver...")
+	// 4. Master chuyển 20 coin cho dummyReceiver
+	fmt.Println("\n🚀 [4] Master chuyển 20 coin cho dummyReceiver...")
 	nonceMaster, _ = client.PendingNonceAt(context.Background(), masterAddr)
-	transferAmount := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
-	transferAmount.Mul(transferAmount, big.NewInt(10)) // 10 coin
-	txTransfer := types.NewTransaction(nonceMaster, dummyReceiverAddr, transferAmount, 21000, gasPrice, nil)
+	amountTransfer := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	amountTransfer.Mul(amountTransfer, big.NewInt(20)) // 20 coin
+	txTransfer := types.NewTransaction(nonceMaster, dummyReceiverAddr, amountTransfer, 21000, gasPrice, nil)
 	signedTxTransfer, _ := types.SignTx(txTransfer, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), masterKey)
 	err = client.SendTransaction(context.Background(), signedTxTransfer)
 	if err != nil {
-		log.Fatalf("❌ Lỗi chuyển 10 coin: %v", err)
+		log.Fatalf("❌ Lỗi chuyển 20 coin: %v", err)
 	}
 	waitReceipt(client, signedTxTransfer.Hash())
 
@@ -184,6 +184,11 @@ func main() {
 		fmt.Printf("❌ Lỗi khi gửi Tx 1: %v\n", err)
 		return
 	}
+	if err := client.SendTransaction(context.Background(), signedTx1_1); err != nil {
+		fmt.Printf("❌ Lỗi khi gửi Tx 1_1: %v\n", err)
+		return
+	}
+
 	if err := client.SendTransaction(context.Background(), signedTx2); err != nil {
 		fmt.Printf("❌ Lỗi khi gửi Tx 2: %v\n", err)
 		return
