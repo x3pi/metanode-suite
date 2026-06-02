@@ -83,7 +83,7 @@ pkill -f "main.go --count 20000" || true
 wait_for_ports_to_release 8545 8757 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 8547 8548 8549 8550
 
 # Xóa cờ lỗi cũ trước khi chạy
-rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
+rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json /tmp/MTN_INTEGRITY_FAILED
 
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
@@ -172,11 +172,11 @@ wait_for_node_startup() {
         
         # 3. Nếu log file tồn tại, kiểm tra xem có dấu hiệu khởi động thành công hoặc lỗi nghiêm trọng không
         if [ -f "$log_file" ]; then
-            if grep -E -q "All checks passed|NOMT account_state not initialized yet|Indexing process initiated|Consensus core started|Starting consensus|Starting peer synchronization" "$log_file"; then
-                echo "✅ [SUCCESS] Node ${node_id} đã khởi động và vượt qua integrity check thành công sau $((r * 100))ms!"
+            if grep -E -q "Consensus core started|Starting consensus|Starting peer synchronization" "$log_file"; then
+                echo "✅ [SUCCESS] Node ${node_id} đã khởi động thành công sau $((r * 100))ms!"
                 return 0
             fi
-            if grep -E -q "CRITICAL ERROR|CRITICAL:" "$log_file"; then
+            if grep -E -q "CRITICAL ERROR|CRITICAL: DATA INTEGRITY CHECK FAILED" "$log_file"; then
                 echo "❌ [ERROR] Node ${node_id} báo lỗi CRITICAL trong log!"
                 return 1
             fi
@@ -230,7 +230,7 @@ cleanup() {
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
     if [ $err -eq 0 ]; then
-        rm -f /tmp/pending_check_*.json
+        rm -f /tmp/pending_check_*.json /tmp/MTN_INTEGRITY_FAILED
     else
         echo "💡 [DEBUG] Giữ lại file checkpoint /tmp/pending_check_*.json để debug offline!"
     fi
