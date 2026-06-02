@@ -290,8 +290,8 @@ def main():
                                     lines = f.readlines()
                                     tail_logs = "".join(lines[-50:])
                                     # Giới hạn số lượng ký tự để không vượt quá giới hạn của Telegram
-                                    if len(tail_logs) > 3800:
-                                        tail_logs = tail_logs[-3800:]
+                                    if len(tail_logs) > 3000:
+                                        tail_logs = tail_logs[-3000:]
                         except Exception as e:
                             print(f"Lỗi đọc log: {e}")
 

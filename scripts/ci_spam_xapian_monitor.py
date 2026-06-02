@@ -253,8 +253,8 @@ def main():
                         if os.path.exists(log_file):
                             with open(log_file, "r", errors="replace") as f:
                                 tail_logs = "".join(f.readlines()[-50:])
-                                if len(tail_logs) > 3800:
-                                    tail_logs = tail_logs[-3800:]
+                                if len(tail_logs) > 3000:
+                                    tail_logs = tail_logs[-3000:]
 
                         err_details = ""
                         if os.path.exists("/tmp/MTN_CHAIN_ERROR_STOP"):
