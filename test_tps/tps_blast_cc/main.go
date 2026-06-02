@@ -292,8 +292,8 @@ func sendTelegramAlert(message string, testName string) {
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	payload := map[string]string{
-		"chat_id": chatID,
-		"text":    fullMessage,
+		"chat_id":    chatID,
+		"text":       fullMessage,
 		"parse_mode": "Markdown",
 	}
 	body, _ := json.Marshal(payload)

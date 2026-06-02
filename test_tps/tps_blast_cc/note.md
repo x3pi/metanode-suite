@@ -37,6 +37,10 @@ Từ phiên bản nâng cấp, công cụ hỗ trợ cơ chế định tuyến v
 ### 1. Chỉ định bắn giao dịch vào Node 2:
 ```bash
 go run main.go --count 5000 --target-node 2
+
+
+
+go run main.go --count 20000 --parallel_native=true --rounds 20 --load_balance=false --batch=500 --amount 1
 ```
 
 ### 2. Chạy tải song song với cơ chế Epoch Wait (Mặc định 10 phút / 600 giây):
