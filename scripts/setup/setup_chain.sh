@@ -155,3 +155,83 @@ wait_for_nodes_http() {
 }
 wait_for_nodes_http
 
+# ----------------------------------------------------
+# BƯỚC 2.5: Bật RPC Proxy (Cả 5 node - Chỉ chạy trên local)
+# ----------------------------------------------------
+if [ "$DEPLOY_MODE" == "single" ]; then
+    echo ""
+    echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node (Local mode)..."
+    cd "$RPC_CLIENT_DIR"
+
+# Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
+echo "  -> Khởi tạo lại TLS cert/key..."
+rm -f certificate.pem private.key certificate.csr
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
+
+# Dọn dẹp session và tiến trình cũ nếu có
+tmux kill-session -t rpc-proxy 2>/dev/null || true
+pkill -f "go run main.go --config config-rpc-node" || true
+pkill -f "exe/main --config config-rpc-node" || true
+pkill -f "rpc-client-bin --config config-rpc-node" || true
+
+# Biên dịch rpc-client trước khi chạy các node để tránh compile nhiều lần bằng go run
+echo "  -> Đang build rpc-client binary..."
+rm -f rpc-client-bin
+go build -o rpc-client-bin .
+
+# Khởi động từng RPC Proxy cho 5 node
+declare -A NODE_PORTS=( [0]=8545 [1]=8547 [2]=8548 [3]=8549 [4]=8550 )
+
+for node_id in 0 1 2 3 4; do
+    port=${NODE_PORTS[$node_id]}
+    echo "  -> Đang kiểm tra RPC Proxy Node $node_id ở port $port..."
+    
+    # LUÔN LUÔN tắt session cũ để build lại và chạy code mới nhất
+    echo "     -> Đang khởi động lại RPC Proxy Node $node_id ở port $port..."
+    tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
+    pkill -f "config-rpc-node$node_id.json" || true
+    
+    # Đợi cổng giải phóng hoàn toàn
+    for i in {1..30}; do
+        if ! curl -s http://127.0.0.1:$port -m 1 >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.2
+    done
+    
+    tmux new-session -d -s rpc-proxy-$node_id "./rpc-client-bin --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
+    
+    # Đợi khởi động (thăm dò nhanh 200ms mỗi lần, tối đa 50s để tránh lỗi timeout do biên dịch 'go run')
+    for i in {1..250}; do
+        if curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
+            break
+        fi
+        sleep 0.2
+    done
+
+    if ! curl -s http://127.0.0.1:$port -m 2 > /dev/null; then
+        echo "     ❌ Khởi động RPC Proxy Node $node_id thất bại!"
+        echo "     📄 Tmux Pane Output:"
+        echo "--------------------------------------------------"
+        tmux capture-pane -p -t rpc-proxy-$node_id || echo "Cannot capture tmux pane"
+        echo "--------------------------------------------------"
+        
+        # Tìm file log mới nhất trong node{node_id}_data/logs
+        LATEST_LOG=$(find "$RPC_CLIENT_DIR" -maxdepth 3 -path "*/node${node_id}_data/logs/*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
+        if [ -n "$LATEST_LOG" ]; then
+            echo "     📄 File log: $LATEST_LOG"
+            echo "--------------------------------------------------"
+            tail -n 30 "$LATEST_LOG"
+            echo "--------------------------------------------------"
+        else
+            echo "     ⚠️ Không tìm thấy file log nào trong $RPC_CLIENT_DIR/node${node_id}_data/logs/"
+        fi
+        exit 1
+    else
+        echo "     ✅ RPC Proxy Node $node_id đã khởi động thành công."
+    fi
+done
+else
+    echo ""
+    echo "📌 BƯỚC 2.5: Bỏ qua khởi động RPC Proxy local (Multi mode - RPC đã được bật trên các node từ xa)"
+fi
