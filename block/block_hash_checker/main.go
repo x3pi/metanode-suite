@@ -240,7 +240,7 @@ func main() {
 	watchMode := flag.Bool("watch", true, "Chế độ giám sát liên tục — kiểm tra block mới nhất định kỳ")
 	watchInterval := flag.Duration("interval", 2*time.Second, "Khoảng thời gian giữa mỗi lần check (watch mode)")
 	lagThreshold := flag.Int("lag-threshold", 1000, "Ngưỡng chênh lệch block để kích hoạt cảnh báo NODE_LAGGING (0 = disable)")
-	noStop := flag.Bool("no-stop-flag", true, "Không ghi /tmp/MTN_CHAIN_ERROR_STOP và không os.Exit khi phát hiện lệch hash (chỉ log, không báo Telegram/CI)")
+	noStop := flag.Bool("no-stop-flag", false, "Không ghi /tmp/MTN_CHAIN_ERROR_STOP và không os.Exit khi phát hiện lệch hash (chỉ log, không báo Telegram/CI)")
 	flag.Parse()
 
 	// Apply global flag
