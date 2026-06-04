@@ -22,9 +22,11 @@ type BlastResult struct {
 }
 
 type BenchmarkResult struct {
-	Batch  int
-	AvgTPS float64
-	MaxTPS float64
+	Batch    int
+	AvgTPS   float64
+	MaxTPS   float64
+	MinTPS   float64
+	RoundTPS []float64
 }
 
 func logToFile(filename string, message string) {
@@ -112,21 +114,27 @@ func main() {
 
 		var sum float64
 		var max float64
+		var min float64 = -1
 		for _, tps := range bResult.RoundTPS {
 			sum += tps
 			if tps > max {
 				max = tps
 			}
+			if min == -1 || tps < min {
+				min = tps
+			}
 		}
 		avg := sum / float64(len(bResult.RoundTPS))
 
 		results = append(results, BenchmarkResult{
-			Batch:  batch,
-			AvgTPS: avg,
-			MaxTPS: max,
+			Batch:    batch,
+			AvgTPS:   avg,
+			MaxTPS:   max,
+			MinTPS:   min,
+			RoundTPS: bResult.RoundTPS,
 		})
 
-		successMsg := fmt.Sprintf("✅ [%s] BATCH %d HOÀN TẤT! Avg TPS: %.0f, Max TPS: %.0f", time.Now().Format("15:04:05"), batch, avg, max)
+		successMsg := fmt.Sprintf("✅ [%s] BATCH %d HOÀN TẤT! Avg TPS: %.0f, Max TPS: %.0f, Min TPS: %.0f\n   👉 Chi tiết các round: %v", time.Now().Format("15:04:05"), batch, avg, max, min, bResult.RoundTPS)
 		fmt.Println(successMsg)
 		logToFile(logFile, successMsg)
 	}
@@ -137,15 +145,19 @@ func main() {
 	})
 
 	// Generate summary string
-	summary := "\n╔═════════════════════════════════════════════════════════╗\n"
-	summary += "║  🏆 KẾT QUẢ SO SÁNH BATCH SIZE (TPS TỪ CAO XUỐNG THẤP)  ║\n"
-	summary += "╠═════════════════════════════════════════════════════════╣\n"
-	summary += fmt.Sprintf("║ %-10s | %-20s | %-20s ║\n", "Batch Size", "Avg TPS", "Max TPS")
-	summary += "║ ───────────┼──────────────────────┼──────────────────────║\n"
+	summary := "\n╔══════════════════════════════════════════════════════════════════════════════════════════╗\n"
+	summary += "║                   🏆 KẾT QUẢ SO SÁNH BATCH SIZE (TPS TỪ CAO XUỐNG THẤP)                  ║\n"
+	summary += "╠══════════════════════════════════════════════════════════════════════════════════════════╣\n"
+	summary += fmt.Sprintf("║ %-10s | %-12s | %-12s | %-12s | %-32s ║\n", "Batch Size", "Avg TPS", "Max TPS", "Min TPS", "Round TPS")
+	summary += "║ ───────────┼──────────────┼──────────────┼──────────────┼──────────────────────────────────║\n"
 	for _, res := range results {
-		summary += fmt.Sprintf("║ %-10d | %-20.0f | %-20.0f ║\n", res.Batch, res.AvgTPS, res.MaxTPS)
+		roundsStr := fmt.Sprintf("%v", res.RoundTPS)
+		if len(roundsStr) > 32 {
+			roundsStr = roundsStr[:29] + "..."
+		}
+		summary += fmt.Sprintf("║ %-10d | %-12.0f | %-12.0f | %-12.0f | %-32s ║\n", res.Batch, res.AvgTPS, res.MaxTPS, res.MinTPS, roundsStr)
 	}
-	summary += "╚═════════════════════════════════════════════════════════╝\n"
+	summary += "╚══════════════════════════════════════════════════════════════════════════════════════════╝\n"
 
 	if len(results) > 0 {
 		summary += fmt.Sprintf("\n💡 TỐI ƯU NHẤT: Chọn batch = %d (Avg TPS cao nhất: %.0f tx/s)\n", results[0].Batch, results[0].AvgTPS)

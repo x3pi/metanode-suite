@@ -1,5 +1,5 @@
 {
-  "batches": [100, 200, 300, 400],
+  "batches": [300, 200, 400, 100],
   "count": 20000,
   "rounds": 5,
   "parallel_native": true,
