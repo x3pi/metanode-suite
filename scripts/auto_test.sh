@@ -184,7 +184,7 @@ if should_run 2; then
         run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
     else
         cd "$METANODE_SCRIPT_DIR"
-        run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_cluster.sh --env deploy-3nodes.env --all
+        run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_systemd_cluster.sh --env deploy-3nodes.env --all
     fi
 
     # Đợi 1 chút để các HTTP server start up hoàn toàn
