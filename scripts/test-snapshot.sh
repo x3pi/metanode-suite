@@ -17,6 +17,7 @@ usage() {
     echo "  --tps-rounds <num>  Số round chạy TPS blast mỗi vòng (mặc định: $TPS_ROUNDS)"
     echo "  --tps-count <num>   Số lượng giao dịch TPS mỗi round (mặc định: $TPS_COUNT)"
     echo "  --target-node <num> Cố định test trên 1 Node (vd: 2). Nếu không có, tự động xoay vòng."
+    echo "  --mode <single|multi> Chế độ deploy (mặc định: single)"
     echo "  -h, --help          Hiển thị trợ giúp này"
     echo ""
     echo "Ví dụ:"
@@ -32,6 +33,7 @@ while [[ "$#" -gt 0 ]]; do
         --tps-rounds) TPS_ROUNDS="$2"; shift ;;
         --tps-count) TPS_COUNT="$2"; shift ;;
         --target-node) TARGET_NODE="$2"; shift ;;
+        --mode) export DEPLOY_MODE="$2"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "❌ Tham số không hợp lệ: $1"; usage; exit 1 ;;
     esac
@@ -78,13 +80,13 @@ monitor_error_flag &
 MONITOR_PID=$!
 
 # Xử lý tín hiệu Ctrl+C (SIGINT) để kill sạch các tiến trình chạy ngầm
-trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; rm -f /tmp/pending_check_*.json; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
+trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; rm -f /tmp/pending_check_*.json /tmp/MTN_EXCLUDE_NODES; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
 
 echo "====================================================================="
 echo "🚀 BƯỚC 0: CHẠY SIMPLE TEST ĐỂ KHỞI TẠO VÀ TEST MẠNG CƠ BẢN"
 echo "====================================================================="
 cd "$SCRIPTS_DIR" || exit 1
-./simple_test.sh
+./simple_test.sh --mode "${DEPLOY_MODE:-single}"
 SIMPLE_EXIT=$?
 if [ $SIMPLE_EXIT -ne 0 ]; then
     echo "❌ LỖI: simple_test.sh thất bại! Dừng toàn bộ."
@@ -145,6 +147,7 @@ for ((i=1; i<=LOOPS; i++)); do
 
     # 3. Restore Node
     echo "👉 Bước 3: Restore Node $NODE_ID từ snapshot của Node 4..."
+    echo "$NODE_ID" > /tmp/MTN_EXCLUDE_NODES
     echo "📥 Lưu trạng thái lịch sử trước khi restore Node $NODE_ID..."
     (
         cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
@@ -222,6 +225,7 @@ for ((i=1; i<=LOOPS; i++)); do
     
     echo "   👉 Chờ thêm 5s sau khi đồng bộ để hệ thống thật sự lưu state..."
     sleep 5
+    rm -f /tmp/MTN_EXCLUDE_NODES
     
     if ! kill -0 $CHECKER_PID 2>/dev/null; then
         echo "❌ LỖI (Đang test Node $NODE_ID): block_hash_checker đã báo lệch hash và thoát sau khi bơm TPS!"

@@ -81,3 +81,14 @@ Ví dụ:
   ```bash
   ./test-node-recovery-gap.sh --all-only 2 3
   ```
+
+### 3. Chạy qua hệ thống CI Monitor tự động (Khuyên dùng)
+Bạn có thể tích hợp kịch bản kiểm thử Recovery Gap vào quá trình chạy CI/CD tự động thông qua `ci_monitor.sh`. Nó sẽ được chạy ngầm dưới nền hoặc tự động trigger mỗi khi có code mới trên Github.
+
+```bash
+# Chạy ở chế độ multi và tự động update code (lắng nghe liên tục)
+./ci_monitor.sh --type recovery --mode multi
+
+# Chạy một lần duy nhất, không lắng nghe code Github
+./ci_monitor.sh --type recovery --mode multi --no-listen
+```

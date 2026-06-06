@@ -46,7 +46,31 @@ Sau khi khôi phục và xác minh lịch sử thành công, script thực hiệ
 
 ## 🚀 Hướng dẫn chạy
 
-### Cú pháp:
+### 1. Chạy trực tiếp (Manual)
+Mặc định script chạy ở chế độ Single Node. Bạn có thể sử dụng các tham số:
+
+```bash
+./test-snapshot.sh --loops 5 --tps-count 20000
+```
+
+**Chạy chế độ Multi-Node:**
+Để test trên môi trường cluster nhiều máy chủ (triển khai qua systemd), hãy thiết lập biến môi trường `DEPLOY_MODE="multi"`:
+```bash
+export DEPLOY_MODE=multi
+./test-snapshot.sh --loops 5
+```
+Trong chế độ multi, script tự động chuyển sang gọi `deploy_systemd_cluster.sh` và nạp cấu hình `.env` cũng như JSON đa node (`config-mutil.json`, `config-m-nodes.json`).
+
+### 2. Chạy tự động qua CI Monitor (Khuyên dùng)
+Bạn có thể chạy kiểm thử Snapshot một cách tự động thông qua `ci_monitor.sh` (tự động chạy nền và theo dõi mã nguồn GitHub):
+
+```bash
+# Chạy giám sát liên tục ở chế độ multi
+./ci_monitor.sh --type snapshot --mode multi
+
+# Hoặc chỉ chạy một lần không giám sát GitHub (no-listen)
+./ci_monitor.sh --type snapshot --mode multi --no-listen
+```
 ```bash
 cd scripts/
 ./test-snapshot.sh [options]
