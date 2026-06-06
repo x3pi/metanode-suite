@@ -121,7 +121,7 @@ nohup ./ci_monitor.py --mode single > ci_monitor.log 2>&1 &
 
 ./ci_monitor.sh --type spam --batch 500
 ./ci_monitor.sh --type spam --no-listen
-./ci_monitor.sh --type spam --mode multi
+./ci_monitor.sh --type spam --mode multi --no-listen
 
 ./ci_monitor.sh --type recovery
 ./ci_monitor.sh --type snapshot

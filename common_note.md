@@ -12,4 +12,9 @@ info!("Consensus committee: {:?}", committee);
 
 # đang còn lỗi validator -> synOnly
 
-spam giao dịch normal + getAccount có khả năng bị lỗi
+
+
+🚨 [EXECUTION-STALL] Go execution stuck at
+
+
+🚨 [LIVENESS-STALL] DAG commit frozen at

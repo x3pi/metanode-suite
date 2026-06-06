@@ -184,7 +184,7 @@ if should_run 2; then
         run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
     else
         cd "$METANODE_SCRIPT_DIR"
-        run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_systemd_cluster.sh --env deploy-3nodes.env --all
+        run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_systemd_cluster.sh --env deploy-muti-node.env --all
     fi
 
     # Đợi 1 chút để các HTTP server start up hoàn toàn
@@ -201,7 +201,7 @@ echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
     if [ "$DEPLOY_MODE" == "single" ]; then
         go run main.go --watch --interval 200ms > block_hash_checker_auto.log 2>&1
     else
-        go run main.go --watch --interval 5s --config config-3nodes.json > block_hash_checker_auto.log 2>&1
+        go run main.go --watch --interval 5s --config config-m-nodes.json > block_hash_checker_auto.log 2>&1
     fi
     if grep -q "bị lệch hash" block_hash_checker_auto.log; then
         echo -e "\n\n🚨 Phân tích từ log: Phát hiện blocks bị lệch hash!"
