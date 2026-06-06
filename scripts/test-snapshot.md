@@ -14,7 +14,9 @@ Chạy `tps_blast_cc` để gửi một lượng lớn giao dịch vào mạng l
 
 ### 3. Lưu checkpoint & Khôi phục Node từ Snapshot (Restore Node)
 - Chạy công cụ `test-history` ở chế độ `-action save` để thực hiện một giao dịch thay đổi số dư/nonce, ghi nhận lại số dư và nonce của ví tại mốc block đó (Block A), rồi lưu checkpoint vào `/tmp/pending_check_${NODE_ID}.json`.
-- Sử dụng script `restore_node.sh` để xóa dữ liệu hiện tại của node cần test (`NODE_ID`) và khôi phục nó bằng cách sao chép dữ liệu thư mục snapshot từ Node 4. (Lưu ý: `NODE_ID` sẽ được luân phiên tự động 0 -> 1 -> 2 -> 3 qua các vòng lặp).
+- Sử dụng script khôi phục để xóa dữ liệu hiện tại của node cần test (`NODE_ID`) và khôi phục nó bằng bản snapshot từ Node 4. (Lưu ý: Nếu không chỉ định `--target-node`, script sẽ tự động luân phiên `NODE_ID` qua 0 -> 1 -> 2 -> 3 theo các vòng lặp).
+  - *Đối với chế độ Single:* Gọi `restore_node.sh`.
+  - *Đối với chế độ Multi (`DEPLOY_MODE="multi"`):* Tự động gọi `deploy_systemd_cluster.sh --env deploy-muti-node.env --restore-node $NODE_ID`.
 - Quá trình này mô phỏng việc khôi phục một node trống dữ liệu sử dụng bản snapshot đáng tin cậy.
 
 ### 4. Chờ các node đồng bộ block & Ổn định
@@ -25,6 +27,7 @@ Chạy `tps_blast_cc` để gửi một lượng lớn giao dịch vào mạng l
   ```bash
   go run main.go -config config-local.json -action verify -file /tmp/pending_check_${NODE_ID}.json -target-node $NODE_ID
   ```
+  *(Lưu ý: Nếu đang chạy ở chế độ Multi, script sẽ tự động nạp cấu hình `config-mutil.json` tương ứng thay vì `config-local.json`).*
 
   Node phục hồi từ snapshot bắt buộc phải trả về chính xác số dư và nonce tại Block A giống hệt như checkpoint đã lưu ở Bước 3. Quá trình này cũng sẽ tự động chạy thêm 1 vòng kiểm tra gửi giao dịch thực tế rồi lưu lại lịch sử trước khi tiếp tục.
 
@@ -50,14 +53,19 @@ cd scripts/
 ```
 
 ### Các tùy chọn (Options):
-- `--loops <num>`: Số vòng lặp chạy test liên tục (mặc định: 2000). Trong mỗi vòng, script sẽ **tự động luân phiên Node** (0, 1, 2, 3) để thực hiện restore.
+- `--loops <num>`: Số vòng lặp chạy test liên tục (mặc định: 2000). Trong mỗi vòng, script sẽ tự động luân phiên Node (0, 1, 2, 3) để thực hiện restore nếu không có chỉ định.
 - `--tps-rounds <num>`: Số vòng chạy TPS blast trước snapshot (mặc định: 1).
 - `--tps-count <num>`: Số lượng giao dịch trong mỗi vòng TPS (mặc định: 20000).
+- `--target-node <num>`: Cố định test duy nhất trên 1 Node (ví dụ: `2`). Nếu truyền tham số này, script sẽ không tự động xoay vòng qua các node nữa.
 
 ### Ví dụ:
 - Chạy test khôi phục snapshot luân phiên các node trong mạng với 5 vòng lặp:
   ```bash
   ./test-snapshot.sh --loops 5
+  ```
+- Cố định test liên tục 3 vòng chỉ trên Node 2:
+  ```bash
+  ./test-snapshot.sh --loops 3 --target-node 2
   ```
 - Chạy với số lượng TPS cao hơn (50,000 giao dịch mỗi lần):
   ```bash

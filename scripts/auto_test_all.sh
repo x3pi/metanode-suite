@@ -330,6 +330,56 @@ if should_run 8; then
 fi
 
 
+# ----------------------------------------------------
+# BƯỚC 9: INTEGRATION TEST (Continuous Loop)
+# ----------------------------------------------------
+if should_run 9; then
+    echo ""
+    echo "📌 BƯỚC 9: INTEGRATION TEST (Continuous)..."
+    
+    cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
+    echo "  -> Chạy TPS khởi động (20 rounds)..."
+    run_and_capture "Init TPS 20 rounds" go run main.go --count 20000 --parallel_native=true --rounds 20 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+    
+    cd "$TOOL_TEST_DIR/scripts"
+    
+    loop_count=1
+    while true; do
+        echo "=================================================="
+        echo "🔄 BẮT ĐẦU VÒNG LẶP INTEGRATION THỨ $loop_count"
+        echo "=================================================="
+        
+        # 1. Recovery Node Test (50% node 1, 2, 3; 50% node 4)
+        if [ $(( loop_count % 2 )) -eq 0 ]; then
+            rec_node=4
+        else
+            rec_node=$(( ( (loop_count - 1) / 2 ) % 3 + 1 ))
+        fi
+        
+        echo "  [1/4] Chạy Recovery Node Test trên Node $rec_node..."
+        run_and_capture "Recovery Node $rec_node" bash test-node-recovery-gap-no-build.sh --target-node $rec_node 1 1 
+        
+        # 2. 10 Rounds TPS
+        echo "  [2/4] Chạy 10 rounds TPS..."
+        cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
+        run_and_capture "TPS 10 rounds sau Recovery" go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+        
+        # 3. Snapshot Test (Luân phiên 1, 2, 3)
+        snap_node=$(( (loop_count - 1) % 3 + 1 ))
+        echo "  [3/4] Chạy Snapshot Test trên Node $snap_node..."
+        cd "$TOOL_TEST_DIR/scripts"
+        run_and_capture "Snapshot Node $snap_node" bash test-snapshot-no-build.sh --target-node $snap_node --loops 1 --tps-rounds 0
+        
+        # 4. 10 Rounds TPS
+        echo "  [4/4] Chạy 10 rounds TPS..."
+        cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
+        run_and_capture "TPS 10 rounds sau Snapshot" go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+        
+        cd "$TOOL_TEST_DIR/scripts"
+        loop_count=$((loop_count + 1))
+    done
+fi
+
 echo ""
 echo "=================================================="
 echo "🎉 AUTO TEST PIPELINE COMPLETED SUCCESSFULLY!"

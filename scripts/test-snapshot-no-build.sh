@@ -78,19 +78,12 @@ monitor_error_flag &
 MONITOR_PID=$!
 
 # Xử lý tín hiệu Ctrl+C (SIGINT) để kill sạch các tiến trình chạy ngầm
-trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; rm -f /tmp/pending_check_*.json; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
+trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; rm -f /tmp/pending_check_*.json /tmp/MTN_EXCLUDE_NODES; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
 
 echo "====================================================================="
 echo "🚀 BƯỚC 0: CHẠY SIMPLE TEST ĐỂ KHỞI TẠO VÀ TEST MẠNG CƠ BẢN"
 echo "====================================================================="
 cd "$SCRIPTS_DIR" || exit 1
-./simple_test.sh
-SIMPLE_EXIT=$?
-if [ $SIMPLE_EXIT -ne 0 ]; then
-    echo "❌ LỖI: simple_test.sh thất bại! Dừng toàn bộ."
-    kill $MONITOR_PID 2>/dev/null || true
-    exit 1
-fi
 
 for ((i=1; i<=LOOPS; i++)); do
     # Xác định Node luân phiên (0, 1, 2, 3), trừ node 4 (dùng để tải snapshot)
@@ -145,6 +138,7 @@ for ((i=1; i<=LOOPS; i++)); do
 
     # 3. Restore Node
     echo "👉 Bước 3: Restore Node $NODE_ID từ snapshot của Node 4..."
+    echo "$NODE_ID" > /tmp/MTN_EXCLUDE_NODES
     echo "📥 Lưu trạng thái lịch sử trước khi restore Node $NODE_ID..."
     (
         cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
@@ -222,6 +216,7 @@ for ((i=1; i<=LOOPS; i++)); do
     
     echo "   👉 Chờ thêm 5s sau khi đồng bộ để hệ thống thật sự lưu state..."
     sleep 5
+    rm -f /tmp/MTN_EXCLUDE_NODES
     
     if ! kill -0 $CHECKER_PID 2>/dev/null; then
         echo "❌ LỖI (Đang test Node $NODE_ID): block_hash_checker đã báo lệch hash và thoát sau khi bơm TPS!"

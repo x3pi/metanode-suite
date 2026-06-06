@@ -105,13 +105,7 @@ wait_for_ports_to_release() {
     local start_time=$(date +%s)
     local timeout=15
     
-    # Check if sudo works (with password cached, or passwordless) or interactive
-    local SUDO_CMD=""
-    if sudo -n true 2>/dev/null; then
-        SUDO_CMD="sudo"
-    elif [ -t 0 ]; then
-        SUDO_CMD="sudo"
-    fi
+    local SUDO_PASS="1234@abcd"
     
     while true; do
         local busy_ports=()
@@ -131,15 +125,15 @@ wait_for_ports_to_release() {
         if [ $elapsed -ge $timeout ]; then
             echo "⚠️ Cảnh báo: Các cổng vẫn bị chiếm giữ sau ${timeout}s: ${busy_ports[*]}"
             for port in "${busy_ports[@]}"; do
-                local pids=$($SUDO_CMD ss -tlnp 2>/dev/null | grep -E ":$port\s" | grep -oP 'pid=\K[0-9]+' | sort -u || true)
+                local pids=$(echo "$SUDO_PASS" | sudo -S ss -tlnp 2>/dev/null | grep -E ":$port\s" | grep -oP 'pid=\K[0-9]+' | sort -u || true)
                 if [ -n "$pids" ]; then
                     for p in $pids; do
                         echo "  → Force killing PID $p occupying port $port..."
-                        $SUDO_CMD kill -9 "$p" 2>/dev/null || kill -9 "$p" 2>/dev/null || true
+                        echo "$SUDO_PASS" | sudo -S kill -9 "$p" 2>/dev/null || kill -9 "$p" 2>/dev/null || true
                     done
                 else
                     echo "  → Force killing port $port using fuser..."
-                    $SUDO_CMD fuser -k -9 -n tcp "$port" 2>/dev/null || fuser -k -9 -n tcp "$port" 2>/dev/null || true
+                    echo "$SUDO_PASS" | sudo -S fuser -k -9 -n tcp "$port" 2>/dev/null || fuser -k -9 -n tcp "$port" 2>/dev/null || true
                 fi
             done
             sleep 1
@@ -155,23 +149,17 @@ cleanup_all_processes() {
     echo ""
     echo "🔪 Dọn dẹp TOÀN BỘ tiến trình cũ đang chạy ngầm..."
 
-    # Check if sudo works (with password cached, or passwordless) or interactive
-    local SUDO_CMD=""
-    if sudo -n true 2>/dev/null; then
-        SUDO_CMD="sudo"
-    elif [ -t 0 ]; then
-        SUDO_CMD="sudo"
-    fi
+    local SUDO_PASS="1234@abcd"
 
     # Dừng các dịch vụ systemd của metanode nếu đang hoạt động
     if [ "$NO_START" != "true" ] && [ "${MODE:-}" != "multi" ]; then
         if systemctl list-units --type=service | grep -qE "metanode-"; then
             echo "   → Phát hiện các dịch vụ systemd metanode đang chạy. Đang dừng các dịch vụ..."
-            if ! $SUDO_CMD systemctl stop metanode-consensus-0 metanode-consensus-1 metanode-consensus-2 metanode-consensus-3 metanode-consensus-4 \
+            if ! echo "$SUDO_PASS" | sudo -S systemctl stop metanode-consensus-0 metanode-consensus-1 metanode-consensus-2 metanode-consensus-3 metanode-consensus-4 \
                                      metanode-execution-0 metanode-execution-1 metanode-execution-2 metanode-execution-3 metanode-execution-4 \
                                      metanode-rpc-0 metanode-rpc-1 metanode-rpc-2 metanode-rpc-3 metanode-rpc-4 \
-                                     metanode-consensus.service metanode-execution.service metanode.service; then
-                echo "   ⚠️  Warning: Failed to stop some systemd metanode services. Ensure you have sudo privileges or stop them manually."
+                                     metanode-consensus.service metanode-execution.service metanode.service 2>/dev/null; then
+                echo "   ⚠️  Warning: Failed to stop some systemd metanode services."
             fi
         fi
     fi

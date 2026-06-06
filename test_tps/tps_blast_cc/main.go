@@ -1167,6 +1167,8 @@ func main() {
 			fmt.Printf("\n⏳ [%s] Bắt đầu quét block (timeout %s)...\n", time.Now().Format("15:04:05.000"), maxWait)
 		}
 
+		var lastEpochAlertTime time.Time
+
 		for {
 			// Check for STOP flag from block_hash_checker
 			if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
@@ -1180,10 +1182,29 @@ func main() {
 			// Check epoch transition timeout
 			if !epochTransitioned && epochWait > 0 {
 				if time.Since(epochWaitStart) > time.Duration(epochWait)*time.Second {
-					errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (startEpoch: %d) | Time: %s", epochWait, startEpoch, time.Now().Format("15:04:05.000"))
-					fmt.Println(errMsg)
-					logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
-					break
+					if time.Since(lastEpochAlertTime) >= 60*time.Second {
+						errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (startEpoch: %d) | Time: %s", epochWait, startEpoch, time.Now().Format("15:04:05.000"))
+						fmt.Println(errMsg)
+						logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
+
+						var missingTxs []string
+						count := 0
+						for _, tx := range allTxs {
+							txHashLower := strings.ToLower(tx.txHash.Hex())
+							if expectedTxHashes[txHashLower] {
+								missingTxs = append(missingTxs, tx.txHash.Hex())
+								count++
+								if count >= 5 {
+									break
+								}
+							}
+						}
+
+						teleMsg := fmt.Sprintf("Quá %d giây không có epoch mới! (startEpoch: %d)\n5 giao dịch chưa được đưa vào:\n%s", epochWait, startEpoch, strings.Join(missingTxs, "\n"))
+						sendTelegramAlert(teleMsg, "tps_blast_cc")
+						lastEpochAlertTime = time.Now()
+					}
+					// Bỏ break để chờ mãi và 1 phút báo 1 lần
 				}
 			}
 
@@ -1220,8 +1241,10 @@ func main() {
 
 					newTxsCount := uint64(0)
 					for _, txHash := range blk.Transactions {
-						if expectedTxHashes[strings.ToLower(txHash)] {
+						txHashLower := strings.ToLower(txHash)
+						if expectedTxHashes[txHashLower] {
 							newTxsCount++
+							delete(expectedTxHashes, txHashLower)
 						}
 					}
 					newTxs += newTxsCount

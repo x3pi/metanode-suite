@@ -64,14 +64,19 @@ cd scripts/
 ### 2. Chạy với tham số tùy chọn
 Cú pháp:
 ```bash
-./test-node-recovery-gap.sh [NodeID|--all-only] [GapEpoch] [Số lần lặp]
+./test-node-recovery-gap.sh [--all-only] [--target-node <N>] [NodeID] [GapEpoch] [Số lần lặp]
 ```
 
+**Lưu ý cho chế độ Multi Node (`--mode multi` từ `auto_test.sh`):**
+- Khi biến môi trường `DEPLOY_MODE="multi"`, script sẽ tự động chuyển sang sử dụng `deploy_systemd_cluster.sh` (với cấu hình `deploy-muti-node.env`) để điều khiển cụm mạng qua `systemd` thay vì gọi `mtn-orchestrator.sh`.
+- Công cụ kiểm tra `test-history` và `block_hash_checker` cũng sẽ tự động chuyển sang đọc file cấu hình `config-mutil.json` và `config-m-nodes.json`.
+
 Ví dụ:
-- Tắt Node 2, chờ 5 Epochs, test 1 lần:
+- Cố định test duy nhất trên Node 2 (bỏ qua cơ chế luân phiên tự động), chờ 5 Epochs, test 1 lần:
   ```bash
-  ./test-node-recovery-gap.sh 2 5 1
+  ./test-node-recovery-gap.sh --target-node 2 2 5 1
   ```
+  *(Lưu ý: tham số truyền NodeID `2` sẽ bị `--target-node 2` ghi đè).*
 - Tắt toàn bộ mạng (`all`), mô phỏng downtime 2 Epochs, lặp lại 3 lần:
   ```bash
   ./test-node-recovery-gap.sh --all-only 2 3

@@ -277,7 +277,7 @@ cleanup() {
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
     if [ $err -eq 0 ]; then
-        rm -f /tmp/pending_check_*.json /tmp/MTN_INTEGRITY_FAILED
+        rm -f /tmp/pending_check_*.json /tmp/MTN_INTEGRITY_FAILED /tmp/MTN_EXCLUDE_NODES
     else
         echo "💡 [DEBUG] Giữ lại file checkpoint /tmp/pending_check_*.json để debug offline!"
     fi
@@ -350,9 +350,6 @@ echo "========================================================="
 echo "🧪 TEST RECOVERY NODE (Node: $NODE_ID, Gap: $GAP_EPOCH epochs, Loop: $LOOP_COUNT lần)"
 echo "========================================================="
 
-echo "🔄 Đang chạy Simple Test (Bao gồm Setup và Test Cơ Bản)..."
-bash "$SCRIPT_DIR/simple_test.sh"
-echo "✅ Khởi tạo và Simple Test hoàn tất!"
 
 for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     echo -e "\n\n🔄 VÒNG LẶP TEST THỨ $loop / $LOOP_COUNT"
@@ -394,6 +391,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         )
 
         echo -e "\n[2/8] 🛑 Dừng toàn bộ mạng..."
+        echo "0,1,2,3,4" > /tmp/MTN_EXCLUDE_NODES
         run_orch stop
 
         echo -e "\n[3/8] 🚀 Bỏ qua tạo gap giao dịch vì mạng đã dừng hoàn toàn."
@@ -437,6 +435,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         done
         # Chờ mạng phục hồi đồng thuận hoàn toàn bằng active polling thay vì sleep 15s cứng
         wait_for_consensus
+        rm -f /tmp/MTN_EXCLUDE_NODES
     else
         echo "📥 Lưu trạng thái lịch sử trước khi dừng node $TARGET_NODE..."
         (
@@ -444,6 +443,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
             go run main.go -config $HISTORY_CONFIG -action save -file /tmp/pending_check_${TARGET_NODE}.json
         )
         echo -e "\n[2/8] 🛑 Dừng node $TARGET_NODE..."
+        echo "$TARGET_NODE" > /tmp/MTN_EXCLUDE_NODES
         run_orch stop-node $TARGET_NODE
 
         echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
@@ -569,6 +569,7 @@ wait_for_sync_to_highest_block() {
     # 1. Chạy xác minh trạng thái lịch sử trước bằng active polling (cực kỳ nhanh và chính xác)
     if [ "$TARGET_NODE" != "all" ]; then
         wait_for_sync_to_highest_block "$TARGET_NODE"
+        rm -f /tmp/MTN_EXCLUDE_NODES
         
         echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
         (

@@ -586,8 +586,11 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		synced := false
 		waitStart := time.Now()
 		isAlive := false
+		alertSent := false
 		var lastSeenBlock uint64
+		attempts := 0
 		for time.Since(waitStart) < 3*time.Minute {
+			attempts++
 			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
 			var latestBlockHex string
 			errBlock := tempClient.CallContext(ctxTemp, &latestBlockHex, "eth_blockNumber")
@@ -600,6 +603,24 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 				if latestBlock >= blockB {
 					synced = true
 					break
+				}
+				if attempts%10 == 0 {
+					fmt.Printf("   ⏳ Node %s (Node %s) đang đồng bộ (hiện tại: %d, cần: %d)...\n", u, nodeNum, latestBlock, blockB)
+				}
+			} else {
+				if attempts%10 == 0 {
+					fmt.Printf("   🔌 Node %s (Node %s) chưa phản hồi (%v). Đang thử lại...\n", u, nodeNum, errBlock)
+				}
+				// Thử lại sau 30s mà node vẫn KHÔNG phản hồi thì báo lỗi qua Tele luôn và dừng test
+				if !isAlive && time.Since(waitStart) > 30*time.Second && !alertSent {
+					alertSent = true
+					reason := fmt.Sprintf("🛑 LỖI TIMEOUT: Node %s (Node %s) không phản hồi RPC quá 30s! Lỗi: %v", u, nodeNum, errBlock)
+					// Ghi vào file này thì ci_monitor.py bên ngoài sẽ tự động nhận diện và gửi qua Tele
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("   %s\n", reason)
+					tempClient.Close()
+					return false
 				}
 			}
 			time.Sleep(500 * time.Millisecond)
