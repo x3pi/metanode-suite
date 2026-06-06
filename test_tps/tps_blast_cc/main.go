@@ -1147,6 +1147,8 @@ func main() {
 		lastBlockNum := startBlock
 		totalTxsInBlocks := uint64(0)
 		seenAnyTx := false
+		var firstTxBlockTime time.Time
+		var lastTxBlockTime time.Time
 
 		epochWaitStart := time.Now()
 		startEpoch := startEpochBeforeBlast
@@ -1261,7 +1263,10 @@ func main() {
 			lastBlockNum = nextLastBlockNum
 
 			if newTxs > 0 {
-				seenAnyTx = true
+				if !seenAnyTx {
+					firstTxBlockTime = time.Now()
+					seenAnyTx = true
+				}
 			}
 
 			pct := float64(totalTxsInBlocks) / float64(len(allTxs)) * 100
@@ -1283,6 +1288,7 @@ func main() {
 
 			// Stop immediately when all TXs confirmed
 			if totalTxsInBlocks >= uint64(len(allTxs)) {
+				lastTxBlockTime = time.Now()
 				if !processStart.IsZero() {
 					processingDuration = time.Since(processStart)
 				} else {
@@ -1359,8 +1365,17 @@ func main() {
 			}
 		}
 
-		totalDuration := blastDuration + processingDuration
+		totalDuration := time.Since(blastStart)
 		processingTPS := float64(totalTxsInBlocks) / totalDuration.Seconds()
+
+		var onChainDuration time.Duration
+		var onChainTPS float64
+		if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
+			onChainDuration = lastTxBlockTime.Sub(firstTxBlockTime)
+			if onChainDuration > 0 {
+				onChainTPS = float64(totalTxsInBlocks) / onChainDuration.Seconds()
+			}
+		}
 		allRoundTPS = append(allRoundTPS, processingTPS)
 
 		if startEpochBeforeBlast != 0 && endEpoch != 0 && startEpochBeforeBlast != endEpoch {
@@ -1405,6 +1420,12 @@ func main() {
 		fmt.Printf("  📥 TX in blocks:         %d\n", totalTxsInBlocks)
 		fmt.Printf("  📊 End-to-End TPS:       ~%.0f tx/s\n", processingTPS)
 		fmt.Printf("  ⏱️  End-to-End time:      %s\n", totalDuration.Round(time.Millisecond))
+		if onChainDuration > 0 {
+			fmt.Printf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTPS)
+			fmt.Printf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond))
+		} else {
+			fmt.Printf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n")
+		}
 		fmt.Printf("  ─────────────────────────────────────────────────\n")
 		fmt.Printf("  📦 BLOCK STATISTICS (Blocks %d to %d)\n", startBlock, endBlock)
 		fmt.Printf("  🧊 Total Blocks:         %d\n", blockCount)
