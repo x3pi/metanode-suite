@@ -289,7 +289,8 @@ def main():
 
                         server_info = get_server_ip_info()
                         real_code = exit_code if exit_code > 0 else "0 (lỗi phát hiện qua log/sentinel)"
-                        msg = f"❌ *[SNAPSHOT TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
+                        status_str = "🛑 *TRẠNG THÁI:* PIPELINE ĐÃ DỪNG HOÀN TOÀN (STOPPED)!" if no_listen else "⚠️ *TRẠNG THÁI:* TIẾP TỤC MONITOR COMMIT MỚI (STILL RUNNING)..."
+                        msg = f"❌ *[SNAPSHOT TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n{status_str}\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
                         send_telegram_message(msg)
                     else:
                         server_info = get_server_ip_info()

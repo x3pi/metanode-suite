@@ -301,11 +301,12 @@ def main():
 
                         server_info = get_server_ip_info()
                         real_code = exit_code if exit_code > 0 else "0 (lỗi phát hiện qua log/sentinel)"
+                        status_str = "🛑 *TRẠNG THÁI:* PIPELINE ĐÃ DỪNG HOÀN TOÀN (STOPPED)!" if no_listen else "⚠️ *TRẠNG THÁI:* TIẾP TỤC MONITOR COMMIT MỚI (STILL RUNNING)..."
                         
                         if integrity_error_details:
-                            msg = f"❌ *[RECOVERY TEST]* CẢNH BÁO LỖI PIPELINE - LỖI DỮ LIỆU CẦN PHỤC HỒI!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n🚨 *Lỗi dữ liệu phát hiện:* `{integrity_error_details}`\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\n👉 *Hướng khắc phục:* Khởi động lại bằng cách tải snapshot và chạy lại node."
+                            msg = f"❌ *[RECOVERY TEST]* CẢNH BÁO LỖI PIPELINE - LỖI DỮ LIỆU CẦN PHỤC HỒI!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n🚨 *Lỗi dữ liệu phát hiện:* `{integrity_error_details}`\n\n{status_str}\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\n👉 *Hướng khắc phục:* Khởi động lại bằng cách tải snapshot và chạy lại node."
                         else:
-                            msg = f"❌ *[RECOVERY TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
+                            msg = f"❌ *[RECOVERY TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n{status_str}\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
                         
                         send_telegram_message(msg)
                     else:
