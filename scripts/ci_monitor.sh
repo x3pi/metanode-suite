@@ -50,6 +50,11 @@ while [[ "$#" -gt 0 ]]; do
             NO_START=true
             CI_ARGS+=("$1")
             ;;
+        --mode)
+            MODE="$2"
+            CI_ARGS+=("$1" "$2")
+            shift
+            ;;
         stop|--stop|kill|--kill)
             DO_STOP=true
             ;;
@@ -159,7 +164,7 @@ cleanup_all_processes() {
     fi
 
     # Dừng các dịch vụ systemd của metanode nếu đang hoạt động
-    if [ "$NO_START" != "true" ]; then
+    if [ "$NO_START" != "true" ] && [ "${MODE:-}" != "multi" ]; then
         if systemctl list-units --type=service | grep -qE "metanode-"; then
             echo "   → Phát hiện các dịch vụ systemd metanode đang chạy. Đang dừng các dịch vụ..."
             if ! $SUDO_CMD systemctl stop metanode-consensus-0 metanode-consensus-1 metanode-consensus-2 metanode-consensus-3 metanode-consensus-4 \
@@ -209,7 +214,7 @@ cleanup_all_processes() {
     # 3.1. Kill các tool chạy qua go run (watch/loop)
     pkill -9 -f "main.go -loop" 2>/dev/null || true
 
-    if [ "$NO_START" != "true" ]; then
+    if [ "$NO_START" != "true" ] && [ "${MODE:-}" != "multi" ]; then
         # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
         echo "   → Tắt dịch vụ Nginx (giải quyết lỗi 502 Bad Gateway)..."
         pkill -9 nginx 2>/dev/null || true
@@ -234,7 +239,7 @@ cleanup_all_processes() {
         echo "   → Giải phóng các port của cụm cluster..."
         wait_for_ports_to_release 8545 8547 8548 8549 8550 8757 10746 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 10100 10101 10102 10103 10104 6060 6061 6062 6063 6064 6065 6200 6201 6202 6203 6204 6211 6221 6241 4201 9080 9081 9082 9083 9084 8600 8601 8602 8603 8604
     else
-        echo "   → Bỏ qua việc kill tiến trình cluster và giải phóng port do có flag --no-start"
+        echo "   → Bỏ qua việc kill tiến trình local cluster và giải phóng port do có flag --no-start hoặc --mode multi"
     fi
 
     # Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm

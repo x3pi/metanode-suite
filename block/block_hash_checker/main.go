@@ -1718,8 +1718,14 @@ func watchOnce(client *http.Client, nodes []nodeInfo, totalChecks, totalMismatch
 			fmt.Printf(" ⚠️ CHÊNH %d blocks!", diff)
 			// Trigger Telegram alert if diff is huge (e.g. > lag-threshold blocks)
 			if lagThreshold > 0 && diff > uint64(lagThreshold) {
+				var laggingNodes []string
+				for _, r := range results {
+					if r.err == nil && maxBlock-r.block >= uint64(lagThreshold) {
+						laggingNodes = append(laggingNodes, fmt.Sprintf("%s(%d)", r.name, r.block))
+					}
+				}
 				logAnomaly("NODE_LAGGING", minBlock,
-					fmt.Sprintf("Một số node đang bị tụt lại quá xa (chênh lệch %d blocks giữa max và min).", diff))
+					fmt.Sprintf("Node %s đang bị tụt lại quá xa so với đỉnh (chênh lệch %d blocks giữa max và min). Chi tiết tất cả nodes: %s", strings.Join(laggingNodes, ", "), diff, strings.Join(heightParts, "  ")))
 			}
 		}
 	}
