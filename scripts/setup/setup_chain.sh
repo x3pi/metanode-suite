@@ -129,7 +129,7 @@ if [ "$DEPLOY_MODE" == "single" ]; then
     run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
 else
     cd "$METANODE_SCRIPT_DIR"
-    run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_cluster.sh --env deploy-3nodes.env --all
+    run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_systemd_cluster.sh --env deploy-muti-node.env --all
 fi
 
 # Chờ động các HTTP server của cả 5 node sẵn sàng hoàn toàn

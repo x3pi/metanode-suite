@@ -137,58 +137,18 @@ echo "💡 Usage: ./auto_test.sh [--step|--steps \"2,4,5\"] [--mode single|multi
 echo "=================================================="
 
 # ----------------------------------------------------
-# INIT: Kiểm tra và mount phân vùng BTRFS LVM
+# BƯỚC 1, 2, 2.5: Setup Chain (BTRFS, Genesis, Deploy, RPC Proxy)
 # ----------------------------------------------------
-echo "📌 Đang kiểm tra mount point BTRFS cho database..."
-if ! mountpoint -q "$METANODE_DIR/execution/cmd/simple_chain/sample" 2>/dev/null; then
-    echo "  -> Phân vùng chưa được mount, đang tìm migrate-to-btrfs-lvm.sh..."
-    # Dùng lệnh chạy bình thường không đưa vào run_and_capture vì sudo sẽ yêu cầu gõ password trực tiếp trên terminal
-    if [ -f "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh" ]; then
-        echo "  -> Đang chạy migrate-to-btrfs-lvm.sh (có thể yêu cầu sudo)..."
-        bash "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh"
-        if [ $? -ne 0 ]; then
-            echo "❌ Lỗi khi chạy migrate-to-btrfs-lvm.sh!"
-            exit 1
-        fi
-    else
-        echo "  -> File migrate-to-btrfs-lvm.sh không tồn tại. Bỏ qua bước mount BTRFS."
-    fi
-else
-    echo "  -> Phân vùng BTRFS đã được mount sẵn."
-fi
-
-# ----------------------------------------------------
-# BƯỚC 1: Xóa genesis cũ và tạo file genesis mới
-# ----------------------------------------------------
-if should_run 1; then
+if should_run 1 || should_run 2; then
     echo ""
-    echo "📌 BƯỚC 1: Prepare Genesis & Gen Spam Keys..."
-    cd "$METANODE_DIR/execution/cmd/simple_chain"
-    echo "  -> Xóa genesis.json và copy từ genesis-main.json..."
-    rm -f genesis.json
-    cp genesis-main.json genesis.json
-
-    cd "$TOOL_TEST_DIR/test_tps/gen_spam_keys"
-    echo "  -> Chạy Gen Spam Keys (count 50000)..."
-    run_and_capture "Gen Spam Keys (Bước 1)" go run main.go --count 50000 --genesis-in "$METANODE_DIR/execution/cmd/simple_chain/genesis-main.json" --genesis-out "$METANODE_DIR/execution/cmd/simple_chain/genesis.json"
-fi
-
-# ----------------------------------------------------
-# BƯỚC 2: Triển khai Cụm
-# ----------------------------------------------------
-if should_run 2; then
-    echo ""
-    echo "📌 BƯỚC 2: Triển khai cụm Cluster (deploy_cluster.sh)..."
-    if [ "$DEPLOY_MODE" == "single" ]; then
-        cd "$METANODE_SCRIPT_DIR/.."
-        run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
-    else
-        cd "$METANODE_SCRIPT_DIR"
-        run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_systemd_cluster.sh --env deploy-muti-node.env --all
+    echo "📌 BƯỚC 1 & 2: Chạy setup_chain.sh (bao gồm BTRFS, Genesis, Deploy và bật RPC Proxy)..."
+    export DEPLOY_MODE="$DEPLOY_MODE"
+    bash "$TOOL_TEST_DIR/scripts/setup/setup_chain.sh"
+    
+    if [ $? -ne 0 ]; then
+        echo "❌ Lỗi khi chạy setup_chain.sh"
+        exit 1
     fi
-
-    # Đợi 1 chút để các HTTP server start up hoàn toàn
-    sleep 5
 fi
 
 
