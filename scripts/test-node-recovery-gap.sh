@@ -19,6 +19,7 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         --all-only) TEST_ALL_ONLY=true ;;
         --target-node) TARGET_NODE_FIXED="$2"; shift ;;
+        --mode) export DEPLOY_MODE="$2"; shift ;;
         -*) echo "Unknown option: $1" ;;
         *) POSITIONAL_ARGS+=("$1") ;;
     esac
@@ -48,9 +49,11 @@ HASH_CHECKER_DIR="$(dirname "$SCRIPT_DIR")/block/block_hash_checker"
 
 HISTORY_CONFIG="config-local.json"
 HASH_CONFIG_ARG=""
-if [ "$DEPLOY_MODE" == "multi" ]; then
+TPS_CONFIG_ARG=""
+if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
     HISTORY_CONFIG="config-mutil.json"
     HASH_CONFIG_ARG="--config config-m-nodes.json"
+    TPS_CONFIG_ARG="--config config-multi.json"
 fi
 
 # Hàm gọi orchestrator tùy theo chế độ
@@ -130,12 +133,56 @@ pkill -f "main.go --count 20000" || true
 wait_for_ports_to_release 8545 8757 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 8547 8548 8549 8550
 
 # Xóa cờ lỗi cũ trước khi chạy
-rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json /tmp/MTN_INTEGRITY_FAILED
+rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json 2>/dev/null || true
+rm -f /tmp/MTN_INTEGRITY_FAILED 2>/dev/null || sudo rm -f /tmp/MTN_INTEGRITY_FAILED 2>/dev/null || true
+
+# Xác định port RPC của Node 0 theo DEPLOY_MODE
+# single mode: 8757 (direct port của node 0)
+# multi mode: đọc từ /tmp/rpc_nodes.json, nếu không có thì fallback 8545
+if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
+    if [ -f /tmp/rpc_nodes.json ]; then
+        EPOCH_RPC=$(jq -r '.nodes.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "http://127.0.0.1:8545")
+    else
+        EPOCH_RPC="http://127.0.0.1:8545"
+    fi
+else
+    EPOCH_RPC="http://127.0.0.1:8757"
+fi
+
+# Xác định danh sách RESTORE_NODES tham gia test
+if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
+    CONFIG_JSON="$(dirname "$(dirname "$SCRIPT_DIR")")/metanode-suite/test_tps/tps_blast_cc/config-multi.json"
+    if [ -f "$CONFIG_JSON" ]; then
+        CONFIG_IDS=($(jq -r 'keys[]' "$CONFIG_JSON" | grep -E '^rpc_[0-9]+$' | sed 's/rpc_//' | sort -n))
+    else
+        CONFIG_IDS=(0 1 2 3)
+    fi
+    if [ -f "/tmp/rpc_nodes.json" ]; then
+        ACTIVE_IDS=($(jq -r '.nodes | keys[]' /tmp/rpc_nodes.json | sed 's/m//' | sort -n))
+    else
+        ACTIVE_IDS=(0 1 2 3 4)
+    fi
+    RESTORE_NODES=()
+    for id in "${ACTIVE_IDS[@]}"; do
+        for cid in "${CONFIG_IDS[@]}"; do
+            if [ "$id" = "$cid" ]; then
+                RESTORE_NODES+=("$id")
+                break
+            fi
+        done
+    done
+    if [ ${#RESTORE_NODES[@]} -eq 0 ]; then
+        RESTORE_NODES=("${ACTIVE_IDS[@]}")
+    fi
+else
+    RESTORE_NODES=(1 2 3 4)
+fi
+echo "📋 Danh sách các node tham gia test recovery: ${RESTORE_NODES[*]}"
 
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
     # Gọi RPC và lấy epoch dưới dạng hex
-    hex_epoch=$(curl -s --max-time 2 -X POST http://127.0.0.1:8757 \
+    hex_epoch=$(curl -s --max-time 2 -X POST "$EPOCH_RPC" \
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' \
         | grep -oP '"epoch":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -151,7 +198,16 @@ get_current_epoch() {
 # Hàm chờ mạng thiết lập đồng thuận bằng cách kiểm tra tất cả các node có cùng chiều cao block
 wait_for_consensus() {
     echo "⏳ Đang kiểm tra chiều cao block trên tất cả các node..."
-    local ports=(8757 10747 10749 10750 10748)
+    # multi mode: đọc URLs từ /tmp/rpc_nodes.json; single mode: dùng direct ports cố định
+    local rpc_urls=()
+    if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
+        while IFS= read -r url; do
+            rpc_urls+=("$url")
+        done < <(jq -r '.nodes | to_entries | sort_by(.key) | .[].value' /tmp/rpc_nodes.json)
+    else
+        local ports=(8757 10747 10749 10750 10748)
+        for p in "${ports[@]}"; do rpc_urls+=("http://127.0.0.1:$p"); done
+    fi
     
     # Thử tối đa 120 giây (120 lần thử, mỗi lần cách nhau 1s)
     for ((r=1; r<=120; r++)); do
@@ -159,10 +215,10 @@ wait_for_consensus() {
         local first_block=""
         local blocks_info=""
         
-        for i in "${!ports[@]}"; do
-            local port="${ports[$i]}"
+        for i in "${!rpc_urls[@]}"; do
+            local url="${rpc_urls[$i]}"
             local block_hex
-            block_hex=$(curl -s --max-time 1 -X POST "http://127.0.0.1:$port" \
+            block_hex=$(curl -s --max-time 1 -X POST "$url" \
                 -H "Content-Type: application/json" \
                 -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
                 | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -351,7 +407,7 @@ echo "🧪 TEST RECOVERY NODE (Node: $NODE_ID, Gap: $GAP_EPOCH epochs, Loop: $LO
 echo "========================================================="
 
 echo "🔄 Đang chạy Simple Test (Bao gồm Setup và Test Cơ Bản)..."
-bash "$SCRIPT_DIR/simple_test.sh"
+bash "$SCRIPT_DIR/simple_test.sh" --mode "${DEPLOY_MODE:-single}"
 echo "✅ Khởi tạo và Simple Test hoàn tất!"
 
 for ((loop=1; loop<=LOOP_COUNT; loop++)); do
@@ -365,14 +421,10 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     elif [ -n "$TARGET_NODE_FIXED" ]; then
         TARGET_NODE="$TARGET_NODE_FIXED"
     else
-        # Tỉ lệ 50% test Node 4, 50% test luân phiên Node 1, 2, 3
-        if [ $(( loop % 2 )) -eq 0 ]; then
-            TARGET_NODE=4
-        else
-            # Luân phiên 1, 2, 3 cho các vòng lặp lẻ (1, 3, 5, 7...)
-            MOD_3=$(( ( (loop - 1) / 2 ) % 3 + 1 ))
-            TARGET_NODE=$MOD_3
-        fi
+        # Luân phiên theo danh sách RESTORE_NODES
+        NUM_RESTORE=${#RESTORE_NODES[@]}
+        IDX=$(( (loop - 1) % NUM_RESTORE ))
+        TARGET_NODE=${RESTORE_NODES[$IDX]}
     fi
 
     echo -e "\n[1/8] ⏳ Kiểm tra điều kiện bắt đầu (Yêu cầu Epoch >= 1)..."
@@ -455,7 +507,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         if [ "$TARGET_NODE" = "0" ]; then
             SPAM_NODE=1
         fi
-        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_gap.log 2>&1 &
+        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE $TPS_CONFIG_ARG > blast_gap.log 2>&1 &
         PID_GAP=$!
 
         START_EPOCH=$(get_current_epoch)
@@ -521,19 +573,37 @@ wait_for_sync_to_highest_block() {
     local target_node=$1
     echo "⏳ Đang chờ Node $target_node đồng bộ tới block cao nhất của mạng (Node 0 làm chuẩn)..."
     
-    # Lấy RPC Port trực tiếp của target node để tránh phụ thuộc vào RPC Proxy
-    local direct_port=8757
-    if [ "$target_node" == "1" ]; then direct_port=10747; fi
-    if [ "$target_node" == "2" ]; then direct_port=10749; fi
-    if [ "$target_node" == "3" ]; then direct_port=10750; fi
-    if [ "$target_node" == "4" ]; then direct_port=10748; fi
+    # Lấy RPC URL của target node:
+    # - multi mode: đọc từ /tmp/rpc_nodes.json (key m<N>)
+    # - single mode: dùng direct port cố định
+    local target_rpc
+    if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
+        target_rpc=$(jq -r ".nodes.m${target_node} // empty" /tmp/rpc_nodes.json 2>/dev/null || echo "")
+        if [ -z "$target_rpc" ]; then
+            target_rpc="$EPOCH_RPC"
+        fi
+    else
+        local direct_port=8757
+        if [ "$target_node" == "1" ]; then direct_port=10747; fi
+        if [ "$target_node" == "2" ]; then direct_port=10749; fi
+        if [ "$target_node" == "3" ]; then direct_port=10750; fi
+        if [ "$target_node" == "4" ]; then direct_port=10748; fi
+        target_rpc="http://127.0.0.1:$direct_port"
+    fi
+    # RPC của Node 0 (chuẩn tham chiếu)
+    local ref_rpc
+    if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
+        ref_rpc=$(jq -r '.nodes.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "$EPOCH_RPC")
+    else
+        ref_rpc="http://127.0.0.1:8757"
+    fi
     
     local max_attempts=600 # 10 phút tối đa
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
-        # Lấy block hiện tại của Node 0
-        local block_hex_0=$(curl -s --max-time 1 -X POST http://127.0.0.1:8757 \
+        # Lấy block hiện tại của Node 0 (tham chiếu)
+        local block_hex_0=$(curl -s --max-time 1 -X POST "$ref_rpc" \
             -H "Content-Type: application/json" \
             -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
             | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -544,7 +614,7 @@ wait_for_sync_to_highest_block() {
         fi
         
         # Lấy block hiện tại của Target Node
-        local block_hex_target=$(curl -s --max-time 1 -X POST http://127.0.0.1:$direct_port \
+        local block_hex_target=$(curl -s --max-time 1 -X POST "$target_rpc" \
             -H "Content-Type: application/json" \
             -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
             | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -628,7 +698,7 @@ wait_for_sync_to_highest_block() {
     
     echo "👉 Bắn giao dịch lên Node vừa hồi phục ($SPAM_NODE_1) (Chạy tuần tự)..."
     # Chạy tuần tự để tránh lỗi Nonce collision. In ra màn hình bằng lệnh tee để dễ theo dõi.
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_1 2>&1 | tee blast_recovered_node.log
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_1 $TPS_CONFIG_ARG 2>&1 | tee blast_recovered_node.log
     
     # Check lỗi nếu lệnh fail
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
@@ -637,7 +707,7 @@ wait_for_sync_to_highest_block() {
     fi
     
     echo "👉 Đổi sang bắn giao dịch qua node khác ($SPAM_NODE_2) (Chạy ngầm)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_2 > blast_other_node.log 2>&1 &
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_2 $TPS_CONFIG_ARG > blast_other_node.log 2>&1 &
     PID_OTH=$!
 
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
