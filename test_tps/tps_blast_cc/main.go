@@ -1133,13 +1133,19 @@ func main() {
 
 		// Build map of expected tx hashes to correctly count only our TXs
 		expectedTxHashes := make(map[string]bool)
+		hashMapping := make(map[string]string)
 		for _, tx := range allTxs {
-			expectedTxHashes[strings.ToLower(tx.txHash.Hex())] = true
+			ethHashLower := strings.ToLower(tx.txHash.Hex())
+			expectedTxHashes[ethHashLower] = true
+			
 			internalTx := &transaction.Transaction{}
 			if err := internalTx.Unmarshal(tx.bytes); err == nil {
-				if ethTx := internalTx.ToEthTransaction(); ethTx != nil {
-					expectedTxHashes[strings.ToLower(ethTx.Hash().Hex())] = true
-				}
+				pbHash := internalTx.Hash()
+				pbHashLower := strings.ToLower(pbHash.Hex())
+				expectedTxHashes[pbHashLower] = true
+				
+				hashMapping[ethHashLower] = pbHashLower
+				hashMapping[pbHashLower] = ethHashLower
 			}
 		}
 
@@ -1247,6 +1253,9 @@ func main() {
 						if expectedTxHashes[txHashLower] {
 							newTxsCount++
 							delete(expectedTxHashes, txHashLower)
+							if otherHash, exists := hashMapping[txHashLower]; exists {
+								delete(expectedTxHashes, otherHash)
+							}
 						}
 					}
 					newTxs += newTxsCount
@@ -1256,7 +1265,7 @@ func main() {
 				}
 			}
 
-			if nextLastBlockNum > lastBlockNum || newTxs > 0 {
+			if newTxs > 0 {
 				lastProgressTime = time.Now()
 			}
 			totalTxsInBlocks += newTxs
@@ -1328,6 +1337,28 @@ func main() {
 		}
 
 		if totalTxsInBlocks < uint64(len(allTxs)) {
+			// Find and print stuck transactions
+			fmt.Printf("\n🔍 [DIAGNOSTIC] Danh sách 10 giao dịch đầu tiên bị kẹt (không có receipt):\n")
+			stuckCount := 0
+			for _, tx := range allTxs {
+				ethHashLower := strings.ToLower(tx.txHash.Hex())
+				if expectedTxHashes[ethHashLower] {
+					pbHash := common.Hash{}
+					internalTx := &transaction.Transaction{}
+					if err := internalTx.Unmarshal(tx.bytes); err == nil {
+						pbHash = internalTx.Hash()
+					}
+					
+					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s\n", 
+						stuckCount+1, tx.txHash.Hex(), pbHash.Hex(), tx.addr)
+					
+					stuckCount++
+					if stuckCount >= 10 {
+						break
+					}
+				}
+			}
+
 			var activeRPCEndpoints []string
 			for _, rc := range rpcPool {
 				activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)

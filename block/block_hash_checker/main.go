@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -117,7 +118,14 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
 
-	triggerStopFlag(fmt.Sprintf("🚨 *CẢNH BÁO ANOMALY: %s*\n• *Block:* #%d\n• *Chi tiết:* %s", anomalyType, blockNum, detail))
+	alertContent := fmt.Sprintf("🚨 *CẢNH BÁO ANOMALY: %s*\n• *Block:* #%d\n• *Chi tiết:* %s", anomalyType, blockNum, detail)
+	if anomalyType == "NODE_LAGGING" {
+		// Chỉ gửi cảnh báo tới Telegram, KHÔNG dừng test và polling
+		sendTelegramAlertDirect(alertContent, false)
+	} else {
+		// Lỗi nghiêm trọng, dừng test và polling
+		triggerStopFlag(alertContent)
+	}
 }
 
 func triggerStopFlag(reason string) {
@@ -128,6 +136,83 @@ func triggerStopFlag(reason string) {
 	err := os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 	if err == nil {
 		logger.Info("\n🛑 ĐÃ KÍCH HOẠT CỜ DỪNG AUTO_TEST (/tmp/MTN_CHAIN_ERROR_STOP)")
+	}
+	sendTelegramAlertDirect(reason, true)
+}
+
+func getSystemIPInfo() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "Unknown"
+	}
+
+	var localIPs []string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					localIPs = append(localIPs, ipnet.IP.String())
+				}
+			}
+		}
+	}
+	localIPStr := "Unknown"
+	if len(localIPs) > 0 {
+		localIPStr = strings.Join(localIPs, ", ")
+	}
+
+	publicIP := "Unknown"
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			publicIP = strings.TrimSpace(string(body))
+		}
+	}
+
+	if publicIP != "Unknown" {
+		return fmt.Sprintf("%s (Static/Private IP: %s, Public IP: %s)", hostname, localIPStr, publicIP)
+	}
+	return fmt.Sprintf("%s (Static/Private IP: %s)", hostname, localIPStr)
+}
+
+func sendTelegramAlertDirect(message string, isCritical bool) {
+	if noStopFlag {
+		return
+	}
+	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	chatID := "-1003867050625"
+	ipInfo := getSystemIPInfo()
+
+	var header string
+	if isCritical {
+		header = "🔴 *[CRITICAL ERROR - DỪNG TEST & POLLING]*"
+	} else {
+		header = "⚠️ *[WARNING - KHÔNG DỪNG TEST & POLLING]*"
+	}
+
+	fullMessage := fmt.Sprintf("%s\n\n*Server:* `%s`\n\n%s", header, ipInfo, message)
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	payload := map[string]string{
+		"chat_id":    chatID,
+		"text":       fullMessage,
+		"parse_mode": "Markdown",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert, status code: %d\n", resp.StatusCode)
 	}
 }
 
