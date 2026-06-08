@@ -270,7 +270,8 @@ def main():
                         if len(tail_logs) > 1500:
                             tail_logs = tail_logs[-1500:]
 
-                        msg = f"❌ *[SPAM XAPIAN]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n"
+                        status_str = "🛑 *TRẠNG THÁI:* PIPELINE ĐÃ DỪNG HOÀN TOÀN (STOPPED)!" if no_listen else "⚠️ *TRẠNG THÁI:* TIẾP TỤC MONITOR COMMIT MỚI (STILL RUNNING)..."
+                        msg = f"❌ *[SPAM XAPIAN]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n{status_str}\n\n"
                         if err_details:
                             msg += f"🚨 *Lỗi phát hiện:*\n```\n{err_details}\n```\n\n"
                             

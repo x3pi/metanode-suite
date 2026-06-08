@@ -553,6 +553,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		sb.WriteString("==================================================\n")
 		sb.WriteString("🚨 LỖI LỊCH SỬ STATE (CHẾ ĐỘ CHẠY LIÊN TỤC)\n")
 		sb.WriteString(fmt.Sprintf("⏰ Thời gian: %s\n", time.Now().Format(time.RFC3339)))
+		sb.WriteString(fmt.Sprintf("📍 Địa chỉ ví kiểm tra: %s\n", fromAddress.Hex()))
 		sb.WriteString(fmt.Sprintf("📍 Mốc Block A: %d\n", blockA))
 		sb.WriteString(fmt.Sprintf("📍 Mốc Block B: %d\n", blockB))
 		sb.WriteString("==================================================\n")
@@ -560,6 +561,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 			sb.WriteString(fmt.Sprintf("- %s\n", det))
 		}
 		sb.WriteString(queryAllRPCsAndGenerateReport(fc.urls, fromAddress, blockA))
+		sb.WriteString(generateManualCurlCommands(fc.urls, fromAddress, blockAHex, blockBHex, blockA, blockB))
 		sb.WriteString("==================================================\n")
 		reason := sb.String()
 		os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
@@ -700,7 +702,13 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		}
 
 		if nodeHasError {
-			reason := fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s (Node %s):\n%s", u, nodeNum, strings.Join(nodeErrDetails, "\n"))
+			var sbNode strings.Builder
+			sbNode.WriteString(fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s (Node %s):\n", u, nodeNum))
+			sbNode.WriteString(fmt.Sprintf("📍 Địa chỉ ví kiểm tra: %s\n", fromAddress.Hex()))
+			sbNode.WriteString(fmt.Sprintf("📍 Mốc Block A: %d | Block B: %d\n", blockA, blockB))
+			sbNode.WriteString(strings.Join(nodeErrDetails, "\n") + "\n")
+			sbNode.WriteString(generateManualCurlCommands(fc.urls, fromAddress, blockAHex, blockBHex, blockA, blockB))
+			reason := sbNode.String()
 			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 			appendLocalErrorLog(reason)
 			fmt.Printf("   %s\n", reason)
@@ -751,6 +759,27 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 			u, tempBalance.String(), tempAccountState.Balance, tempNonce, tempAccountState.Nonce))
 	}
 	sb.WriteString("       ------------------------------------------------------------------------------------------------------\n")
+	return sb.String()
+}
+
+func generateManualCurlCommands(urls []string, address common.Address, blockAHex, blockBHex string, blockA, blockB uint64) string {
+	var sb strings.Builder
+	sb.WriteString("\n🖥️  LỆNH CURL TRUY VẤN THỦ CÔNG (COPY-PASTE ĐỂ KIỂM TRA):\n")
+	for _, u := range urls {
+		sb.WriteString(fmt.Sprintf("   🌐 Node RPC: %s\n", u))
+		sb.WriteString(fmt.Sprintf("      # eth_getBalance tại Block A (%d):\n", blockA))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBalance\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockAHex, u))
+		sb.WriteString(fmt.Sprintf("      # eth_getBalance tại Block B (%d):\n", blockB))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBalance\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockBHex, u))
+		sb.WriteString(fmt.Sprintf("      # eth_getTransactionCount tại Block A (%d):\n", blockA))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionCount\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockAHex, u))
+		sb.WriteString(fmt.Sprintf("      # eth_getTransactionCount tại Block B (%d):\n", blockB))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionCount\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockBHex, u))
+		sb.WriteString(fmt.Sprintf("      # mtn_getAccountState tại Block A (%d):\n", blockA))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"mtn_getAccountState\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockAHex, u))
+		sb.WriteString(fmt.Sprintf("      # mtn_getAccountState tại Block B (%d):\n", blockB))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"mtn_getAccountState\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockBHex, u))
+	}
 	return sb.String()
 }
 
@@ -1229,6 +1258,8 @@ func main() {
 						errStr.WriteString(fmt.Sprintf("    * %s\n", det))
 					}
 					errStr.WriteString(queryAllRPCsAndGenerateReport(urls, fromAddr, cp.BlockA))
+					blockAHexTmp := hexutil.EncodeUint64(cp.BlockA)
+					errStr.WriteString(generateManualCurlCommands(urls, fromAddr, blockAHexTmp, latestBlockHex, cp.BlockA, latestBlock))
 					allErrDetails = append(allErrDetails, errStr.String())
 					hasGlobalError = true
 				}

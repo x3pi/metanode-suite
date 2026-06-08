@@ -1133,13 +1133,19 @@ func main() {
 
 		// Build map of expected tx hashes to correctly count only our TXs
 		expectedTxHashes := make(map[string]bool)
+		hashMapping := make(map[string]string)
 		for _, tx := range allTxs {
-			expectedTxHashes[strings.ToLower(tx.txHash.Hex())] = true
+			ethHashLower := strings.ToLower(tx.txHash.Hex())
+			expectedTxHashes[ethHashLower] = true
+			
 			internalTx := &transaction.Transaction{}
 			if err := internalTx.Unmarshal(tx.bytes); err == nil {
-				if ethTx := internalTx.ToEthTransaction(); ethTx != nil {
-					expectedTxHashes[strings.ToLower(ethTx.Hash().Hex())] = true
-				}
+				pbHash := internalTx.Hash()
+				pbHashLower := strings.ToLower(pbHash.Hex())
+				expectedTxHashes[pbHashLower] = true
+				
+				hashMapping[ethHashLower] = pbHashLower
+				hashMapping[pbHashLower] = ethHashLower
 			}
 		}
 
@@ -1147,6 +1153,8 @@ func main() {
 		lastBlockNum := startBlock
 		totalTxsInBlocks := uint64(0)
 		seenAnyTx := false
+		var firstTxBlockTime time.Time
+		var lastTxBlockTime time.Time
 
 		epochWaitStart := time.Now()
 		startEpoch := startEpochBeforeBlast
@@ -1276,6 +1284,9 @@ func main() {
 						if expectedTxHashes[txHashLower] {
 							newTxsCount++
 							delete(expectedTxHashes, txHashLower)
+							if otherHash, exists := hashMapping[txHashLower]; exists {
+								delete(expectedTxHashes, otherHash)
+							}
 						}
 					}
 					newTxs += newTxsCount
@@ -1292,7 +1303,10 @@ func main() {
 			lastBlockNum = nextLastBlockNum
 
 			if newTxs > 0 {
-				seenAnyTx = true
+				if !seenAnyTx {
+					firstTxBlockTime = time.Now()
+					seenAnyTx = true
+				}
 			}
 
 			pct := float64(totalTxsInBlocks) / float64(len(allTxs)) * 100
@@ -1314,6 +1328,7 @@ func main() {
 
 			// Stop immediately when all TXs confirmed
 			if totalTxsInBlocks >= uint64(len(allTxs)) {
+				lastTxBlockTime = time.Now()
 				if !processStart.IsZero() {
 					processingDuration = time.Since(processStart)
 				} else {
@@ -1353,6 +1368,28 @@ func main() {
 		}
 
 		if totalTxsInBlocks < uint64(len(allTxs)) {
+			// Find and print stuck transactions
+			fmt.Printf("\n🔍 [DIAGNOSTIC] Danh sách 10 giao dịch đầu tiên bị kẹt (không có receipt):\n")
+			stuckCount := 0
+			for _, tx := range allTxs {
+				ethHashLower := strings.ToLower(tx.txHash.Hex())
+				if expectedTxHashes[ethHashLower] {
+					pbHash := common.Hash{}
+					internalTx := &transaction.Transaction{}
+					if err := internalTx.Unmarshal(tx.bytes); err == nil {
+						pbHash = internalTx.Hash()
+					}
+					
+					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s\n", 
+						stuckCount+1, tx.txHash.Hex(), pbHash.Hex(), tx.addr)
+					
+					stuckCount++
+					if stuckCount >= 10 {
+						break
+					}
+				}
+			}
+
 			var activeRPCEndpoints []string
 			for _, rc := range rpcPool {
 				activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
@@ -1390,8 +1427,17 @@ func main() {
 			}
 		}
 
-		totalDuration := blastDuration + processingDuration
+		totalDuration := time.Since(blastStart)
 		processingTPS := float64(totalTxsInBlocks) / totalDuration.Seconds()
+
+		var onChainDuration time.Duration
+		var onChainTPS float64
+		if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
+			onChainDuration = lastTxBlockTime.Sub(firstTxBlockTime)
+			if onChainDuration > 0 {
+				onChainTPS = float64(totalTxsInBlocks) / onChainDuration.Seconds()
+			}
+		}
 		allRoundTPS = append(allRoundTPS, processingTPS)
 
 		if startEpochBeforeBlast != 0 && endEpoch != 0 && startEpochBeforeBlast != endEpoch {
@@ -1436,6 +1482,12 @@ func main() {
 		fmt.Printf("  📥 TX in blocks:         %d\n", totalTxsInBlocks)
 		fmt.Printf("  📊 End-to-End TPS:       ~%.0f tx/s\n", processingTPS)
 		fmt.Printf("  ⏱️  End-to-End time:      %s\n", totalDuration.Round(time.Millisecond))
+		if onChainDuration > 0 {
+			fmt.Printf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTPS)
+			fmt.Printf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond))
+		} else {
+			fmt.Printf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n")
+		}
 		fmt.Printf("  ─────────────────────────────────────────────────\n")
 		fmt.Printf("  📦 BLOCK STATISTICS (Blocks %d to %d)\n", startBlock, endBlock)
 		fmt.Printf("  🧊 Total Blocks:         %d\n", blockCount)
