@@ -61,7 +61,7 @@ fi
 # Xóa cờ lỗi cũ trước khi chạy
 rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
 
-# Theo dõi cờ lỗi từ Hash Checker ngầm
+# Theo dõi cờ lỗi từ Hash Checker ngầm & Giám sát sự sống của Node
 monitor_error_flag() {
     while true; do
         if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
@@ -75,6 +75,45 @@ monitor_error_flag() {
             kill -TERM -$$
             exit 1
         fi
+        
+        # Kiểm tra sự sống của các node
+        if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
+            if [ -f /tmp/rpc_nodes.json ]; then
+                while read -r node_key node_url; do
+                    local node_id="${node_key#m}"
+                    local is_excluded=false
+                    if [ -f /tmp/MTN_EXCLUDE_NODES ]; then
+                        if grep -qE "(^|,)${node_id}(,|$)" /tmp/MTN_EXCLUDE_NODES; then
+                            is_excluded=true
+                        fi
+                    fi
+                    if [ "$is_excluded" = false ]; then
+                        if ! curl -s -m 2 "$node_url" >/dev/null 2>&1; then
+                            echo "Node HTTP Server ($node_key: $node_url) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                            break
+                        fi
+                    fi
+                done < <(jq -r '.nodes | to_entries[] | "\(.key) \(.value)"' /tmp/rpc_nodes.json 2>/dev/null || true)
+            fi
+        else
+            local ports=(8757 10747 10749 10750 10748)
+            for node_id in 0 1 2 3 4; do
+                local is_excluded=false
+                if [ -f /tmp/MTN_EXCLUDE_NODES ]; then
+                    if grep -qE "(^|,)${node_id}(,|$)" /tmp/MTN_EXCLUDE_NODES; then
+                        is_excluded=true
+                    fi
+                fi
+                if [ "$is_excluded" = false ]; then
+                    local port="${ports[$node_id]}"
+                    if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
+                        echo "Node HTTP Server (Node $node_id tại cổng $port) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                        break
+                    fi
+                fi
+            done
+        fi
+        
         sleep 2
     done
 }
