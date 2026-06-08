@@ -25,7 +25,7 @@ RPC_CLIENT_DIR="$METANODE_DIR/execution/cmd/rpc/cmd/rpc-client"
 # Cấu hình danh sách các bước cụ thể để chạy (mặc định = chạy tất cả)
 STEPS_TO_RUN=""
 # Cấu hình chế độ deploy (mặc định là single)
-DEPLOY_MODE="single"
+export DEPLOY_MODE="single"
 BATCH_SIZE=""
 
 # Nhận tham số truyền vào từ command line (VD: ./auto_test.sh --steps "2,4,5" --mode multi)
@@ -137,134 +137,32 @@ echo "💡 Usage: ./auto_test.sh [--step|--steps \"2,4,5\"] [--mode single|multi
 echo "=================================================="
 
 # ----------------------------------------------------
-# INIT: Kiểm tra và mount phân vùng BTRFS LVM
+# BƯỚC 1, 2, 2.5: Setup Chain (BTRFS, Genesis, Deploy, RPC Proxy)
 # ----------------------------------------------------
-echo "📌 Đang kiểm tra mount point BTRFS cho database..."
-if ! mountpoint -q "$METANODE_DIR/execution/cmd/simple_chain/sample" 2>/dev/null; then
-    echo "  -> Phân vùng chưa được mount, đang tìm migrate-to-btrfs-lvm.sh..."
-    # Dùng lệnh chạy bình thường không đưa vào run_and_capture vì sudo sẽ yêu cầu gõ password trực tiếp trên terminal
-    if [ -f "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh" ]; then
-        echo "  -> Đang chạy migrate-to-btrfs-lvm.sh (có thể yêu cầu sudo)..."
-        bash "$METANODE_DIR/execution/cmd/simple_chain/migrate-to-btrfs-lvm.sh"
-        if [ $? -ne 0 ]; then
-            echo "❌ Lỗi khi chạy migrate-to-btrfs-lvm.sh!"
-            exit 1
-        fi
-    else
-        echo "  -> File migrate-to-btrfs-lvm.sh không tồn tại. Bỏ qua bước mount BTRFS."
-    fi
-else
-    echo "  -> Phân vùng BTRFS đã được mount sẵn."
-fi
-
-# ----------------------------------------------------
-# BƯỚC 1: Xóa genesis cũ và tạo file genesis mới
-# ----------------------------------------------------
-if should_run 1; then
+if should_run 1 || should_run 2; then
     echo ""
-    echo "📌 BƯỚC 1: Prepare Genesis & Gen Spam Keys..."
-    cd "$METANODE_DIR/execution/cmd/simple_chain"
-    echo "  -> Xóa genesis.json và copy từ genesis-main.json..."
-    rm -f genesis.json
-    cp genesis-main.json genesis.json
-
-    cd "$TOOL_TEST_DIR/test_tps/gen_spam_keys"
-    echo "  -> Chạy Gen Spam Keys (count 50000)..."
-    run_and_capture "Gen Spam Keys (Bước 1)" go run main.go --count 50000 --genesis-in "$METANODE_DIR/execution/cmd/simple_chain/genesis-main.json" --genesis-out "$METANODE_DIR/execution/cmd/simple_chain/genesis.json"
-fi
-
-# ----------------------------------------------------
-# BƯỚC 2: Triển khai Cụm
-# ----------------------------------------------------
-if should_run 2; then
-    echo ""
-    echo "📌 BƯỚC 2: Triển khai cụm Cluster (deploy_cluster.sh)..."
-    if [ "$DEPLOY_MODE" == "single" ]; then
-        cd "$METANODE_SCRIPT_DIR/.."
-        run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
-    else
-        cd "$METANODE_SCRIPT_DIR"
-        run_and_capture "Deploy Cluster Single (Bước 2)" ./deploy_cluster.sh --env deploy-3machines.env --all
-    fi
-
-    # Đợi 1 chút để các HTTP server start up hoàn toàn
-    sleep 5
-fi
-
-# ----------------------------------------------------
-# BƯỚC 2.5: Bật RPC Proxy
-# ----------------------------------------------------
-if should_run 2; then
-    echo ""
-    echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node..."
-    cd "$RPC_CLIENT_DIR"
+    echo "📌 BƯỚC 1 & 2: Chạy setup_chain.sh (bao gồm BTRFS, Genesis, Deploy và bật RPC Proxy)..."
+    export DEPLOY_MODE="$DEPLOY_MODE"
+    bash "$TOOL_TEST_DIR/scripts/setup/setup_chain.sh"
     
-    # Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
-    echo "  -> Khởi tạo lại TLS cert/key..."
-    rm -f certificate.pem private.key certificate.csr
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out certificate.pem -subj "/CN=localhost" 2>/dev/null
-
-    # Dọn dẹp session và tiến trình cũ nếu có
-    tmux kill-session -t rpc-proxy 2>/dev/null || true
-    pkill -f "go run main.go --config config-rpc-node" || true
-    pkill -f "exe/main --config config-rpc-node" || true
-
-    # Khởi động từng RPC Proxy cho 5 node
-    declare -A NODE_PORTS=( [0]=8545 [1]=8547 [2]=8548 [3]=8549 [4]=8550 )
-
-    for node_id in 0 1 2 3 4; do
-        port=${NODE_PORTS[$node_id]}
-        echo "  -> Đang kiểm tra RPC Proxy Node $node_id ở port $port..."
-        if ! curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
-            echo "     -> RPC Proxy Node $node_id chưa bật, đang khởi động..."
-            tmux kill-session -t rpc-proxy-$node_id 2>/dev/null || true
-            pkill -f "config-rpc-node$node_id.json" || true
-            tmux new-session -d -s rpc-proxy-$node_id "go run main.go --config config-rpc-node$node_id.json --tcp-config config-client-tcp-node$node_id.json"
-            
-            # Đợi khởi động (tối đa 50s để tránh lỗi timeout do biên dịch 'go run')
-            for i in {1..50}; do
-                if curl -s http://127.0.0.1:$port -m 1 > /dev/null; then
-                    break
-                fi
-                sleep 1
-            done
-            
-            # Kiểm tra lại xem đã lên chưa
-            if ! curl -s http://127.0.0.1:$port -m 2 > /dev/null; then
-                echo "     ❌ Khởi động RPC Proxy Node $node_id thất bại!"
-                echo "     📄 Tmux Pane Output:"
-                echo "--------------------------------------------------"
-                tmux capture-pane -p -t rpc-proxy-$node_id || echo "Cannot capture tmux pane"
-                echo "--------------------------------------------------"
-                
-                # Tìm file log mới nhất trong node{node_id}_data/logs
-                LATEST_LOG=$(find "$RPC_CLIENT_DIR" -maxdepth 3 -path "*/node${node_id}_data/logs/*.log" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
-                if [ -n "$LATEST_LOG" ]; then
-                    echo "     📄 File log: $LATEST_LOG"
-                    echo "--------------------------------------------------"
-                    tail -n 30 "$LATEST_LOG"
-                    echo "--------------------------------------------------"
-                else
-                    echo "     ⚠️ Không tìm thấy file log nào trong $RPC_CLIENT_DIR/node${node_id}_data/logs/"
-                fi
-                exit 1
-            else
-                echo "     ✅ RPC Proxy Node $node_id đã khởi động thành công ở port $port."
-            fi
-        else
-            echo "     ✅ RPC Proxy Node $node_id đã hoạt động ở port $port."
-        fi
-    done
+    if [ $? -ne 0 ]; then
+        echo "❌ Lỗi khi chạy setup_chain.sh"
+        exit 1
+    fi
 fi
 
-# ----------------------------------------------------
+
 # BẬT GIÁM SÁT LỆCH HASH & LỊCH SỬ STATE (CHẠY NGẦM)
 # ----------------------------------------------------
 echo ""
 echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
 (
     cd "$TOOL_TEST_DIR/block/block_hash_checker"
-    go run main.go --watch --interval 200ms > block_hash_checker_auto.log 2>&1
+    if [ "$DEPLOY_MODE" == "single" ]; then
+        go run main.go --watch --interval 200ms > block_hash_checker_auto.log 2>&1
+    else
+        go run main.go --watch --interval 5s --config config-m-nodes.json > block_hash_checker_auto.log 2>&1
+    fi
     if grep -q "bị lệch hash" block_hash_checker_auto.log; then
         echo -e "\n\n🚨 Phân tích từ log: Phát hiện blocks bị lệch hash!"
         echo -e "🚨🚨🚨 PHÁT HIỆN LỆCH HASH! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
@@ -276,11 +174,49 @@ CHECKER_PID=$!
 echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
 (
     cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-    go run main.go -config=config-local.json -wait 5 -loop > history_checker_auto.log 2>&1
+    if [ "$DEPLOY_MODE" == "multi" ]; then
+        go run main.go -config=config-mutil.json -wait 5 -loop > history_checker_auto.log 2>&1
+    else
+        go run main.go -config=config-local.json -wait 5 -loop > history_checker_auto.log 2>&1
+    fi
 ) &
 HISTORY_PID=$!
 
-trap "disown $CHECKER_PID $HISTORY_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true; pkill -f 'config-local.json.*-loop' || true; pkill -f 'config-local.json.*-wait' || true" EXIT
+echo "📌 BẬT GIÁM SÁT SỰ SỐNG CỦA NODE NGẦM (Node Health Checker)..."
+(
+    while true; do
+        sleep 10
+        if [ "$DEPLOY_MODE" == "multi" ]; then
+            RPC_JSON_PATH="/tmp/rpc_nodes.json"
+            if [ -f "$RPC_JSON_PATH" ]; then
+                # Đọc các URL RPC từ file JSON
+                urls=$(grep -oE 'http://[^"]+' "$RPC_JSON_PATH" 2>/dev/null || true)
+                for url in $urls; do
+                    if ! curl -s -m 2 "$url" >/dev/null 2>&1; then
+                        echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI $url! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
+                        echo "Node HTTP Server ($url) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                        kill -TERM -$$ 2>/dev/null || kill -TERM $$
+                        exit 1
+                    fi
+                done
+            fi
+        else
+            # Chế độ single (local mode)
+            PORTS=(8757 10747 10749 10750 10748)
+            for port in "${PORTS[@]}"; do
+                if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
+                    echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI CỔNG $port! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
+                    echo "Node HTTP Server (cổng $port) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                    kill -TERM -$$ 2>/dev/null || kill -TERM $$
+                    exit 1
+                fi
+            done
+        fi
+    done
+) &
+HEALTH_PID=$!
+
+trap "disown $CHECKER_PID $HISTORY_PID $HEALTH_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID $HEALTH_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true; pkill -f 'config-local.json.*-loop' || true; pkill -f 'config-local.json.*-wait' || true" EXIT
 
 
 # ----------------------------------------------------
@@ -349,7 +285,7 @@ if should_run 8; then
     if [ "$DEPLOY_MODE" == "single" ]; then
         run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
     else
-        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch="${BATCH_SIZE:-500}" --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 30 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
     fi
 fi
 

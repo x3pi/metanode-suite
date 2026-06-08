@@ -72,8 +72,21 @@ def send_telegram_message(message):
             'parse_mode': 'Markdown'
         }).encode('utf-8')
         req = urllib.request.Request(url, data=data)
-        with urllib.request.urlopen(req, timeout=10) as response:
-            pass
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                pass
+        except Exception as e:
+            if getattr(e, 'code', None) == 400:
+                # Fallback to plain text
+                data_plain = urllib.parse.urlencode({
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': message.replace('```', '')  # Loại bỏ backtick ảo nếu bị fallback
+                }).encode('utf-8')
+                req_plain = urllib.request.Request(url, data=data_plain)
+                with urllib.request.urlopen(req_plain, timeout=10) as response_plain:
+                    pass
+            else:
+                raise e
     except Exception as e:
         print(f"[{datetime.datetime.now()}] ⚠️ Error sending telegram message: {e}")
 
@@ -269,14 +282,15 @@ def main():
                                 with open(log_file, "r", errors="replace") as f:
                                     lines = f.readlines()
                                     tail_logs = "".join(lines[-50:])
-                                    if len(tail_logs) > 3800:
-                                        tail_logs = tail_logs[-3800:]
+                                    if len(tail_logs) > 3000:
+                                        tail_logs = tail_logs[-3000:]
                         except Exception as e:
                             print(f"Lỗi đọc log: {e}")
 
                         server_info = get_server_ip_info()
                         real_code = exit_code if exit_code > 0 else "0 (lỗi phát hiện qua log/sentinel)"
-                        msg = f"❌ *[SNAPSHOT TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
+                        status_str = "🛑 *TRẠNG THÁI:* PIPELINE ĐÃ DỪNG HOÀN TOÀN (STOPPED)!" if no_listen else "⚠️ *TRẠNG THÁI:* TIẾP TỤC MONITOR COMMIT MỚI (STILL RUNNING)..."
+                        msg = f"❌ *[SNAPSHOT TEST]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n{status_str}\n\n📄 *Trích xuất log cuối:*\n```\n{tail_logs}\n```\n\nHãy kiểm tra log chi tiết trên Server."
                         send_telegram_message(msg)
                     else:
                         server_info = get_server_ip_info()

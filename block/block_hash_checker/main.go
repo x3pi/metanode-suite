@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -117,7 +118,14 @@ func logAnomaly(anomalyType string, blockNum uint64, detail string) {
 	// In ra terminal
 	logger.Info("\n🚨 " + msg)
 
-	triggerStopFlag(fmt.Sprintf("🚨 *CẢNH BÁO ANOMALY: %s*\n• *Block:* #%d\n• *Chi tiết:* %s", anomalyType, blockNum, detail))
+	alertContent := fmt.Sprintf("🚨 *CẢNH BÁO ANOMALY: %s*\n• *Block:* #%d\n• *Chi tiết:* %s", anomalyType, blockNum, detail)
+	if anomalyType == "NODE_LAGGING" {
+		// Chỉ gửi cảnh báo tới Telegram, KHÔNG dừng test và polling
+		sendTelegramAlertDirect(alertContent, false)
+	} else {
+		// Lỗi nghiêm trọng, dừng test và polling
+		triggerStopFlag(alertContent)
+	}
 }
 
 func triggerStopFlag(reason string) {
@@ -128,6 +136,83 @@ func triggerStopFlag(reason string) {
 	err := os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 	if err == nil {
 		logger.Info("\n🛑 ĐÃ KÍCH HOẠT CỜ DỪNG AUTO_TEST (/tmp/MTN_CHAIN_ERROR_STOP)")
+	}
+	sendTelegramAlertDirect(reason, true)
+}
+
+func getSystemIPInfo() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "Unknown"
+	}
+
+	var localIPs []string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					localIPs = append(localIPs, ipnet.IP.String())
+				}
+			}
+		}
+	}
+	localIPStr := "Unknown"
+	if len(localIPs) > 0 {
+		localIPStr = strings.Join(localIPs, ", ")
+	}
+
+	publicIP := "Unknown"
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			publicIP = strings.TrimSpace(string(body))
+		}
+	}
+
+	if publicIP != "Unknown" {
+		return fmt.Sprintf("%s (Static/Private IP: %s, Public IP: %s)", hostname, localIPStr, publicIP)
+	}
+	return fmt.Sprintf("%s (Static/Private IP: %s)", hostname, localIPStr)
+}
+
+func sendTelegramAlertDirect(message string, isCritical bool) {
+	if noStopFlag {
+		return
+	}
+	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	chatID := "-1003867050625"
+	ipInfo := getSystemIPInfo()
+
+	var header string
+	if isCritical {
+		header = "🔴 *[CRITICAL ERROR - DỪNG TEST & POLLING]*"
+	} else {
+		header = "⚠️ *[WARNING - KHÔNG DỪNG TEST & POLLING]*"
+	}
+
+	fullMessage := fmt.Sprintf("%s\n\n*Server:* `%s`\n\n%s", header, ipInfo, message)
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	payload := map[string]string{
+		"chat_id":    chatID,
+		"text":       fullMessage,
+		"parse_mode": "Markdown",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		fmt.Printf("⚠️ Lỗi gửi Telegram alert, status code: %d\n", resp.StatusCode)
 	}
 }
 
@@ -232,6 +317,7 @@ type mismatch struct {
 
 func main() {
 	nodesFlag := flag.String("nodes", "", `Danh sách node, format: "name=url,name2=url2"`)
+	configFlag := flag.String("config", "config.json", "Đường dẫn file cấu hình JSON")
 	fromBlock := flag.Uint64("from", 1, "Block bắt đầu kiểm tra")
 	toBlock := flag.Uint64("to", 0, "Block kết thúc (0 = lấy block mới nhất)")
 	batchSize := flag.Int("batch", 50, "Số block kiểm tra song song mỗi lần")
@@ -239,14 +325,14 @@ func main() {
 	watchMode := flag.Bool("watch", true, "Chế độ giám sát liên tục — kiểm tra block mới nhất định kỳ")
 	watchInterval := flag.Duration("interval", 2*time.Second, "Khoảng thời gian giữa mỗi lần check (watch mode)")
 	lagThreshold := flag.Int("lag-threshold", 1000, "Ngưỡng chênh lệch block để kích hoạt cảnh báo NODE_LAGGING (0 = disable)")
-	noStop := flag.Bool("no-stop-flag", true, "Không ghi /tmp/MTN_CHAIN_ERROR_STOP và không os.Exit khi phát hiện lệch hash (chỉ log, không báo Telegram/CI)")
+	noStop := flag.Bool("no-stop-flag", false, "Không ghi /tmp/MTN_CHAIN_ERROR_STOP và không os.Exit khi phát hiện lệch hash (chỉ log, không báo Telegram/CI)")
 	flag.Parse()
 
 	// Apply global flag
 	noStopFlag = *noStop
 
 	if *nodesFlag == "" {
-		configData, err := os.ReadFile("config.json")
+		configData, err := os.ReadFile(*configFlag)
 		if err == nil {
 			var config struct {
 				NodesRaw json.RawMessage `json:"nodes"`
@@ -271,13 +357,13 @@ func main() {
 					}
 				}
 				if *nodesFlag != "" {
-					fmt.Printf("📂 Load nodes từ config.json (%d nodes)\n", len(strings.Split(*nodesFlag, ",")))
+					fmt.Printf("📂 Load nodes từ %s (%d nodes)\n", *configFlag, len(strings.Split(*nodesFlag, ",")))
 				}
 			}
 		}
 
 		if *nodesFlag == "" {
-			fmt.Println("❌ Thiếu --nodes flag và không tìm thấy cấu hình hợp lệ trong config.json")
+			fmt.Printf("❌ Thiếu --nodes flag và không tìm thấy cấu hình hợp lệ trong %s\n", *configFlag)
 			fmt.Println()
 			fmt.Println("Cách dùng:")
 			fmt.Println(`  # Quét 1 lần:`)
@@ -773,11 +859,11 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 					errCount = 0
 				}
 
-				if errCount == 10 { // Alert after 10 consecutive real errors (e.g. connection refused)
-					logAnomaly("NODE_DOWN", r.blockNum,
-						fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 10 blocks! Lỗi: %s",
-							node.Name, bi.Error))
-				}
+				// if errCount == 10 { // Alert after 10 consecutive real errors (e.g. connection refused)
+				// 	logAnomaly("NODE_DOWN", r.blockNum,
+				// 		fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 10 blocks! Lỗi: %s",
+				// 			node.Name, bi.Error))
+				// }
 				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true, ConsecutiveErrors: errCount}
 				continue
 			}
@@ -1717,8 +1803,14 @@ func watchOnce(client *http.Client, nodes []nodeInfo, totalChecks, totalMismatch
 			fmt.Printf(" ⚠️ CHÊNH %d blocks!", diff)
 			// Trigger Telegram alert if diff is huge (e.g. > lag-threshold blocks)
 			if lagThreshold > 0 && diff > uint64(lagThreshold) {
+				var laggingNodes []string
+				for _, r := range results {
+					if r.err == nil && maxBlock-r.block >= uint64(lagThreshold) {
+						laggingNodes = append(laggingNodes, fmt.Sprintf("%s(%d)", r.name, r.block))
+					}
+				}
 				logAnomaly("NODE_LAGGING", minBlock,
-					fmt.Sprintf("Một số node đang bị tụt lại quá xa (chênh lệch %d blocks giữa max và min).", diff))
+					fmt.Sprintf("Node %s đang bị tụt lại quá xa so với đỉnh (chênh lệch %d blocks giữa max và min). Chi tiết tất cả nodes: %s", strings.Join(laggingNodes, ", "), diff, strings.Join(heightParts, "  ")))
 			}
 		}
 	}

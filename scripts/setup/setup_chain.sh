@@ -25,7 +25,7 @@ METANODE_SCRIPT_DIR="$METANODE_DIR/consensus/metanode/scripts/node"
 RPC_CLIENT_DIR="$METANODE_DIR/execution/cmd/rpc/cmd/rpc-client"
 
 # Cấu hình chế độ deploy (mặc định là single)
-DEPLOY_MODE="single"
+DEPLOY_MODE="${DEPLOY_MODE:-single}"
 
 # ----------------------------------------------------
 # HÀM XỬ LÝ LỖI & TẠO REPORT
@@ -129,7 +129,7 @@ if [ "$DEPLOY_MODE" == "single" ]; then
     run_and_capture "Deploy Cluster Mạng Lớn (Bước 2)" ./mtn-orchestrator.sh restart --fresh --build-all
 else
     cd "$METANODE_SCRIPT_DIR"
-    run_and_capture "Deploy Cluster Single (Bước 2)" ./deploy_cluster.sh --env deploy-3machines.env --all
+    run_and_capture "Deploy Cluster Multi (Bước 2)" ./deploy_systemd_cluster.sh --env deploy-muti-node.env --all
 fi
 
 # Chờ động các HTTP server của cả 5 node sẵn sàng hoàn toàn
@@ -153,14 +153,15 @@ wait_for_nodes_http() {
     echo "⚠️ Cảnh báo: Một số node HTTP server chưa phản hồi sau 60 giây!"
     return 1
 }
-wait_for_nodes_http
 
 # ----------------------------------------------------
-# BƯỚC 2.5: Bật RPC Proxy (Cả 5 node)
+# BƯỚC 2.5: Bật RPC Proxy (Cả 5 node - Chỉ chạy trên local)
 # ----------------------------------------------------
-echo ""
-echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node..."
-cd "$RPC_CLIENT_DIR"
+if [ "$DEPLOY_MODE" == "single" ]; then
+wait_for_nodes_http
+    echo ""
+    echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node (Local mode)..."
+    cd "$RPC_CLIENT_DIR"
 
 # Luôn khởi tạo lại TLS cert/key mới để đảm bảo tính đồng bộ khớp khóa
 echo "  -> Khởi tạo lại TLS cert/key..."
@@ -230,3 +231,7 @@ for node_id in 0 1 2 3 4; do
         echo "     ✅ RPC Proxy Node $node_id đã khởi động thành công."
     fi
 done
+else
+    echo ""
+    echo "📌 BƯỚC 2.5: Bỏ qua khởi động RPC Proxy local (Multi mode - RPC đã được bật trên các node từ xa)"
+fi

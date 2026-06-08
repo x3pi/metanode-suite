@@ -73,8 +73,21 @@ def send_telegram_message(message):
             'parse_mode': 'Markdown'
         }).encode('utf-8')
         req = urllib.request.Request(url, data=data)
-        with urllib.request.urlopen(req, timeout=10) as response:
-            pass
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                pass
+        except Exception as e:
+            if getattr(e, 'code', None) == 400:
+                # Fallback to plain text
+                data_plain = urllib.parse.urlencode({
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': message.replace('```', '')  # Loại bỏ backtick ảo nếu bị fallback
+                }).encode('utf-8')
+                req_plain = urllib.request.Request(url, data=data_plain)
+                with urllib.request.urlopen(req_plain, timeout=10) as response_plain:
+                    pass
+            else:
+                raise e
     except Exception as e:
         print(f"[{datetime.datetime.now()}] ⚠️ Error sending telegram message: {e}")
 
@@ -240,8 +253,8 @@ def main():
                         if os.path.exists(log_file):
                             with open(log_file, "r", errors="replace") as f:
                                 tail_logs = "".join(f.readlines()[-50:])
-                                if len(tail_logs) > 3800:
-                                    tail_logs = tail_logs[-3800:]
+                                if len(tail_logs) > 3000:
+                                    tail_logs = tail_logs[-3000:]
 
                         err_details = ""
                         if os.path.exists("/tmp/MTN_CHAIN_ERROR_STOP"):
@@ -257,7 +270,8 @@ def main():
                         if len(tail_logs) > 1500:
                             tail_logs = tail_logs[-1500:]
 
-                        msg = f"❌ *[SPAM XAPIAN]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n"
+                        status_str = "🛑 *TRẠNG THÁI:* PIPELINE ĐÃ DỪNG HOÀN TOÀN (STOPPED)!" if no_listen else "⚠️ *TRẠNG THÁI:* TIẾP TỤC MONITOR COMMIT MỚI (STILL RUNNING)..."
+                        msg = f"❌ *[SPAM XAPIAN]* CẢNH BÁO LỖI PIPELINE!\n\n*Server:* `{server_info}`\nBài test (Commit: `{commit_short}`) THẤT BẠI (Exit Code: `{real_code}`).\n\n{status_str}\n\n"
                         if err_details:
                             msg += f"🚨 *Lỗi phát hiện:*\n```\n{err_details}\n```\n\n"
                             

@@ -105,9 +105,6 @@ func isExcluded(url string, excludeStr string) bool {
 		if p == "" {
 			continue
 		}
-		if strings.Contains(url, p) {
-			return true
-		}
 		nodePortMap := map[string]string{
 			"0": "8545",
 			"1": "8547",
@@ -116,9 +113,13 @@ func isExcluded(url string, excludeStr string) bool {
 			"4": "8550",
 		}
 		if port, ok := nodePortMap[p]; ok {
-			if strings.Contains(url, port) {
+			if strings.Contains(url, ":"+port) || strings.Contains(url, "/"+port) {
 				return true
 			}
+			continue
+		}
+		if strings.Contains(url, p) {
+			return true
 		}
 	}
 	return false
@@ -552,6 +553,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		sb.WriteString("==================================================\n")
 		sb.WriteString("🚨 LỖI LỊCH SỬ STATE (CHẾ ĐỘ CHẠY LIÊN TỤC)\n")
 		sb.WriteString(fmt.Sprintf("⏰ Thời gian: %s\n", time.Now().Format(time.RFC3339)))
+		sb.WriteString(fmt.Sprintf("📍 Địa chỉ ví kiểm tra: %s\n", fromAddress.Hex()))
 		sb.WriteString(fmt.Sprintf("📍 Mốc Block A: %d\n", blockA))
 		sb.WriteString(fmt.Sprintf("📍 Mốc Block B: %d\n", blockB))
 		sb.WriteString("==================================================\n")
@@ -559,6 +561,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 			sb.WriteString(fmt.Sprintf("- %s\n", det))
 		}
 		sb.WriteString(queryAllRPCsAndGenerateReport(fc.urls, fromAddress, blockA))
+		sb.WriteString(generateManualCurlCommands(fc.urls, fromAddress, blockAHex, blockBHex, blockA, blockB))
 		sb.WriteString("==================================================\n")
 		reason := sb.String()
 		os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
@@ -573,8 +576,13 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	fmt.Println("🚀 BẮT ĐẦU XÁC MINH TRÊN CÁC NODE CÒN LẠI")
 	fmt.Println("=====================================================")
 
+	excludeStr := getExcludedNodes(fc.flagExclude)
 	for _, u := range fc.urls {
 		nodeNum := getNodeNumberFromURL(u)
+		if isExcluded(u, excludeStr) || isExcluded(nodeNum, excludeStr) {
+			fmt.Printf("🚫 Bỏ qua kiểm tra lịch sử trên node %s (Node %s) do đang bị loại trừ...\n", u, nodeNum)
+			continue
+		}
 		fmt.Printf("🔍 Đang kiểm tra node: %s (Node %s)\n", u, nodeNum)
 		tempClient, errDial := rpc.Dial(u)
 		if errDial != nil {
@@ -586,8 +594,11 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		synced := false
 		waitStart := time.Now()
 		isAlive := false
+		alertSent := false
 		var lastSeenBlock uint64
+		attempts := 0
 		for time.Since(waitStart) < 3*time.Minute {
+			attempts++
 			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
 			var latestBlockHex string
 			errBlock := tempClient.CallContext(ctxTemp, &latestBlockHex, "eth_blockNumber")
@@ -600,6 +611,24 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 				if latestBlock >= blockB {
 					synced = true
 					break
+				}
+				if attempts%10 == 0 {
+					fmt.Printf("   ⏳ Node %s (Node %s) đang đồng bộ (hiện tại: %d, cần: %d)...\n", u, nodeNum, latestBlock, blockB)
+				}
+			} else {
+				if attempts%10 == 0 {
+					fmt.Printf("   🔌 Node %s (Node %s) chưa phản hồi (%v). Đang thử lại...\n", u, nodeNum, errBlock)
+				}
+				// Thử lại sau 30s mà node vẫn KHÔNG phản hồi thì báo lỗi qua Tele luôn và dừng test
+				if !isAlive && time.Since(waitStart) > 30*time.Second && !alertSent {
+					alertSent = true
+					reason := fmt.Sprintf("🛑 LỖI TIMEOUT: Node %s (Node %s) không phản hồi RPC quá 30s! Lỗi: %v", u, nodeNum, errBlock)
+					// Ghi vào file này thì ci_monitor.py bên ngoài sẽ tự động nhận diện và gửi qua Tele
+					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
+					appendLocalErrorLog(reason)
+					fmt.Printf("   %s\n", reason)
+					tempClient.Close()
+					return false
 				}
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -673,7 +702,13 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		}
 
 		if nodeHasError {
-			reason := fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s (Node %s):\n%s", u, nodeNum, strings.Join(nodeErrDetails, "\n"))
+			var sbNode strings.Builder
+			sbNode.WriteString(fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s (Node %s):\n", u, nodeNum))
+			sbNode.WriteString(fmt.Sprintf("📍 Địa chỉ ví kiểm tra: %s\n", fromAddress.Hex()))
+			sbNode.WriteString(fmt.Sprintf("📍 Mốc Block A: %d | Block B: %d\n", blockA, blockB))
+			sbNode.WriteString(strings.Join(nodeErrDetails, "\n") + "\n")
+			sbNode.WriteString(generateManualCurlCommands(fc.urls, fromAddress, blockAHex, blockBHex, blockA, blockB))
+			reason := sbNode.String()
 			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 			appendLocalErrorLog(reason)
 			fmt.Printf("   %s\n", reason)
@@ -724,6 +759,27 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 			u, tempBalance.String(), tempAccountState.Balance, tempNonce, tempAccountState.Nonce))
 	}
 	sb.WriteString("       ------------------------------------------------------------------------------------------------------\n")
+	return sb.String()
+}
+
+func generateManualCurlCommands(urls []string, address common.Address, blockAHex, blockBHex string, blockA, blockB uint64) string {
+	var sb strings.Builder
+	sb.WriteString("\n🖥️  LỆNH CURL TRUY VẤN THỦ CÔNG (COPY-PASTE ĐỂ KIỂM TRA):\n")
+	for _, u := range urls {
+		sb.WriteString(fmt.Sprintf("   🌐 Node RPC: %s\n", u))
+		sb.WriteString(fmt.Sprintf("      # eth_getBalance tại Block A (%d):\n", blockA))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBalance\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockAHex, u))
+		sb.WriteString(fmt.Sprintf("      # eth_getBalance tại Block B (%d):\n", blockB))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBalance\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockBHex, u))
+		sb.WriteString(fmt.Sprintf("      # eth_getTransactionCount tại Block A (%d):\n", blockA))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionCount\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockAHex, u))
+		sb.WriteString(fmt.Sprintf("      # eth_getTransactionCount tại Block B (%d):\n", blockB))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionCount\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockBHex, u))
+		sb.WriteString(fmt.Sprintf("      # mtn_getAccountState tại Block A (%d):\n", blockA))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"mtn_getAccountState\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockAHex, u))
+		sb.WriteString(fmt.Sprintf("      # mtn_getAccountState tại Block B (%d):\n", blockB))
+		sb.WriteString(fmt.Sprintf("      curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"mtn_getAccountState\",\"params\":[\"%s\",\"%s\"],\"id\":1}' %s\n", address.Hex(), blockBHex, u))
+	}
 	return sb.String()
 }
 
@@ -1202,6 +1258,8 @@ func main() {
 						errStr.WriteString(fmt.Sprintf("    * %s\n", det))
 					}
 					errStr.WriteString(queryAllRPCsAndGenerateReport(urls, fromAddr, cp.BlockA))
+					blockAHexTmp := hexutil.EncodeUint64(cp.BlockA)
+					errStr.WriteString(generateManualCurlCommands(urls, fromAddr, blockAHexTmp, latestBlockHex, cp.BlockA, latestBlock))
 					allErrDetails = append(allErrDetails, errStr.String())
 					hasGlobalError = true
 				}

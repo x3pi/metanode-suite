@@ -9,24 +9,74 @@ export CARGO_BUILD_JOBS=2
 unset -f cd 2>/dev/null || true
 
 
-# Kiểm tra cờ --all-only
+# Khởi tạo giá trị mặc định
+TARGET_NODE_FIXED=""
 TEST_ALL_ONLY=false
-if [ "${1:-}" == "--all-only" ]; then
-    TEST_ALL_ONLY=true
+POSITIONAL_ARGS=()
+
+# Lặp qua tất cả tham số để parse flag
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --all-only) TEST_ALL_ONLY=true ;;
+        --target-node) TARGET_NODE_FIXED="$2"; shift ;;
+        --mode) export DEPLOY_MODE="$2"; shift ;;
+        -*) echo "Unknown option: $1" ;;
+        *) POSITIONAL_ARGS+=("$1") ;;
+    esac
     shift || true
-fi
+done
+
+# Restore positional arguments
+set -- "${POSITIONAL_ARGS[@]:-}"
 
 # Tham số (mặc định: node=1, gap=1, loop=20000)
-NODE_ID=${1:-1}
+# Nếu TARGET_NODE_FIXED được truyền qua flag, nó sẽ ghi đè $1
+NODE_ID=${TARGET_NODE_FIXED:-${1:-1}}
 GAP_EPOCH=${2:-1}
 LOOP_COUNT=${3:-20000}
+
+# Chế độ triển khai
+DEPLOY_MODE="${DEPLOY_MODE:-single}"
 
 # Đường dẫn động để chạy được trên nhiều máy
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 ORCH_SCRIPT="$ROOT_DIR/metanode/consensus/metanode/scripts/mtn-orchestrator.sh"
+SYSTEMD_DEPLOY_SCRIPT="$ROOT_DIR/metanode/consensus/metanode/scripts/node/deploy_systemd_cluster.sh"
+SYSTEMD_ENV="deploy-muti-node.env"
 RPC_TCP_SCRIPT="$SCRIPT_DIR/rpc-tcp-simple.sh"
 HASH_CHECKER_DIR="$(dirname "$SCRIPT_DIR")/block/block_hash_checker"
+
+HISTORY_CONFIG="config-local.json"
+HASH_CONFIG_ARG=""
+TPS_CONFIG_ARG=""
+if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
+    HISTORY_CONFIG="config-mutil.json"
+    HASH_CONFIG_ARG="--config config-m-nodes.json"
+    TPS_CONFIG_ARG="--config config-multi.json"
+fi
+
+# Hàm gọi orchestrator tùy theo chế độ
+run_orch() {
+    local cmd=$1
+    local node=${2:-}
+    if [ "$DEPLOY_MODE" == "multi" ]; then
+        local base_cmd="$SYSTEMD_DEPLOY_SCRIPT --env $SYSTEMD_ENV"
+        case "$cmd" in
+            "start") $base_cmd --start --keep-data ;;
+            "stop") $base_cmd --stop ;;
+            "start-node") $base_cmd --start --keep-data --only-node "$node" ;;
+            "stop-node") $base_cmd --stop --only-node "$node" ;;
+            *) echo "Unknown multi mode orch cmd: $cmd"; exit 1 ;;
+        esac
+    else
+        if [ -n "$node" ]; then
+            $ORCH_SCRIPT "$cmd" "$node"
+        else
+            $ORCH_SCRIPT "$cmd"
+        fi
+    fi
+}
 
 # Hàm kiểm tra và giải phóng các cổng bị chiếm giữ
 wait_for_ports_to_release() {
@@ -83,12 +133,56 @@ pkill -f "main.go --count 20000" || true
 wait_for_ports_to_release 8545 8757 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 8547 8548 8549 8550
 
 # Xóa cờ lỗi cũ trước khi chạy
-rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
+rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json 2>/dev/null || true
+rm -f /tmp/MTN_INTEGRITY_FAILED 2>/dev/null || sudo rm -f /tmp/MTN_INTEGRITY_FAILED 2>/dev/null || true
+
+# Xác định port RPC của Node 0 theo DEPLOY_MODE
+# single mode: 8757 (direct port của node 0)
+# multi mode: đọc từ /tmp/rpc_nodes.json, nếu không có thì fallback 8545
+if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
+    if [ -f /tmp/rpc_nodes.json ]; then
+        EPOCH_RPC=$(jq -r '.nodes.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "http://127.0.0.1:8545")
+    else
+        EPOCH_RPC="http://127.0.0.1:8545"
+    fi
+else
+    EPOCH_RPC="http://127.0.0.1:8757"
+fi
+
+# Xác định danh sách RESTORE_NODES tham gia test
+if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
+    CONFIG_JSON="$(dirname "$(dirname "$SCRIPT_DIR")")/metanode-suite/test_tps/tps_blast_cc/config-multi.json"
+    if [ -f "$CONFIG_JSON" ]; then
+        CONFIG_IDS=($(jq -r 'keys[]' "$CONFIG_JSON" | grep -E '^rpc_[0-9]+$' | sed 's/rpc_//' | sort -n))
+    else
+        CONFIG_IDS=(0 1 2 3)
+    fi
+    if [ -f "/tmp/rpc_nodes.json" ]; then
+        ACTIVE_IDS=($(jq -r '.nodes | keys[]' /tmp/rpc_nodes.json | sed 's/m//' | sort -n))
+    else
+        ACTIVE_IDS=(0 1 2 3 4)
+    fi
+    RESTORE_NODES=()
+    for id in "${ACTIVE_IDS[@]}"; do
+        for cid in "${CONFIG_IDS[@]}"; do
+            if [ "$id" = "$cid" ]; then
+                RESTORE_NODES+=("$id")
+                break
+            fi
+        done
+    done
+    if [ ${#RESTORE_NODES[@]} -eq 0 ]; then
+        RESTORE_NODES=("${ACTIVE_IDS[@]}")
+    fi
+else
+    RESTORE_NODES=(1 2 3 4)
+fi
+echo "📋 Danh sách các node tham gia test recovery: ${RESTORE_NODES[*]}"
 
 # Hàm lấy epoch hiện tại từ m0 (Node 0 luôn chạy)
 get_current_epoch() {
     # Gọi RPC và lấy epoch dưới dạng hex
-    hex_epoch=$(curl -s --max-time 2 -X POST http://127.0.0.1:8757 \
+    hex_epoch=$(curl -s --max-time 2 -X POST "$EPOCH_RPC" \
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' \
         | grep -oP '"epoch":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -104,7 +198,16 @@ get_current_epoch() {
 # Hàm chờ mạng thiết lập đồng thuận bằng cách kiểm tra tất cả các node có cùng chiều cao block
 wait_for_consensus() {
     echo "⏳ Đang kiểm tra chiều cao block trên tất cả các node..."
-    local ports=(8757 10747 10749 10750 10748)
+    # multi mode: đọc URLs từ /tmp/rpc_nodes.json; single mode: dùng direct ports cố định
+    local rpc_urls=()
+    if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
+        while IFS= read -r url; do
+            rpc_urls+=("$url")
+        done < <(jq -r '.nodes | to_entries | sort_by(.key) | .[].value' /tmp/rpc_nodes.json)
+    else
+        local ports=(8757 10747 10749 10750 10748)
+        for p in "${ports[@]}"; do rpc_urls+=("http://127.0.0.1:$p"); done
+    fi
     
     # Thử tối đa 120 giây (120 lần thử, mỗi lần cách nhau 1s)
     for ((r=1; r<=120; r++)); do
@@ -112,10 +215,10 @@ wait_for_consensus() {
         local first_block=""
         local blocks_info=""
         
-        for i in "${!ports[@]}"; do
-            local port="${ports[$i]}"
+        for i in "${!rpc_urls[@]}"; do
+            local url="${rpc_urls[$i]}"
             local block_hex
-            block_hex=$(curl -s --max-time 1 -X POST "http://127.0.0.1:$port" \
+            block_hex=$(curl -s --max-time 1 -X POST "$url" \
                 -H "Content-Type: application/json" \
                 -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
                 | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -172,11 +275,11 @@ wait_for_node_startup() {
         
         # 3. Nếu log file tồn tại, kiểm tra xem có dấu hiệu khởi động thành công hoặc lỗi nghiêm trọng không
         if [ -f "$log_file" ]; then
-            if grep -E -q "All checks passed|NOMT account_state not initialized yet|Indexing process initiated|Consensus core started|Starting consensus|Starting peer synchronization" "$log_file"; then
-                echo "✅ [SUCCESS] Node ${node_id} đã khởi động và vượt qua integrity check thành công sau $((r * 100))ms!"
+            if grep -E -q "Consensus core started|Starting consensus|Starting peer synchronization" "$log_file"; then
+                echo "✅ [SUCCESS] Node ${node_id} đã khởi động thành công sau $((r * 100))ms!"
                 return 0
             fi
-            if grep -E -q "CRITICAL ERROR|CRITICAL:" "$log_file"; then
+            if grep -E -q "CRITICAL ERROR|CRITICAL: DATA INTEGRITY CHECK FAILED" "$log_file"; then
                 echo "❌ [ERROR] Node ${node_id} báo lỗi CRITICAL trong log!"
                 return 1
             fi
@@ -230,7 +333,7 @@ cleanup() {
     echo -e "\n[CLEANUP] Đang thoát test với mã lỗi $err..."
     stop_spam
     if [ $err -eq 0 ]; then
-        rm -f /tmp/pending_check_*.json
+        rm -f /tmp/pending_check_*.json /tmp/MTN_INTEGRITY_FAILED /tmp/MTN_EXCLUDE_NODES
     else
         echo "💡 [DEBUG] Giữ lại file checkpoint /tmp/pending_check_*.json để debug offline!"
     fi
@@ -304,7 +407,7 @@ echo "🧪 TEST RECOVERY NODE (Node: $NODE_ID, Gap: $GAP_EPOCH epochs, Loop: $LO
 echo "========================================================="
 
 echo "🔄 Đang chạy Simple Test (Bao gồm Setup và Test Cơ Bản)..."
-bash "$SCRIPT_DIR/simple_test.sh"
+bash "$SCRIPT_DIR/simple_test.sh" --mode "${DEPLOY_MODE:-single}"
 echo "✅ Khởi tạo và Simple Test hoàn tất!"
 
 for ((loop=1; loop<=LOOP_COUNT; loop++)); do
@@ -315,15 +418,13 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
     if [ "$TEST_ALL_ONLY" = true ]; then
         TARGET_NODE="all"
         echo "ℹ️ Chế độ TEST_ALL_ONLY: Bỏ qua luân phiên, ép test tắt toàn bộ mạng."
+    elif [ -n "$TARGET_NODE_FIXED" ]; then
+        TARGET_NODE="$TARGET_NODE_FIXED"
     else
-        # Tỉ lệ 50% test Node 4, 50% test luân phiên Node 1, 2, 3
-        if [ $(( loop % 2 )) -eq 0 ]; then
-            TARGET_NODE=4
-        else
-            # Luân phiên 1, 2, 3 cho các vòng lặp lẻ (1, 3, 5, 7...)
-            MOD_3=$(( ( (loop - 1) / 2 ) % 3 + 1 ))
-            TARGET_NODE=$MOD_3
-        fi
+        # Luân phiên theo danh sách RESTORE_NODES
+        NUM_RESTORE=${#RESTORE_NODES[@]}
+        IDX=$(( (loop - 1) % NUM_RESTORE ))
+        TARGET_NODE=${RESTORE_NODES[$IDX]}
     fi
 
     echo -e "\n[1/8] ⏳ Kiểm tra điều kiện bắt đầu (Yêu cầu Epoch >= 1)..."
@@ -341,11 +442,12 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo "📥 Lưu trạng thái lịch sử trước khi dừng toàn bộ mạng (chọn node 0 làm chuẩn)..."
         (
             cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
-            go run main.go -config config-local.json -action save -file /tmp/pending_check_all.json
+            go run main.go -config $HISTORY_CONFIG -action save -file /tmp/pending_check_all.json
         )
 
         echo -e "\n[2/8] 🛑 Dừng toàn bộ mạng..."
-        $ORCH_SCRIPT stop
+        echo "0,1,2,3,4" > /tmp/MTN_EXCLUDE_NODES
+        run_orch stop
 
         echo -e "\n[3/8] 🚀 Bỏ qua tạo gap giao dịch vì mạng đã dừng hoàn toàn."
         echo -e "\n[4/8] ⏳ Đợi 10 giây trước khi bật lại toàn mạng..."
@@ -354,7 +456,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại toàn bộ mạng..."
         echo "🗑️ Đang dọn dẹp log cũ của toàn bộ node..."
         rm -f "$ROOT_DIR/metanode/consensus/metanode/logs"/node_*/*.log
-        $ORCH_SCRIPT start
+        run_orch start
         
         echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của toàn mạng..."
         for n in 0 1 2 3 4; do
@@ -369,9 +471,13 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
                     echo ""
                     echo "   🔧 HƯỚNG DẪN KHẮC PHỤC:"
                     echo "   1. Restore từ snapshot mới nhất:"
-                    echo "      ./mtn-orchestrator.sh restore-node $n"
-                    echo "   2. Hoặc re-sync từ các node khác:"
-                    echo "      ./mtn-orchestrator.sh resync-node $n"
+                    if [ "$DEPLOY_MODE" == "multi" ]; then
+                        echo "      ./deploy_systemd_cluster.sh --env $SYSTEMD_ENV --restore-node $n"
+                    else
+                        echo "      ./mtn-orchestrator.sh restore-node $n"
+                        echo "   2. Hoặc re-sync từ các node khác:"
+                        echo "      ./mtn-orchestrator.sh resync-node $n"
+                    fi
                     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
                     echo "DATA_INTEGRITY_FAILED: Node $n dữ liệu bị hỏng, cần restore snapshot" > /tmp/MTN_CHAIN_ERROR_STOP
                     rm -f /tmp/MTN_INTEGRITY_FAILED
@@ -384,14 +490,16 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         done
         # Chờ mạng phục hồi đồng thuận hoàn toàn bằng active polling thay vì sleep 15s cứng
         wait_for_consensus
+        rm -f /tmp/MTN_EXCLUDE_NODES
     else
         echo "📥 Lưu trạng thái lịch sử trước khi dừng node $TARGET_NODE..."
         (
             cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
-            go run main.go -config config-local.json -action save -file /tmp/pending_check_${TARGET_NODE}.json
+            go run main.go -config $HISTORY_CONFIG -action save -file /tmp/pending_check_${TARGET_NODE}.json
         )
         echo -e "\n[2/8] 🛑 Dừng node $TARGET_NODE..."
-        $ORCH_SCRIPT stop-node $TARGET_NODE
+        echo "$TARGET_NODE" > /tmp/MTN_EXCLUDE_NODES
+        run_orch stop-node $TARGET_NODE
 
         echo -e "\n[3/8] 🚀 Bắn giao dịch ngầm (Tạo Gap)..."
         cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
@@ -399,7 +507,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         if [ "$TARGET_NODE" = "0" ]; then
             SPAM_NODE=1
         fi
-        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_gap.log 2>&1 &
+        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE $TPS_CONFIG_ARG > blast_gap.log 2>&1 &
         PID_GAP=$!
 
         START_EPOCH=$(get_current_epoch)
@@ -423,7 +531,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         echo -e "\n[5/8] 🔄 Khởi động lại node $TARGET_NODE..."
         echo "🗑️ Đang dọn dẹp log cũ của node $TARGET_NODE..."
         rm -f "$ROOT_DIR/metanode/consensus/metanode/logs/node_$TARGET_NODE"/*.log
-        $ORCH_SCRIPT start-node $TARGET_NODE
+        run_orch start-node $TARGET_NODE
         
         echo "⏳ Đang kiểm tra trạng thái khởi động chính xác của Node $TARGET_NODE..."
         if ! wait_for_node_startup "$TARGET_NODE"; then
@@ -441,9 +549,13 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
                 echo ""
                 echo "   🔧 HƯỚNG DẪN KHẮC PHỤC:"
                 echo "   1. Restore từ snapshot mới nhất:"
-                echo "      ./mtn-orchestrator.sh restore-node $TARGET_NODE"
-                echo "   2. Hoặc re-sync từ các node khác:"
-                echo "      ./mtn-orchestrator.sh resync-node $TARGET_NODE"
+                if [ "$DEPLOY_MODE" == "multi" ]; then
+                    echo "      ./deploy_systemd_cluster.sh --env $SYSTEMD_ENV --restore-node $TARGET_NODE"
+                else
+                    echo "      ./mtn-orchestrator.sh restore-node $TARGET_NODE"
+                    echo "   2. Hoặc re-sync từ các node khác:"
+                    echo "      ./mtn-orchestrator.sh resync-node $TARGET_NODE"
+                fi
                 echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
                 # Ghi vào file sentinel dừng toàn bộ test
                 echo "DATA_INTEGRITY_FAILED: Node $TARGET_NODE dữ liệu bị hỏng, cần restore snapshot" > /tmp/MTN_CHAIN_ERROR_STOP
@@ -461,19 +573,37 @@ wait_for_sync_to_highest_block() {
     local target_node=$1
     echo "⏳ Đang chờ Node $target_node đồng bộ tới block cao nhất của mạng (Node 0 làm chuẩn)..."
     
-    # Lấy RPC Port trực tiếp của target node để tránh phụ thuộc vào RPC Proxy
-    local direct_port=8757
-    if [ "$target_node" == "1" ]; then direct_port=10747; fi
-    if [ "$target_node" == "2" ]; then direct_port=10749; fi
-    if [ "$target_node" == "3" ]; then direct_port=10750; fi
-    if [ "$target_node" == "4" ]; then direct_port=10748; fi
+    # Lấy RPC URL của target node:
+    # - multi mode: đọc từ /tmp/rpc_nodes.json (key m<N>)
+    # - single mode: dùng direct port cố định
+    local target_rpc
+    if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
+        target_rpc=$(jq -r ".nodes.m${target_node} // empty" /tmp/rpc_nodes.json 2>/dev/null || echo "")
+        if [ -z "$target_rpc" ]; then
+            target_rpc="$EPOCH_RPC"
+        fi
+    else
+        local direct_port=8757
+        if [ "$target_node" == "1" ]; then direct_port=10747; fi
+        if [ "$target_node" == "2" ]; then direct_port=10749; fi
+        if [ "$target_node" == "3" ]; then direct_port=10750; fi
+        if [ "$target_node" == "4" ]; then direct_port=10748; fi
+        target_rpc="http://127.0.0.1:$direct_port"
+    fi
+    # RPC của Node 0 (chuẩn tham chiếu)
+    local ref_rpc
+    if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
+        ref_rpc=$(jq -r '.nodes.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "$EPOCH_RPC")
+    else
+        ref_rpc="http://127.0.0.1:8757"
+    fi
     
     local max_attempts=600 # 10 phút tối đa
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
-        # Lấy block hiện tại của Node 0
-        local block_hex_0=$(curl -s --max-time 1 -X POST http://127.0.0.1:8757 \
+        # Lấy block hiện tại của Node 0 (tham chiếu)
+        local block_hex_0=$(curl -s --max-time 1 -X POST "$ref_rpc" \
             -H "Content-Type: application/json" \
             -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
             | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -484,7 +614,7 @@ wait_for_sync_to_highest_block() {
         fi
         
         # Lấy block hiện tại của Target Node
-        local block_hex_target=$(curl -s --max-time 1 -X POST http://127.0.0.1:$direct_port \
+        local block_hex_target=$(curl -s --max-time 1 -X POST "$target_rpc" \
             -H "Content-Type: application/json" \
             -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
             | grep -oP '"result":"\K(0x[0-9a-fA-F]+)' || echo "")
@@ -512,11 +642,12 @@ wait_for_sync_to_highest_block() {
     # 1. Chạy xác minh trạng thái lịch sử trước bằng active polling (cực kỳ nhanh và chính xác)
     if [ "$TARGET_NODE" != "all" ]; then
         wait_for_sync_to_highest_block "$TARGET_NODE"
+        rm -f /tmp/MTN_EXCLUDE_NODES
         
         echo "📤 Xác minh trạng thái lịch sử trên node $TARGET_NODE..."
         (
             cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
-            go run main.go -config config-local.json -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
+            go run main.go -config $HISTORY_CONFIG -action verify -file /tmp/pending_check_${TARGET_NODE}.json -target-node $TARGET_NODE
         )
 
         # echo "🔎 Gọi API meta_verifyHistoricalRoot để kiểm chứng tính toàn vẹn của State Trie trên Node $TARGET_NODE..."
@@ -542,7 +673,7 @@ wait_for_sync_to_highest_block() {
         echo "📤 Xác minh trạng thái lịch sử trên mạng (node 0)..."
         (
             cd "$ROOT_DIR/metanode-suite/test-simple/test-rpc/test-history"
-            go run main.go -config config-local.json -action verify -file /tmp/pending_check_all.json -target-node 0
+            go run main.go -config $HISTORY_CONFIG -action verify -file /tmp/pending_check_all.json -target-node 0
         )
     fi
 
@@ -550,7 +681,7 @@ wait_for_sync_to_highest_block() {
     echo -e "\n[6/8] 👁️ Kiểm tra Hash Checker sau khi Node hồi phục (Timeout 30s)..."
     cd $HASH_CHECKER_DIR
     rm -f hash_mismatch_alert.log
-    timeout 30s go run main.go --watch --interval 5s || true
+    timeout 30s go run main.go --watch --interval 5s $HASH_CONFIG_ARG || true
     analyze_mismatch "$TARGET_NODE"
     echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
@@ -567,7 +698,7 @@ wait_for_sync_to_highest_block() {
     
     echo "👉 Bắn giao dịch lên Node vừa hồi phục ($SPAM_NODE_1) (Chạy tuần tự)..."
     # Chạy tuần tự để tránh lỗi Nonce collision. In ra màn hình bằng lệnh tee để dễ theo dõi.
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_1 2>&1 | tee blast_recovered_node.log
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_1 $TPS_CONFIG_ARG 2>&1 | tee blast_recovered_node.log
     
     # Check lỗi nếu lệnh fail
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
@@ -576,13 +707,13 @@ wait_for_sync_to_highest_block() {
     fi
     
     echo "👉 Đổi sang bắn giao dịch qua node khác ($SPAM_NODE_2) (Chạy ngầm)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_2 > blast_other_node.log 2>&1 &
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_2 $TPS_CONFIG_ARG > blast_other_node.log 2>&1 &
     PID_OTH=$!
 
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
     cd $HASH_CHECKER_DIR
     rm -f hash_mismatch_alert.log
-    timeout 40s go run main.go --watch --interval 5s || true
+    timeout 40s go run main.go --watch --interval 5s $HASH_CONFIG_ARG || true
     analyze_mismatch "$TARGET_NODE"
 
     echo "⏳ Đang chờ tiến trình bắn giao dịch ngầm ($PID_OTH) hoàn tất..."

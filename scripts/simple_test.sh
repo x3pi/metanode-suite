@@ -23,7 +23,7 @@ RPC_CLIENT_DIR="$METANODE_DIR/execution/cmd/rpc/cmd/rpc-client"
 # Cấu hình danh sách các bước cụ thể để chạy (mặc định = chạy tất cả)
 STEPS_TO_RUN=""
 # Cấu hình chế độ deploy (mặc định là single)
-DEPLOY_MODE="single"
+export DEPLOY_MODE="single"
 
 # Nhận tham số truyền vào từ command line (VD: ./auto_test.sh --steps "2,4,5" --mode multi)
 while [[ "$#" -gt 0 ]]; do
@@ -151,7 +151,11 @@ echo ""
 echo "📌 BẬT GIÁM SÁT LỆCH HASH NGẦM (block_hash_checker)..."
 (
     cd "$TOOL_TEST_DIR/block/block_hash_checker"
-    go run main.go --watch --interval 5s > block_hash_checker_simple.log 2>&1
+    if [ "$DEPLOY_MODE" == "single" ]; then
+        go run main.go --watch --interval 5s > block_hash_checker_simple.log 2>&1
+    else
+        go run main.go --watch --interval 5s --config config-3nodes.json > block_hash_checker_simple.log 2>&1
+    fi
     if grep -q "bị lệch hash" block_hash_checker_simple.log; then
         echo -e "\n\n🚨 Phân tích từ log: Phát hiện blocks bị lệch hash!"
         echo -e "🚨🚨🚨 PHÁT HIỆN LỆCH HASH! ĐANG TIẾN HÀNH DỪNG SIMPLE TEST PIPELINE! 🚨🚨🚨\n\n"
@@ -163,15 +167,19 @@ CHECKER_PID=$!
 echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
 (
     cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-    go run main.go -config=config-local.json -wait 5 -loop > history_checker_simple.log 2>&1
+    if [ "$DEPLOY_MODE" == "single" ]; then
+        go run main.go -config=config-local.json -wait 5 -loop > history_checker_simple.log 2>&1
+    else
+        go run main.go -config=config-mutil.json -wait 5 -loop > history_checker_simple.log 2>&1
+    fi
 ) &
 HISTORY_PID=$!
 
 _simple_test_cleanup() {
     local _exit_code=$?
     # Preserve exit code trước khi kill background processes
-    disown $CHECKER_PID $HISTORY_PID 2>/dev/null
-    kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null
+    disown $CHECKER_PID $HISTORY_PID 2>/dev/null || true
+    kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null || true
     pkill -f 'go run main.go --watch' || true
     pkill -f 'exe/main --watch' || true
     pkill -f 'test-rpc/test-history' || true
@@ -245,9 +253,9 @@ if should_run 8; then
     echo "📌 BƯỚC 8: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 5 --load_balance=false --batch=10
+        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 5 --load_balance=false --batch=300
     else
-        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=true --batch=500
+        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=500
     fi
 fi
 

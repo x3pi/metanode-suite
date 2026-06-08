@@ -53,6 +53,7 @@ The script supports overriding the starting step and the deployment topology mod
 **3. Run specific steps only (e.g. Cluster Deploy, Xapian V0, and Xapian V2):**
 ```bash
 ./auto_test.sh --steps "2,4,6" --mode multi
+./auto_test.sh --steps "1,2,3"
 ```
 
 ## Pipeline Steps Explained
@@ -116,24 +117,33 @@ Any arguments passed to `ci_monitor.py` are forwarded directly to `auto_test.sh`
 ```bash
 nohup ./ci_monitor.py --mode single --steps "2,4,5" > ci_monitor.log 2>&1 &
 nohup ./ci_monitor.py --mode single > ci_monitor.log 2>&1 &
-./ci_monitor.sh --type spam
+```
 
+**Using the `ci_monitor.sh` Wrapper (Recommended):**
+The bash wrapper simplifies running the monitor for different specific test pipelines. You can append `--mode multi` to any of these commands to target the multi-node systemd cluster instead of the local single orchestrator:
+
+```bash
+# 1. Chạy Auto Test tổng hợp (Spam TPS)
+./ci_monitor.sh --stop
+./ci_monitor.sh --type spam
+./ci_monitor.sh --type spam --mode multi
 ./ci_monitor.sh --type spam --batch 500
 ./ci_monitor.sh --type spam --no-listen
 
+# 2. Chạy kịch bản Gap Recovery
 ./ci_monitor.sh --type recovery
+./ci_monitor.sh --type recovery --mode multi
+./ci_monitor.sh --type recovery --mode multi --no-listen
+
+# 3. Chạy kịch bản Restore Snapshot
 ./ci_monitor.sh --type snapshot
+./ci_monitor.sh --type snapshot --mode multi
+./ci_monitor.sh --type snapshot --mode multi --no-listen
+
+# 4. Chạy Spam MVM Xapian
 ./ci_monitor.sh --type spam_xapian
 ./ci_monitor.sh --type spam_xapian --no-listen
 ./ci_monitor.sh --type spam_xapian --no-start
-
-./ci_monitor.sh --type snapshot --no-listen
-./ci_monitor.sh --type recovery --no-listen
-
-# Chạy không deploy (no-start), chỉ spam trực tiếp
-
-
-./ci_monitor.sh stop
 ```
 
 **To stop the monitor:**

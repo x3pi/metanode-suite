@@ -292,8 +292,8 @@ func sendTelegramAlert(message string, testName string) {
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	payload := map[string]string{
-		"chat_id": chatID,
-		"text":    fullMessage,
+		"chat_id":    chatID,
+		"text":       fullMessage,
 		"parse_mode": "Markdown",
 	}
 	body, _ := json.Marshal(payload)
@@ -1133,13 +1133,19 @@ func main() {
 
 		// Build map of expected tx hashes to correctly count only our TXs
 		expectedTxHashes := make(map[string]bool)
+		hashMapping := make(map[string]string)
 		for _, tx := range allTxs {
-			expectedTxHashes[strings.ToLower(tx.txHash.Hex())] = true
+			ethHashLower := strings.ToLower(tx.txHash.Hex())
+			expectedTxHashes[ethHashLower] = true
+			
 			internalTx := &transaction.Transaction{}
 			if err := internalTx.Unmarshal(tx.bytes); err == nil {
-				if ethTx := internalTx.ToEthTransaction(); ethTx != nil {
-					expectedTxHashes[strings.ToLower(ethTx.Hash().Hex())] = true
-				}
+				pbHash := internalTx.Hash()
+				pbHashLower := strings.ToLower(pbHash.Hex())
+				expectedTxHashes[pbHashLower] = true
+				
+				hashMapping[ethHashLower] = pbHashLower
+				hashMapping[pbHashLower] = ethHashLower
 			}
 		}
 
@@ -1147,6 +1153,8 @@ func main() {
 		lastBlockNum := startBlock
 		totalTxsInBlocks := uint64(0)
 		seenAnyTx := false
+		var firstTxBlockTime time.Time
+		var lastTxBlockTime time.Time
 
 		epochWaitStart := time.Now()
 		startEpoch := startEpochBeforeBlast
@@ -1167,6 +1175,9 @@ func main() {
 			fmt.Printf("\n⏳ [%s] Bắt đầu quét block (timeout %s)...\n", time.Now().Format("15:04:05.000"), maxWait)
 		}
 
+		var lastEpochAlertTime time.Time
+		var lastAlertTime time.Time // 2-minute stall alert for TX confirmation phase
+
 		for {
 			// Check for STOP flag from block_hash_checker
 			if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
@@ -1180,17 +1191,66 @@ func main() {
 			// Check epoch transition timeout
 			if !epochTransitioned && epochWait > 0 {
 				if time.Since(epochWaitStart) > time.Duration(epochWait)*time.Second {
-					errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (startEpoch: %d) | Time: %s", epochWait, startEpoch, time.Now().Format("15:04:05.000"))
-					fmt.Println(errMsg)
-					logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
-					break
+					if time.Since(lastEpochAlertTime) >= 60*time.Second {
+						elapsedSec := int(time.Since(epochWaitStart).Seconds())
+						pendingEpoch := len(expectedTxHashes)
+						errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d | Time: %s", epochWait, elapsedSec, startEpoch, pendingEpoch, time.Now().Format("15:04:05.000"))
+						fmt.Println(errMsg)
+						logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
+
+						var missingTxs []string
+						count := 0
+						for _, tx := range allTxs {
+							txHashLower := strings.ToLower(tx.txHash.Hex())
+							if expectedTxHashes[txHashLower] {
+								missingTxs = append(missingTxs, tx.txHash.Hex())
+								count++
+								if count >= 5 {
+									break
+								}
+							}
+						}
+
+						teleMsg := fmt.Sprintf("Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d\n5 giao dịch chưa được đưa vào:\n%s", epochWait, elapsedSec, startEpoch, pendingEpoch, strings.Join(missingTxs, "\n"))
+						sendTelegramAlert(teleMsg, "tps_blast_cc")
+						lastEpochAlertTime = time.Now()
+					}
+					// Bỏ break để chờ mãi và 1 phút báo 1 lần
 				}
 			}
 
-			// Check TX confirmation timeout (resets whenever there is block or TX progress)
+			// Check TX confirmation timeout + periodic stall alert every 2 minutes
 			if epochTransitioned && !processStart.IsZero() {
-				if time.Since(lastProgressTime) > maxWait {
+				stalledFor := time.Since(lastProgressTime)
+				if stalledFor > maxWait {
 					break
+				}
+				// Every 2 minutes without new confirmed TXs, print alert
+				if stalledFor > 2*time.Minute && time.Since(lastAlertTime) >= 2*time.Minute {
+					pendingCount := len(expectedTxHashes)
+					var sample []string
+					for _, tx := range allTxs {
+						txHashLower := strings.ToLower(tx.txHash.Hex())
+						if expectedTxHashes[txHashLower] {
+							sample = append(sample, tx.txHash.Hex())
+							if len(sample) >= 5 {
+								break
+							}
+						}
+					}
+					totalElapsed := time.Since(processStart).Round(time.Second)
+					aMsg := fmt.Sprintf("\n⚠️  [%s] STALL ALERT: %d giao dịch chưa phản hồi\n   Tổng thời gian chờ kể từ epoch: %s | Không tiến triển (stalled): %s | Timeout còn lại: %s\n   5 giao dịch minh họa:\n   %s\n",
+						time.Now().Format("15:04:05.000"),
+						pendingCount,
+						totalElapsed,
+						stalledFor.Round(time.Second),
+						(maxWait - stalledFor).Round(time.Second),
+						strings.Join(sample, "\n   "))
+					fmt.Print(aMsg)
+					teleMsg := fmt.Sprintf("%d giao dịch chưa phản hồi\nTổng thời gian chờ kể từ epoch: %s | Không tiến triển: %s | Timeout còn lại: %s\n5 giao dịch minh họa:\n%s",
+						pendingCount, totalElapsed, stalledFor.Round(time.Second), (maxWait - stalledFor).Round(time.Second), strings.Join(sample, "\n"))
+					sendTelegramAlert(teleMsg, "tps_blast_cc")
+					lastAlertTime = time.Now()
 				}
 			}
 
@@ -1220,8 +1280,13 @@ func main() {
 
 					newTxsCount := uint64(0)
 					for _, txHash := range blk.Transactions {
-						if expectedTxHashes[strings.ToLower(txHash)] {
+						txHashLower := strings.ToLower(txHash)
+						if expectedTxHashes[txHashLower] {
 							newTxsCount++
+							delete(expectedTxHashes, txHashLower)
+							if otherHash, exists := hashMapping[txHashLower]; exists {
+								delete(expectedTxHashes, otherHash)
+							}
 						}
 					}
 					newTxs += newTxsCount
@@ -1231,14 +1296,17 @@ func main() {
 				}
 			}
 
-			if nextLastBlockNum > lastBlockNum || newTxs > 0 {
+			if newTxs > 0 {
 				lastProgressTime = time.Now()
 			}
 			totalTxsInBlocks += newTxs
 			lastBlockNum = nextLastBlockNum
 
 			if newTxs > 0 {
-				seenAnyTx = true
+				if !seenAnyTx {
+					firstTxBlockTime = time.Now()
+					seenAnyTx = true
+				}
 			}
 
 			pct := float64(totalTxsInBlocks) / float64(len(allTxs)) * 100
@@ -1260,6 +1328,7 @@ func main() {
 
 			// Stop immediately when all TXs confirmed
 			if totalTxsInBlocks >= uint64(len(allTxs)) {
+				lastTxBlockTime = time.Now()
 				if !processStart.IsZero() {
 					processingDuration = time.Since(processStart)
 				} else {
@@ -1299,6 +1368,28 @@ func main() {
 		}
 
 		if totalTxsInBlocks < uint64(len(allTxs)) {
+			// Find and print stuck transactions
+			fmt.Printf("\n🔍 [DIAGNOSTIC] Danh sách 10 giao dịch đầu tiên bị kẹt (không có receipt):\n")
+			stuckCount := 0
+			for _, tx := range allTxs {
+				ethHashLower := strings.ToLower(tx.txHash.Hex())
+				if expectedTxHashes[ethHashLower] {
+					pbHash := common.Hash{}
+					internalTx := &transaction.Transaction{}
+					if err := internalTx.Unmarshal(tx.bytes); err == nil {
+						pbHash = internalTx.Hash()
+					}
+					
+					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s\n", 
+						stuckCount+1, tx.txHash.Hex(), pbHash.Hex(), tx.addr)
+					
+					stuckCount++
+					if stuckCount >= 10 {
+						break
+					}
+				}
+			}
+
 			var activeRPCEndpoints []string
 			for _, rc := range rpcPool {
 				activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
@@ -1336,8 +1427,17 @@ func main() {
 			}
 		}
 
-		totalDuration := blastDuration + processingDuration
+		totalDuration := time.Since(blastStart)
 		processingTPS := float64(totalTxsInBlocks) / totalDuration.Seconds()
+
+		var onChainDuration time.Duration
+		var onChainTPS float64
+		if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
+			onChainDuration = lastTxBlockTime.Sub(firstTxBlockTime)
+			if onChainDuration > 0 {
+				onChainTPS = float64(totalTxsInBlocks) / onChainDuration.Seconds()
+			}
+		}
 		allRoundTPS = append(allRoundTPS, processingTPS)
 
 		if startEpochBeforeBlast != 0 && endEpoch != 0 && startEpochBeforeBlast != endEpoch {
@@ -1382,6 +1482,12 @@ func main() {
 		fmt.Printf("  📥 TX in blocks:         %d\n", totalTxsInBlocks)
 		fmt.Printf("  📊 End-to-End TPS:       ~%.0f tx/s\n", processingTPS)
 		fmt.Printf("  ⏱️  End-to-End time:      %s\n", totalDuration.Round(time.Millisecond))
+		if onChainDuration > 0 {
+			fmt.Printf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTPS)
+			fmt.Printf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond))
+		} else {
+			fmt.Printf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n")
+		}
 		fmt.Printf("  ─────────────────────────────────────────────────\n")
 		fmt.Printf("  📦 BLOCK STATISTICS (Blocks %d to %d)\n", startBlock, endBlock)
 		fmt.Printf("  🧊 Total Blocks:         %d\n", blockCount)

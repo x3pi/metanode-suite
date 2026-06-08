@@ -36,6 +36,7 @@ Bạn có thể dùng cờ `--node` để script tự động thiết lập đú
 # Test Node 2 (RPC :8548 và TCP :6211)
 ./rpc-tcp-simple.sh --node 2
 ./rpc-tcp-simple.sh --node 1
+./rpc-tcp-simple.sh --node 0
 
 # Test Node 4 (RPC :8550 và TCP :6241)
 ./rpc-tcp-simple.sh --node 4
@@ -54,9 +55,13 @@ Trong trường hợp chạy trên các máy khác nhau hoặc cấu hình đặ
 Thêm cờ `--loop` để script chạy xoay vòng liên tục chu trình test RPC ➡️ TCP. Thích hợp để test độ ổn định (stability test) hoặc kiểm tra bug phát sinh khi spam.
 
 ```bash
+./rpc-tcp-simple.sh --loop --node 0
+
 ./rpc-tcp-simple.sh --loop --node 1
 ./rpc-tcp-simple.sh --loop --node 4
 ./rpc-tcp-simple.sh --loop --rpc-url http://127.0.0.1:8550 --tcp-url 127.0.0.1:6241
+
+./rpc-tcp-simple.sh --loop --rpc-url http://192.168.1.230:8550 --tcp-url 192.168.1.230:6241
 ```
 
 > 🛑 **Lưu ý:** Để dừng vòng lặp, nhấn tổ hợp phím **`Ctrl + C`** trên terminal.

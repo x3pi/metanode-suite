@@ -50,6 +50,11 @@ while [[ "$#" -gt 0 ]]; do
             NO_START=true
             CI_ARGS+=("$1")
             ;;
+        --mode)
+            MODE="$2"
+            CI_ARGS+=("$1" "$2")
+            shift
+            ;;
         stop|--stop|kill|--kill)
             DO_STOP=true
             ;;
@@ -100,13 +105,7 @@ wait_for_ports_to_release() {
     local start_time=$(date +%s)
     local timeout=15
     
-    # Check if sudo works (with password cached, or passwordless) or interactive
-    local SUDO_CMD=""
-    if sudo -n true 2>/dev/null; then
-        SUDO_CMD="sudo"
-    elif [ -t 0 ]; then
-        SUDO_CMD="sudo"
-    fi
+    local SUDO_PASS="1234@abcd"
     
     while true; do
         local busy_ports=()
@@ -126,15 +125,15 @@ wait_for_ports_to_release() {
         if [ $elapsed -ge $timeout ]; then
             echo "⚠️ Cảnh báo: Các cổng vẫn bị chiếm giữ sau ${timeout}s: ${busy_ports[*]}"
             for port in "${busy_ports[@]}"; do
-                local pids=$($SUDO_CMD ss -tlnp 2>/dev/null | grep -E ":$port\s" | grep -oP 'pid=\K[0-9]+' | sort -u || true)
+                local pids=$(echo "$SUDO_PASS" | sudo -S ss -tlnp 2>/dev/null | grep -E ":$port\s" | grep -oP 'pid=\K[0-9]+' | sort -u || true)
                 if [ -n "$pids" ]; then
                     for p in $pids; do
                         echo "  → Force killing PID $p occupying port $port..."
-                        $SUDO_CMD kill -9 "$p" 2>/dev/null || kill -9 "$p" 2>/dev/null || true
+                        echo "$SUDO_PASS" | sudo -S kill -9 "$p" 2>/dev/null || kill -9 "$p" 2>/dev/null || true
                     done
                 else
                     echo "  → Force killing port $port using fuser..."
-                    $SUDO_CMD fuser -k -9 -n tcp "$port" 2>/dev/null || fuser -k -9 -n tcp "$port" 2>/dev/null || true
+                    echo "$SUDO_PASS" | sudo -S fuser -k -9 -n tcp "$port" 2>/dev/null || fuser -k -9 -n tcp "$port" 2>/dev/null || true
                 fi
             done
             sleep 1
@@ -150,23 +149,17 @@ cleanup_all_processes() {
     echo ""
     echo "🔪 Dọn dẹp TOÀN BỘ tiến trình cũ đang chạy ngầm..."
 
-    # Check if sudo works (with password cached, or passwordless) or interactive
-    local SUDO_CMD=""
-    if sudo -n true 2>/dev/null; then
-        SUDO_CMD="sudo"
-    elif [ -t 0 ]; then
-        SUDO_CMD="sudo"
-    fi
+    local SUDO_PASS="1234@abcd"
 
     # Dừng các dịch vụ systemd của metanode nếu đang hoạt động
-    if [ "$NO_START" != "true" ]; then
+    if [ "$NO_START" != "true" ] && [ "${MODE:-}" != "multi" ]; then
         if systemctl list-units --type=service | grep -qE "metanode-"; then
             echo "   → Phát hiện các dịch vụ systemd metanode đang chạy. Đang dừng các dịch vụ..."
-            if ! $SUDO_CMD systemctl stop metanode-consensus-0 metanode-consensus-1 metanode-consensus-2 metanode-consensus-3 metanode-consensus-4 \
+            if ! echo "$SUDO_PASS" | sudo -S systemctl stop metanode-consensus-0 metanode-consensus-1 metanode-consensus-2 metanode-consensus-3 metanode-consensus-4 \
                                      metanode-execution-0 metanode-execution-1 metanode-execution-2 metanode-execution-3 metanode-execution-4 \
                                      metanode-rpc-0 metanode-rpc-1 metanode-rpc-2 metanode-rpc-3 metanode-rpc-4 \
-                                     metanode-consensus.service metanode-execution.service metanode.service; then
-                echo "   ⚠️  Warning: Failed to stop some systemd metanode services. Ensure you have sudo privileges or stop them manually."
+                                     metanode-consensus.service metanode-execution.service metanode.service 2>/dev/null; then
+                echo "   ⚠️  Warning: Failed to stop some systemd metanode services."
             fi
         fi
     fi
@@ -209,7 +202,7 @@ cleanup_all_processes() {
     # 3.1. Kill các tool chạy qua go run (watch/loop)
     pkill -9 -f "main.go -loop" 2>/dev/null || true
 
-    if [ "$NO_START" != "true" ]; then
+    if [ "$NO_START" != "true" ] && [ "${MODE:-}" != "multi" ]; then
         # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
         echo "   → Tắt dịch vụ Nginx (giải quyết lỗi 502 Bad Gateway)..."
         pkill -9 nginx 2>/dev/null || true
@@ -234,7 +227,7 @@ cleanup_all_processes() {
         echo "   → Giải phóng các port của cụm cluster..."
         wait_for_ports_to_release 8545 8547 8548 8549 8550 8757 10746 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 10100 10101 10102 10103 10104 6060 6061 6062 6063 6064 6065 6200 6201 6202 6203 6204 6211 6221 6241 4201 9080 9081 9082 9083 9084 8600 8601 8602 8603 8604
     else
-        echo "   → Bỏ qua việc kill tiến trình cluster và giải phóng port do có flag --no-start"
+        echo "   → Bỏ qua việc kill tiến trình local cluster và giải phóng port do có flag --no-start hoặc --mode multi"
     fi
 
     # Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm
