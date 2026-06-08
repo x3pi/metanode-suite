@@ -124,6 +124,7 @@ The bash wrapper simplifies running the monitor for different specific test pipe
 
 ```bash
 # 1. Chạy Auto Test tổng hợp (Spam TPS)
+./ci_monitor.sh --stop
 ./ci_monitor.sh --type spam
 ./ci_monitor.sh --type spam --mode multi
 ./ci_monitor.sh --type spam --batch 500

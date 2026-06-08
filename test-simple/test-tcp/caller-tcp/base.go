@@ -58,8 +58,8 @@ func main() {
 	}
 
 	fmt.Printf("Running TCP type: %s\n", runType)
-	fmt.Printf("%-30s | %-45s\n", "Connection", "Result")
-	fmt.Println(strings.Repeat("-", 86))
+	
+	var finalResults []string
 
 	for _, connAddr := range toolCfg.ConnectionAddresses {
 		cfgCopy := *baseCfg
@@ -67,7 +67,7 @@ func main() {
 
 		cli, err := client_tcp.NewClient(&cfgCopy)
 		if err != nil {
-			fmt.Printf("%-30s | Error: connect failed: %v\n", connAddr, err)
+			finalResults = append(finalResults, fmt.Sprintf("%-30s | Error: connect failed: %v", connAddr, err))
 			continue
 		}
 
@@ -76,11 +76,25 @@ func main() {
 
 		result, err := handler(cli, toolCfg)
 		if err != nil {
-			fmt.Printf("%-30s | Error: %v\n", connAddr, err)
+			finalResults = append(finalResults, fmt.Sprintf("%-30s | Error: %v", connAddr, err))
 			continue
 		}
-		fmt.Printf("%-30s | %s\n", connAddr, result)
+		finalResults = append(finalResults, fmt.Sprintf("%-30s | %s", connAddr, result))
 	}
+
+	// Đợi một chút để các log ngầm xả hết ra màn hình
+	time.Sleep(500 * time.Millisecond)
+
+	// In bảng kết quả tổng hợp ở dòng cuối cùng
+	fmt.Println("\n" + strings.Repeat("=", 86))
+	fmt.Println("🚀 FINAL TCP RESULTS:")
+	fmt.Println(strings.Repeat("=", 86))
+	fmt.Printf("%-30s | %-45s\n", "Connection", "Result")
+	fmt.Println(strings.Repeat("-", 86))
+	for _, res := range finalResults {
+		fmt.Println(res)
+	}
+	fmt.Println(strings.Repeat("=", 86))
 }
 
 func loadConfig(path string) (*tcp_config.ClientConfig, ToolConfig, error) {

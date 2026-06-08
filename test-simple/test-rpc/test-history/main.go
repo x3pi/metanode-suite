@@ -105,9 +105,6 @@ func isExcluded(url string, excludeStr string) bool {
 		if p == "" {
 			continue
 		}
-		if strings.Contains(url, p) {
-			return true
-		}
 		nodePortMap := map[string]string{
 			"0": "8545",
 			"1": "8547",
@@ -116,9 +113,13 @@ func isExcluded(url string, excludeStr string) bool {
 			"4": "8550",
 		}
 		if port, ok := nodePortMap[p]; ok {
-			if strings.Contains(url, port) {
+			if strings.Contains(url, ":"+port) || strings.Contains(url, "/"+port) {
 				return true
 			}
+			continue
+		}
+		if strings.Contains(url, p) {
+			return true
 		}
 	}
 	return false
@@ -573,8 +574,13 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	fmt.Println("🚀 BẮT ĐẦU XÁC MINH TRÊN CÁC NODE CÒN LẠI")
 	fmt.Println("=====================================================")
 
+	excludeStr := getExcludedNodes(fc.flagExclude)
 	for _, u := range fc.urls {
 		nodeNum := getNodeNumberFromURL(u)
+		if isExcluded(u, excludeStr) || isExcluded(nodeNum, excludeStr) {
+			fmt.Printf("🚫 Bỏ qua kiểm tra lịch sử trên node %s (Node %s) do đang bị loại trừ...\n", u, nodeNum)
+			continue
+		}
 		fmt.Printf("🔍 Đang kiểm tra node: %s (Node %s)\n", u, nodeNum)
 		tempClient, errDial := rpc.Dial(u)
 		if errDial != nil {

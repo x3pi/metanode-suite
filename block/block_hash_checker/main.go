@@ -774,11 +774,11 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 					errCount = 0
 				}
 
-				if errCount == 10 { // Alert after 10 consecutive real errors (e.g. connection refused)
-					logAnomaly("NODE_DOWN", r.blockNum,
-						fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 10 blocks! Lỗi: %s",
-							node.Name, bi.Error))
-				}
+				// if errCount == 10 { // Alert after 10 consecutive real errors (e.g. connection refused)
+				// 	logAnomaly("NODE_DOWN", r.blockNum,
+				// 		fmt.Sprintf("node=%s KHÔNG PHẢN HỒI (Mất kết nối RPC hoặc Node đã sập) liên tục 10 blocks! Lỗi: %s",
+				// 			node.Name, bi.Error))
+				// }
 				prevState[node.Name] = &prevBlockState{BlockNum: r.blockNum, IsNil: true, ConsecutiveErrors: errCount}
 				continue
 			}

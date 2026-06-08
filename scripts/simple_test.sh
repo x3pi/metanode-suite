@@ -167,15 +167,19 @@ CHECKER_PID=$!
 echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
 (
     cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-    go run main.go -config=config-local.json -wait 5 -loop > history_checker_simple.log 2>&1
+    if [ "$DEPLOY_MODE" == "single" ]; then
+        go run main.go -config=config-local.json -wait 5 -loop > history_checker_simple.log 2>&1
+    else
+        go run main.go -config=config-mutil.json -wait 5 -loop > history_checker_simple.log 2>&1
+    fi
 ) &
 HISTORY_PID=$!
 
 _simple_test_cleanup() {
     local _exit_code=$?
     # Preserve exit code trước khi kill background processes
-    disown $CHECKER_PID $HISTORY_PID 2>/dev/null
-    kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null
+    disown $CHECKER_PID $HISTORY_PID 2>/dev/null || true
+    kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null || true
     pkill -f 'go run main.go --watch' || true
     pkill -f 'exe/main --watch' || true
     pkill -f 'test-rpc/test-history' || true

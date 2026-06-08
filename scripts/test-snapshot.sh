@@ -51,9 +51,11 @@ METANODE_SCRIPT_DIR="$(cd "$TOOL_TEST_DIR/../metanode" && pwd)/consensus/metanod
 
 HISTORY_CONFIG="config-local.json"
 HASH_CONFIG_ARG=""
+TPS_CONFIG_ARG=""
 if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
     HISTORY_CONFIG="config-mutil.json"
     HASH_CONFIG_ARG="--config config-m-nodes.json"
+    TPS_CONFIG_ARG="--config config-multi.json"
 fi
 
 # Xóa cờ lỗi cũ trước khi chạy
@@ -94,12 +96,64 @@ if [ $SIMPLE_EXIT -ne 0 ]; then
     exit 1
 fi
 
+# Xác định danh sách active nodes tham gia test snapshot (từ config-multi.json và /tmp/rpc_nodes.json)
+if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
+    # 1. Đọc node IDs từ tps_blast_cc/config-multi.json (phím như rpc_0, rpc_1...)
+    CONFIG_JSON="$TPS_DIR/config-multi.json"
+    if [ -f "$CONFIG_JSON" ]; then
+        CONFIG_IDS=($(jq -r 'keys[]' "$CONFIG_JSON" | grep -E '^rpc_[0-9]+$' | sed 's/rpc_//' | sort -n))
+    else
+        CONFIG_IDS=(0 1 2 3)
+    fi
+
+    # 2. Đọc active node IDs từ /tmp/rpc_nodes.json (phím dưới .nodes như m0, m1...)
+    if [ -f "/tmp/rpc_nodes.json" ]; then
+        ACTIVE_IDS=($(jq -r '.nodes | keys[]' /tmp/rpc_nodes.json | sed 's/m//' | sort -n))
+    else
+        ACTIVE_IDS=(0 1 2 3 4)
+    fi
+
+    # 3. Giao hai danh sách và loại trừ Node 4 (node khôi phục)
+    RESTORE_NODES=()
+    for id in "${ACTIVE_IDS[@]}"; do
+        if [ "$id" = "4" ]; then
+            continue
+        fi
+        for cid in "${CONFIG_IDS[@]}"; do
+            if [ "$id" = "$cid" ]; then
+                RESTORE_NODES+=("$id")
+                break
+            fi
+        done
+    done
+
+    # Nếu rỗng, fallback sang active IDs ngoại trừ 4
+    if [ ${#RESTORE_NODES[@]} -eq 0 ]; then
+        for id in "${ACTIVE_IDS[@]}"; do
+            if [ "$id" != "4" ]; then
+                RESTORE_NODES+=("$id")
+            fi
+        done
+    fi
+else
+    RESTORE_NODES=(0 1 2 3)
+fi
+
+echo "📋 Danh sách các node tham gia test snapshot: ${RESTORE_NODES[*]}"
+if [ ${#RESTORE_NODES[@]} -eq 0 ]; then
+    echo "❌ LỖI: Không tìm thấy node nào hợp lệ để test snapshot!"
+    kill $MONITOR_PID 2>/dev/null || true
+    exit 1
+fi
+
 for ((i=1; i<=LOOPS; i++)); do
-    # Xác định Node luân phiên (0, 1, 2, 3), trừ node 4 (dùng để tải snapshot)
+    # Xác định Node luân phiên từ danh sách RESTORE_NODES
     if [ -n "$TARGET_NODE" ]; then
         NODE_ID=$TARGET_NODE
     else
-        NODE_ID=$(( (i - 1) % 4 ))
+        NUM_RESTORE_NODES=${#RESTORE_NODES[@]}
+        IDX=$(( (i - 1) % NUM_RESTORE_NODES ))
+        NODE_ID=${RESTORE_NODES[$IDX]}
     fi
 
     echo ""
@@ -117,7 +171,7 @@ for ((i=1; i<=LOOPS; i++)); do
     # 2. Chạy TPS
     echo "👉 Bước 2: Chạy TPS Blast CC ($TPS_ROUNDS rounds, $TPS_COUNT txs)..."
     cd "$TPS_DIR" || exit 1
-    go run main.go --count "$TPS_COUNT" --parallel_native=true --rounds "$TPS_ROUNDS" --load_balance=false --batch=10 &
+    go run main.go --count "$TPS_COUNT" --parallel_native=true --rounds "$TPS_ROUNDS" --load_balance=false --batch=10 $TPS_CONFIG_ARG &
     TPS_PID=$!
 
     # Giám sát: nếu checker bị kill (do lệch hash) trong lúc TPS đang chạy thì dừng ngay
@@ -265,14 +319,20 @@ for ((i=1; i<=LOOPS; i++)); do
     echo "   ⏳ Đợi 10s cho node $NODE_ID ổn định sau khi restore..."
     sleep 10
     
-    SPAM_NODE=0
-    if [ "$NODE_ID" = "0" ]; then
-        SPAM_NODE=1
+    SPAM_NODE=""
+    for node in "${RESTORE_NODES[@]}"; do
+        if [ "$node" != "$NODE_ID" ]; then
+            SPAM_NODE="$node"
+            break
+        fi
+    done
+    if [ -z "$SPAM_NODE" ]; then
+        SPAM_NODE=0
     fi
     
     cd "$TPS_DIR" || exit 1
     echo "👉 Chạy giao dịch lên chính node vừa khôi phục ($NODE_ID)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $NODE_ID > blast_restore_node.log 2>&1
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $NODE_ID $TPS_CONFIG_ARG > blast_restore_node.log 2>&1
     TPS_REC_EXIT=$?
     if [ $TPS_REC_EXIT -ne 0 ]; then
         echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $NODE_ID thất bại (exit code $TPS_REC_EXIT)!"
@@ -283,7 +343,7 @@ for ((i=1; i<=LOOPS; i++)); do
     fi
     
     echo "👉 Đổi sang chạy giao dịch qua node khác ($SPAM_NODE)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE > blast_other_node.log 2>&1
+    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE $TPS_CONFIG_ARG > blast_other_node.log 2>&1
     TPS_OTH_EXIT=$?
     if [ $TPS_OTH_EXIT -ne 0 ]; then
         echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $SPAM_NODE thất bại (exit code $TPS_OTH_EXIT)!"

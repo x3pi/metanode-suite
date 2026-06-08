@@ -153,12 +153,12 @@ wait_for_nodes_http() {
     echo "⚠️ Cảnh báo: Một số node HTTP server chưa phản hồi sau 60 giây!"
     return 1
 }
-wait_for_nodes_http
 
 # ----------------------------------------------------
 # BƯỚC 2.5: Bật RPC Proxy (Cả 5 node - Chỉ chạy trên local)
 # ----------------------------------------------------
 if [ "$DEPLOY_MODE" == "single" ]; then
+wait_for_nodes_http
     echo ""
     echo "📌 BƯỚC 2.5: Kiểm tra và bật RPC Proxy cho cả 5 node (Local mode)..."
     cd "$RPC_CLIENT_DIR"

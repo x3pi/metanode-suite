@@ -1,13 +1,13 @@
 {
     "type": "get_transaction_receipt",
     "rpc_urls": [
-        "http://localhost:8545",
-        "http://localhost:8547",
-        "http://localhost:8548",
-        "http://localhost:8549",
-        "http://localhost:8550"
+        "http://192.168.1.234:8545",
+        "http://192.168.1.233:8547",
+        "http://192.168.1.231:8548",
+        "http://192.168.1.231:8549",
+        "http://192.168.1.230:8550"
     ],
     "params": {
-        "hash": "0xf1e99cd138cf736f268acefc8b54a30337cc21ca4de0d5a74749fbdb3020ef0e"
+        "hash": "0xb7aec25b896f316d1d713c1d88a9bd0fda3f9d422c85cbd22793ca4db0b21d14"
     }
 }

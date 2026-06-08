@@ -86,6 +86,8 @@ cd scripts/
 - Chạy test khôi phục snapshot luân phiên các node trong mạng với 5 vòng lặp:
   ```bash
   ./test-snapshot.sh --loops 5
+  ./test-snapshot.sh  --mode multi
+
   ```
 - Cố định test liên tục 3 vòng chỉ trên Node 2:
   ```bash

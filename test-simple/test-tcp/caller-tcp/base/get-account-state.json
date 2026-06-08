@@ -2,10 +2,11 @@
     "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
     "version": "0.0.1.0",
     "connection_addresses": [
-        "192.168.1.234:4201"
+        "139.59.243.85:4200",
+        "139.59.243.85:4201"
     ],
     "type": "account_state",
     "params": {
-        "address": "0x0121f94A0898a2F5c00627d3AC8e8f5EABF8B271"
+        "address": "0xea3db8925b49b5452ed74959eb86bbbb7fab59ce"
     }
 }

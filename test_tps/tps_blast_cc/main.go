@@ -1168,6 +1168,7 @@ func main() {
 		}
 
 		var lastEpochAlertTime time.Time
+		var lastAlertTime time.Time // 2-minute stall alert for TX confirmation phase
 
 		for {
 			// Check for STOP flag from block_hash_checker
@@ -1183,7 +1184,9 @@ func main() {
 			if !epochTransitioned && epochWait > 0 {
 				if time.Since(epochWaitStart) > time.Duration(epochWait)*time.Second {
 					if time.Since(lastEpochAlertTime) >= 60*time.Second {
-						errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (startEpoch: %d) | Time: %s", epochWait, startEpoch, time.Now().Format("15:04:05.000"))
+						elapsedSec := int(time.Since(epochWaitStart).Seconds())
+						pendingEpoch := len(expectedTxHashes)
+						errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d | Time: %s", epochWait, elapsedSec, startEpoch, pendingEpoch, time.Now().Format("15:04:05.000"))
 						fmt.Println(errMsg)
 						logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 
@@ -1200,7 +1203,7 @@ func main() {
 							}
 						}
 
-						teleMsg := fmt.Sprintf("Quá %d giây không có epoch mới! (startEpoch: %d)\n5 giao dịch chưa được đưa vào:\n%s", epochWait, startEpoch, strings.Join(missingTxs, "\n"))
+						teleMsg := fmt.Sprintf("Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d\n5 giao dịch chưa được đưa vào:\n%s", epochWait, elapsedSec, startEpoch, pendingEpoch, strings.Join(missingTxs, "\n"))
 						sendTelegramAlert(teleMsg, "tps_blast_cc")
 						lastEpochAlertTime = time.Now()
 					}
@@ -1208,10 +1211,38 @@ func main() {
 				}
 			}
 
-			// Check TX confirmation timeout (resets whenever there is block or TX progress)
+			// Check TX confirmation timeout + periodic stall alert every 2 minutes
 			if epochTransitioned && !processStart.IsZero() {
-				if time.Since(lastProgressTime) > maxWait {
+				stalledFor := time.Since(lastProgressTime)
+				if stalledFor > maxWait {
 					break
+				}
+				// Every 2 minutes without new confirmed TXs, print alert
+				if stalledFor > 2*time.Minute && time.Since(lastAlertTime) >= 2*time.Minute {
+					pendingCount := len(expectedTxHashes)
+					var sample []string
+					for _, tx := range allTxs {
+						txHashLower := strings.ToLower(tx.txHash.Hex())
+						if expectedTxHashes[txHashLower] {
+							sample = append(sample, tx.txHash.Hex())
+							if len(sample) >= 5 {
+								break
+							}
+						}
+					}
+					totalElapsed := time.Since(processStart).Round(time.Second)
+					aMsg := fmt.Sprintf("\n⚠️  [%s] STALL ALERT: %d giao dịch chưa phản hồi\n   Tổng thời gian chờ kể từ epoch: %s | Không tiến triển (stalled): %s | Timeout còn lại: %s\n   5 giao dịch minh họa:\n   %s\n",
+						time.Now().Format("15:04:05.000"),
+						pendingCount,
+						totalElapsed,
+						stalledFor.Round(time.Second),
+						(maxWait - stalledFor).Round(time.Second),
+						strings.Join(sample, "\n   "))
+					fmt.Print(aMsg)
+					teleMsg := fmt.Sprintf("%d giao dịch chưa phản hồi\nTổng thời gian chờ kể từ epoch: %s | Không tiến triển: %s | Timeout còn lại: %s\n5 giao dịch minh họa:\n%s",
+						pendingCount, totalElapsed, stalledFor.Round(time.Second), (maxWait - stalledFor).Round(time.Second), strings.Join(sample, "\n"))
+					sendTelegramAlert(teleMsg, "tps_blast_cc")
+					lastAlertTime = time.Now()
 				}
 			}
 
@@ -1254,7 +1285,7 @@ func main() {
 				}
 			}
 
-			if nextLastBlockNum > lastBlockNum || newTxs > 0 {
+			if newTxs > 0 {
 				lastProgressTime = time.Now()
 			}
 			totalTxsInBlocks += newTxs
