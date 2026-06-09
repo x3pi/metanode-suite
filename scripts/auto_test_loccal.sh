@@ -10,6 +10,7 @@ export RUST_BACKTRACE=full
 rm -f /tmp/MTN_CHAIN_ERROR_STOP
 pkill -f "test-rpc/test-history" || true
 pkill -f "block_hash_checker" || true
+pkill -f "health_checker.sh" || true
 # Tự động lấy thư mục gốc của project tool-test
 TOOL_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -219,40 +220,11 @@ echo "📌 BẬT GIÁM SÁT LỊCH SỬ STATE NGẦM (test-history)..."
 HISTORY_PID=$!
 
 echo "📌 BẬT GIÁM SÁT SỰ SỐNG CỦA NODE NGẦM (Node Health Checker)..."
-(
-    while true; do
-        sleep 10
-        if [ "$DEPLOY_MODE" == "multi" ]; then
-            RPC_JSON_PATH="/tmp/rpc_nodes.json"
-            if [ -f "$RPC_JSON_PATH" ]; then
-                # Đọc các URL RPC từ file JSON
-                urls=$(grep -oE 'http://[^"]+' "$RPC_JSON_PATH" 2>/dev/null || true)
-                for url in $urls; do
-                    if ! curl -s -m 2 "$url" >/dev/null 2>&1; then
-                        echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI $url! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
-                        echo "Node HTTP Server ($url) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
-                        kill -TERM -$$ 2>/dev/null || kill -TERM $$
-                        exit 1
-                    fi
-                done
-            fi
-        else
-            # Chế độ single (local mode)
-            PORTS=(8757 10747 10749 10750 10748)
-            for port in "${PORTS[@]}"; do
-                if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
-                    echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI CỔNG $port! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
-                    echo "Node HTTP Server (cổng $port) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
-                    kill -TERM -$$ 2>/dev/null || kill -TERM $$
-                    exit 1
-                fi
-            done
-        fi
-    done
-) &
+pkill -f "health_checker.sh" || true
+bash "$TOOL_TEST_DIR/scripts/health_checker.sh" --parent-pid $$ --mode "$DEPLOY_MODE" &
 HEALTH_PID=$!
 
-trap "disown $CHECKER_PID $HISTORY_PID $HEALTH_PID 2>/dev/null; kill -9 $CHECKER_PID $HISTORY_PID $HEALTH_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true; pkill -f 'config-local.json.*-loop' || true; pkill -f 'config-local.json.*-wait' || true" EXIT
+trap "disown \$CHECKER_PID \$HISTORY_PID \$HEALTH_PID 2>/dev/null; kill -9 \$CHECKER_PID \$HISTORY_PID \$HEALTH_PID 2>/dev/null; pkill -f 'go run main.go --watch' || true; pkill -f 'exe/main --watch' || true; pkill -f 'test-rpc/test-history' || true; pkill -f 'config-local.json.*-loop' || true; pkill -f 'config-local.json.*-wait' || true; pkill -f 'health_checker.sh' || true" EXIT
 
 
 # ----------------------------------------------------
