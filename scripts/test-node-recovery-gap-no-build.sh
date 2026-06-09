@@ -281,7 +281,7 @@ cleanup() {
     else
         echo "💡 [DEBUG] Giữ lại file checkpoint /tmp/pending_check_*.json để debug offline!"
     fi
-    kill ${MONITOR_PID:-0} 2>/dev/null || true
+    [ -n "${MONITOR_PID:-}" ] && kill "$MONITOR_PID" 2>/dev/null || true
     exit $err
 }
 trap cleanup EXIT INT TERM
@@ -289,6 +289,7 @@ trap cleanup EXIT INT TERM
 # Theo dõi cờ lỗi từ Hash Checker ngầm & Giám sát sự sống của Node
 monitor_error_flag() {
     local loop_count=0
+    local consecutive_failures=0
     while true; do
         if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
             echo -e "\n\n🛑 PHÁT HIỆN LỖI NGHIÊM TRỌNG: /tmp/MTN_CHAIN_ERROR_STOP đã được tạo!"
@@ -303,6 +304,9 @@ monitor_error_flag() {
         
         # Kiểm tra sự sống của các node mỗi 2 giây (10 chu kỳ của sleep 0.2s)
         if [ $((loop_count % 10)) -eq 0 ]; then
+            local check_failed=false
+            local error_msg=""
+            
             if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
                 if [ -f /tmp/rpc_nodes.json ]; then
                     while read -r node_key node_url; do
@@ -315,7 +319,8 @@ monitor_error_flag() {
                         fi
                         if [ "$is_excluded" = false ]; then
                             if ! curl -s -m 2 "$node_url" >/dev/null 2>&1; then
-                                echo "Node HTTP Server ($node_key: $node_url) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                                check_failed=true
+                                error_msg="Node HTTP Server ($node_key: $node_url) không phản hồi. Có thể process đã bị crash!"
                                 break
                             fi
                         fi
@@ -333,11 +338,21 @@ monitor_error_flag() {
                     if [ "$is_excluded" = false ]; then
                         local port="${ports[$node_id]}"
                         if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
-                            echo "Node HTTP Server (Node $node_id tại cổng $port) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                            check_failed=true
+                            error_msg="Node HTTP Server (Node $node_id tại cổng $port) không phản hồi. Có thể process đã bị crash!"
                             break
                         fi
                     fi
                 done
+            fi
+            
+            if [ "$check_failed" = true ]; then
+                consecutive_failures=$((consecutive_failures + 1))
+                if [ "$consecutive_failures" -ge 3 ]; then
+                    echo "$error_msg" > /tmp/MTN_CHAIN_ERROR_STOP
+                fi
+            else
+                consecutive_failures=0
             fi
         fi
 

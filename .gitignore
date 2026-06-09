@@ -25,3 +25,4 @@ proof/rust-verifier/target/.rustc_info.json
 test_tps/tps_blast_cc/main
 block/block_hash_checker/block_hash_checker_ci
 register_bls/bls_keys.json
+scripts/snapshot_test_logs/metanode.code-workspace

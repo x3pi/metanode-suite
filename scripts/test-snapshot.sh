@@ -59,10 +59,11 @@ if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
 fi
 
 # Xóa cờ lỗi cũ trước khi chạy
-rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json
+rm -f /tmp/MTN_CHAIN_ERROR_STOP /tmp/pending_check_*.json /tmp/rpc_nodes.json /tmp/MTN_EXCLUDE_NODES 2>/dev/null || true
 
 # Theo dõi cờ lỗi từ Hash Checker ngầm & Giám sát sự sống của Node
 monitor_error_flag() {
+    local consecutive_failures=0
     while true; do
         if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
             echo -e "\n\n🛑 PHÁT HIỆN LỖI NGHIÊM TRỌNG: /tmp/MTN_CHAIN_ERROR_STOP đã được tạo!"
@@ -75,6 +76,9 @@ monitor_error_flag() {
             kill -TERM -$$
             exit 1
         fi
+        
+        local check_failed=false
+        local error_msg=""
         
         # Kiểm tra sự sống của các node
         if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
@@ -89,7 +93,8 @@ monitor_error_flag() {
                     fi
                     if [ "$is_excluded" = false ]; then
                         if ! curl -s -m 2 "$node_url" >/dev/null 2>&1; then
-                            echo "Node HTTP Server ($node_key: $node_url) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                            check_failed=true
+                            error_msg="Node HTTP Server ($node_key: $node_url) không phản hồi. Có thể process đã bị crash!"
                             break
                         fi
                     fi
@@ -107,21 +112,31 @@ monitor_error_flag() {
                 if [ "$is_excluded" = false ]; then
                     local port="${ports[$node_id]}"
                     if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
-                        echo "Node HTTP Server (Node $node_id tại cổng $port) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                        check_failed=true
+                        error_msg="Node HTTP Server (Node $node_id tại cổng $port) không phản hồi. Có thể process đã bị crash!"
                         break
                     fi
                 fi
             done
         fi
         
+        if [ "$check_failed" = true ]; then
+            consecutive_failures=$((consecutive_failures + 1))
+            if [ "$consecutive_failures" -ge 3 ]; then
+                echo "$error_msg" > /tmp/MTN_CHAIN_ERROR_STOP
+            fi
+        else
+            consecutive_failures=0
+        fi
+        
         sleep 2
     done
 }
-monitor_error_flag &
-MONITOR_PID=$!
+
+MONITOR_PID=""
 
 # Xử lý tín hiệu Ctrl+C (SIGINT) để kill sạch các tiến trình chạy ngầm
-trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; rm -f /tmp/pending_check_*.json /tmp/MTN_EXCLUDE_NODES; kill -9 $CHECKER_PID $TPS_PID $MONITOR_PID 2>/dev/null || true; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
+trap 'echo -e "\n🛑 Đang dọn dẹp tiến trình..."; rm -f /tmp/pending_check_*.json /tmp/MTN_EXCLUDE_NODES; [ -n "${CHECKER_PID:-}" ] && kill -9 $CHECKER_PID 2>/dev/null; [ -n "${TPS_PID:-}" ] && kill -9 $TPS_PID 2>/dev/null; [ -n "${MONITOR_PID:-}" ] && kill -9 $MONITOR_PID 2>/dev/null; pkill -P $$ 2>/dev/null || true; exit 1' SIGINT SIGTERM
 
 echo "====================================================================="
 echo "🚀 BƯỚC 0: CHẠY SIMPLE TEST ĐỂ KHỞI TẠO VÀ TEST MẠNG CƠ BẢN"
@@ -131,9 +146,12 @@ cd "$SCRIPTS_DIR" || exit 1
 SIMPLE_EXIT=$?
 if [ $SIMPLE_EXIT -ne 0 ]; then
     echo "❌ LỖI: simple_test.sh thất bại! Dừng toàn bộ."
-    kill $MONITOR_PID 2>/dev/null || true
     exit 1
 fi
+
+# Khởi chạy monitor sau khi cụm node đã khởi tạo xong để tránh race condition
+monitor_error_flag &
+MONITOR_PID=$!
 
 # Xác định danh sách active nodes tham gia test snapshot (từ config-multi.json và /tmp/rpc_nodes.json)
 if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
