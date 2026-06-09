@@ -8,6 +8,9 @@ go run main.go -config=config-local.json -data=data.json
 ```
 
 ``` bash
+#send native
+go run main.go -config=config-server.json -data=data-send-native.json
+
 go run main-no-none.go -config=config-local.json -data=data.json
 go run main-no-none.go -config=config-local.json -data=data.json -loop
 ```

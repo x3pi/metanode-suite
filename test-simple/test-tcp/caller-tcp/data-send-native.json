@@ -1,0 +1,9 @@
+[
+    {
+        "action": "send",
+        "contract": "0x0B143e894a600114C4A3729874214e5fC5EA9cbc",
+        "method": "",
+        "input_data": "",
+        "amount": "1000000000000000000000"
+    }
+]

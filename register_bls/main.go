@@ -411,6 +411,97 @@ func testBlsRegistration(
 	}
 }
 
+// ===================== REGISTER BLS FOR EXISTING WALLET =====================
+
+// registerBlsForExistingWallet đăng ký BLS pubkey của node cho một ví (private key) đã có sẵn.
+// Flow:
+//  1. Lấy BLS pubkey từ node qua getPublickeyBls
+//  2. Gọi setBlsPublicKey từ ví của người dùng
+//  3. (Optional) Admin confirm nếu truyền admin key
+func registerBlsForExistingWallet(
+	tcpClient *client_tcp.Client,
+	accountABI abi.ABI,
+	accountContract common.Address,
+	userPrivKey *ecdsa.PrivateKey,
+	userAddr common.Address,
+	adminPrivKey *ecdsa.PrivateKey,
+	adminAddr common.Address,
+	signer e_types.Signer,
+	doConfirm bool,
+) {
+	bls.Init()
+	fmt.Println("\n╔══════════════════════════════════════════════════════╗")
+	fmt.Println("║  Register BLS for Existing Wallet                    ║")
+	fmt.Println("╚══════════════════════════════════════════════════════╝")
+	fmt.Printf("  Wallet address: %s\n", userAddr.Hex())
+
+	// Step 1: Lấy BLS pubkey từ node
+	fmt.Println("  ⏳ Fetching BLS public key from node...")
+	getPubKeyInput, _ := accountABI.Pack("getPublickeyBls")
+	blsPubKeyResult, err := tcpClient.RpcEthCall(accountContract, getPubKeyInput)
+	if err != nil {
+		fmt.Printf("  ❌ getPublickeyBls RpcEthCall: %v\n", err)
+		return
+	}
+
+	var blsPubKey []byte
+	var hexStr string
+	if err := json.Unmarshal(blsPubKeyResult, &hexStr); err == nil {
+		hexStr = strings.TrimPrefix(hexStr, "0x")
+		blsPubKey, err = hex.DecodeString(hexStr)
+	} else {
+		err = accountABI.UnpackIntoInterface(&blsPubKey, "getPublickeyBls", blsPubKeyResult)
+	}
+	if err != nil || len(blsPubKey) == 0 {
+		fmt.Printf("  ❌ Failed to decode BLS pubkey: %v\n", err)
+		return
+	}
+	fmt.Printf("  ✅ BLS PublicKey from node: 0x%s (%d bytes)\n", hex.EncodeToString(blsPubKey), len(blsPubKey))
+
+	// Step 2: Gọi setBlsPublicKey từ ví của người dùng
+	fmt.Println("  ⏳ Sending setBlsPublicKey transaction...")
+	nonce, err := tcpClient.ChainGetNonce(userAddr)
+	if err != nil {
+		fmt.Printf("  ❌ GetNonce: %v\n", err)
+		return
+	}
+	inputData, err := accountABI.Pack("setBlsPublicKey", blsPubKey)
+	if err != nil {
+		fmt.Printf("  ❌ Pack setBlsPublicKey: %v\n", err)
+		return
+	}
+	tx := e_types.NewTransaction(nonce, accountContract, big.NewInt(0), 20000000, big.NewInt(10000000), inputData)
+	signedTx, _ := e_types.SignTx(tx, signer, userPrivKey)
+	rawTxBytes, _ := signedTx.MarshalBinary()
+	txHash, err := tcpClient.RpcSendRawTransaction("0x" + hex.EncodeToString(rawTxBytes))
+	if err != nil {
+		fmt.Printf("  ❌ setBlsPublicKey send failed: %v\n", err)
+		return
+	}
+	fmt.Printf("  ✅ setBlsPublicKey txHash: %s\n", txHash)
+
+	// Step 3: (Optional) Admin confirm
+	if doConfirm && adminPrivKey != nil {
+		fmt.Printf("  ⏳ Admin %s confirming wallet %s...\n", adminAddr.Hex(), userAddr.Hex())
+		txHash2, receipt2 := sendTxAndWaitRPC(
+			tcpClient, adminPrivKey, adminAddr, accountContract,
+			accountABI, signer,
+			"confirmAccountWithoutSign", userAddr,
+		)
+		if receipt2 != nil {
+			fmt.Printf("  ✅ confirmAccountWithoutSign OK: txHash=%s\n", txHash2)
+		} else {
+			fmt.Println("  ⚠️ confirmAccountWithoutSign — receipt not available (may be intercepted)")
+		}
+	} else {
+		fmt.Println("  ℹ️  Bỏ qua bước confirmAccountWithoutSign (không có -admin-pk hoặc -no-confirm)")
+	}
+
+	fmt.Println("\n  ✅ Register BLS for existing wallet completed!")
+	fmt.Printf("  ├─ Wallet:     %s\n", userAddr.Hex())
+	fmt.Printf("  └─ BLS PubKey: 0x%s\n", hex.EncodeToString(blsPubKey))
+}
+
 // ===================== MAIN =====================
 
 func main() {
@@ -422,6 +513,10 @@ func main() {
 	configPath := flag.String("config", "config-test.json", "Path to TCP RPC client config")
 	blsCount := flag.Int("count", 1, "Number of BLS keys to generate")
 	outJson := flag.String("out", "bls_keys.json", "Output JSON file for generated BLS keys")
+	// --- Flag cho chế độ đăng ký BLS từ ví có sẵn ---
+	walletPk := flag.String("wallet-pk", "", "Private key (hex) của ví cần đăng ký BLS (nếu truyền, bỏ qua chế độ generate)")
+	adminPk := flag.String("admin-pk", "", "Private key (hex) của admin để confirm (tuỳ chọn, chỉ dùng khi -wallet-pk được chỉ định)")
+	noConfirm := flag.Bool("no-confirm", false, "Bỏ qua bước confirmAccountWithoutSign")
 	flag.Parse()
 
 	fmt.Println("╔══════════════════════════════════════════════════════╗")
@@ -439,7 +534,7 @@ func main() {
 	}
 	time.Sleep(1 * time.Second)
 
-	// Common setup
+	// Common setup (dùng private key trong config làm admin mặc định)
 	ethPrivKey, _ := crypto.HexToECDSA(cfg.EthPrivateKey)
 	fromAddr := crypto.PubkeyToAddress(ethPrivKey.PublicKey)
 	chainIdBig := big.NewInt(int64(cfg.ChainId))
@@ -450,7 +545,41 @@ func main() {
 
 	accountABI, _ := abi.JSON(strings.NewReader(accountAbiJSON))
 	accountContract := common.HexToAddress("0x00000000000000000000000000000000D844bb55")
-	testBlsRegistration(tcpClient, accountABI, accountContract, ethPrivKey, fromAddr, signer, *blsCount, *outJson)
+
+	if *walletPk != "" {
+		// Chế độ đăng ký BLS cho ví có sẵn
+		userPrivKey, err := crypto.HexToECDSA(strings.TrimPrefix(*walletPk, "0x"))
+		if err != nil {
+			logger.Error("Invalid -wallet-pk: %v", err)
+			os.Exit(1)
+		}
+		userAddr := crypto.PubkeyToAddress(userPrivKey.PublicKey)
+
+		// Admin key: ưu tiên -admin-pk, fallback về key trong config
+		var resolvedAdminPrivKey *ecdsa.PrivateKey
+		var resolvedAdminAddr common.Address
+		if *adminPk != "" {
+			resolvedAdminPrivKey, err = crypto.HexToECDSA(strings.TrimPrefix(*adminPk, "0x"))
+			if err != nil {
+				logger.Error("Invalid -admin-pk: %v", err)
+				os.Exit(1)
+			}
+			resolvedAdminAddr = crypto.PubkeyToAddress(resolvedAdminPrivKey.PublicKey)
+		} else {
+			resolvedAdminPrivKey = ethPrivKey
+			resolvedAdminAddr = fromAddr
+		}
+
+		registerBlsForExistingWallet(
+			tcpClient, accountABI, accountContract,
+			userPrivKey, userAddr,
+			resolvedAdminPrivKey, resolvedAdminAddr,
+			signer, !*noConfirm,
+		)
+	} else {
+		// Chế độ mặc định: tạo key mới và đăng ký
+		testBlsRegistration(tcpClient, accountABI, accountContract, ethPrivKey, fromAddr, signer, *blsCount, *outJson)
+	}
 
 	fmt.Println("\n╔══════════════════════════════════════════════════════╗")
 	fmt.Println("║       All tests completed!                           ║")

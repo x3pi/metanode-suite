@@ -38,6 +38,7 @@ type DataPayload struct {
 	Args           []interface{}   `json:"args"`
 	InputData      string          `json:"input_data"`
 	ExpectedEvents []ExpectedEvent `json:"expected_events"`
+	Amount         string          `json:"amount"` // Số lượng MOC (đơn vị wei)
 	Verify         []interface{}   `json:"verify"`
 }
 
@@ -109,6 +110,15 @@ func main() {
 			contractAddress = *lastDeployedAddress
 		} else if action != "deploy" {
 			fmt.Printf("   ⚠️ Cảnh báo: Task %d không có 'contract'. Đang dùng địa chỉ rỗng (0x00...00) để Call mô phỏng.\n", idx+1)
+		}
+
+		var txAmount *big.Int
+		if d.Amount != "" {
+			var ok bool
+			txAmount, ok = new(big.Int).SetString(d.Amount, 10)
+			if !ok {
+				log.Fatalf("❌ Amount không hợp lệ (không phải là số nguyên): %s", d.Amount)
+			}
 		}
 
 		// 4. Đọc ABI
@@ -183,7 +193,7 @@ func main() {
 		} else if action == "call" || action == "read" {
 			executeCallTCP(tcpClient, cfg, contractAddress, fromAddress, contractAbi, d.Method, payloadData, d.Verify)
 		} else if action == "send" || action == "write" {
-			executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, payloadData, d.Method)
+			executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, payloadData, txAmount, d.Method)
 		} else {
 			log.Fatalf("❌ Action không hợp lệ: %s", d.Action)
 		}
@@ -330,8 +340,13 @@ func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 // ----------------------------------------------------
 // THỰC THI ACTION: SEND (TCP)
 // ----------------------------------------------------
-func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contractAddress common.Address, fromAddress common.Address, payloadData []byte, methodName string) {
-	fmt.Printf("▶️  Chạy TCP SendTransaction (WRITE) cho hàm %s...\n", methodName)
+func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contractAddress common.Address, fromAddress common.Address, payloadData []byte, amount *big.Int, methodName string) {
+	fmt.Printf("▶️  Chạy TCP SendTransaction (WRITE) cho hàm/hành động %s...\n", methodName)
+
+	var options *tx_models.TxOptions
+	if amount != nil {
+		options = &tx_models.TxOptions{Amount: amount}
+	}
 
 	receipt, err := tx_helper.SendTransaction(
 		methodName,
@@ -340,7 +355,7 @@ func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 		contractAddress,
 		fromAddress,
 		payloadData,
-		nil,
+		options,
 	)
 	if err != nil {
 		log.Fatalf("❌ Lỗi gửi TCP Send: %v", err)
