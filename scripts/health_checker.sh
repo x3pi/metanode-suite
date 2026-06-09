@@ -71,26 +71,54 @@ while true; do
     
     if [ "$DEPLOY_MODE" == "multi" ]; then
         if [ -f "$RPC_JSON_PATH" ]; then
-            # Read unique RPC URLs from generated JSON config
-            urls=$(grep -oE 'http://[^"]+' "$RPC_JSON_PATH" 2>/dev/null || true)
-            for url in $urls; do
-                if ! curl -s -m 2 "$url" >/dev/null 2>&1; then
-                    echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI $url! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
-                    echo "Node HTTP Server ($url) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
-                    kill -TERM "$PARENT_PID" 2>/dev/null || true
-                    exit 1
+            while read -r node_key node_url; do
+                local node_id="${node_key#m}"
+                local is_excluded=false
+                if [ -f /tmp/MTN_EXCLUDE_NODES ]; then
+                    if grep -qE "(^|,)${node_id}(,|$)" /tmp/MTN_EXCLUDE_NODES; then
+                        is_excluded=true
+                    fi
                 fi
-            done
+                if [ -n "${MTN_EXCLUDE_NODES:-}" ]; then
+                    if echo "$MTN_EXCLUDE_NODES" | grep -qE "(^|,)${node_id}(,|$)" ; then
+                        is_excluded=true
+                    fi
+                fi
+
+                if [ "$is_excluded" = false ]; then
+                    if ! curl -s -m 2 "$node_url" >/dev/null 2>&1; then
+                        echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI $node_url ($node_key)! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
+                        echo "Node HTTP Server ($node_url) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                        kill -TERM "$PARENT_PID" 2>/dev/null || true
+                        exit 1
+                    fi
+                fi
+            done < <(jq -r '.nodes | to_entries[] | "\(.key) \(.value)"' "$RPC_JSON_PATH" 2>/dev/null || true)
         fi
     else
         # Single mode (local mode check of fixed ports)
         PORTS=(8757 10747 10749 10750 10748)
-        for port in "${PORTS[@]}"; do
-            if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
-                echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI CỔNG $port! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
-                echo "Node HTTP Server (cổng $port) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
-                kill -TERM "$PARENT_PID" 2>/dev/null || true
-                exit 1
+        for node_id in 0 1 2 3 4; do
+            local is_excluded=false
+            if [ -f /tmp/MTN_EXCLUDE_NODES ]; then
+                if grep -qE "(^|,)${node_id}(,|$)" /tmp/MTN_EXCLUDE_NODES; then
+                    is_excluded=true
+                fi
+            fi
+            if [ -n "${MTN_EXCLUDE_NODES:-}" ]; then
+                if echo "$MTN_EXCLUDE_NODES" | grep -qE "(^|,)${node_id}(,|$)" ; then
+                    is_excluded=true
+                fi
+            fi
+
+            if [ "$is_excluded" = false ]; then
+                local port="${PORTS[$node_id]}"
+                if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
+                    echo -e "\n\n🚨🚨🚨 PHÁT HIỆN NODE CHẾT TẠI CỔNG $port! ĐANG TIẾN HÀNH DỪNG AUTO TEST PIPELINE! 🚨🚨🚨\n\n"
+                    echo "Node HTTP Server (cổng $port) không phản hồi. Có thể process đã bị crash!" > /tmp/MTN_CHAIN_ERROR_STOP
+                    kill -TERM "$PARENT_PID" 2>/dev/null || true
+                    exit 1
+                fi
             fi
         done
     fi
