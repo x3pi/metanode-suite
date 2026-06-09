@@ -288,7 +288,7 @@ func sendTelegramAlert(message string, testName string) {
 	chatID := "-1003867050625"
 	ipInfo := getSystemIPInfo()
 
-	fullMessage := fmt.Sprintf("❌ *[%s]* CẢNH BÁO LỖI!\n\n*Server:* `%s`\n\n%s", testName, ipInfo, message)
+	fullMessage := fmt.Sprintf("⚠️  *[%s]* CẢNH BÁO !\n\n*Server:* `%s`\n\n%s", testName, ipInfo, message)
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	payload := map[string]string{
@@ -1137,13 +1137,13 @@ func main() {
 		for _, tx := range allTxs {
 			ethHashLower := strings.ToLower(tx.txHash.Hex())
 			expectedTxHashes[ethHashLower] = true
-			
+
 			internalTx := &transaction.Transaction{}
 			if err := internalTx.Unmarshal(tx.bytes); err == nil {
 				pbHash := internalTx.Hash()
 				pbHashLower := strings.ToLower(pbHash.Hex())
 				expectedTxHashes[pbHashLower] = true
-				
+
 				hashMapping[ethHashLower] = pbHashLower
 				hashMapping[pbHashLower] = ethHashLower
 			}
@@ -1158,9 +1158,11 @@ func main() {
 
 		epochWaitStart := time.Now()
 		startEpoch := startEpochBeforeBlast
+		epochStartSet := true // startEpoch đã được thiết lập hợp lệ (dù = 0)
 		epochTransitioned := false
 		var processStart time.Time
 		var timeoutStartEpoch uint64
+		var currentMonitorBlock uint64 // block hiện tại để log vào cảnh báo
 		lastProgressTime := time.Now()
 		if epochWait <= 0 {
 			epochTransitioned = true
@@ -1168,6 +1170,7 @@ func main() {
 			lastProgressTime = time.Now()
 			timeoutStartEpoch = startEpochBeforeBlast
 		}
+		_ = epochStartSet
 
 		if epochWait > 0 {
 			fmt.Printf("\n⏳ [%s] Bắt đầu quét block & chờ chuyển đổi epoch (tối đa %d giây). Epoch hiện tại: %d\n", time.Now().Format("15:04:05.000"), epochWait, startEpoch)
@@ -1198,7 +1201,9 @@ func main() {
 						for _, cl := range clients {
 							activeTCPs = append(activeTCPs, cl.addr)
 						}
-						errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d | Nodes: %v | Time: %s", epochWait, elapsedSec, startEpoch, pendingEpoch, activeTCPs, time.Now().Format("15:04:05.000"))
+						// ⏰ icon phân biệt: epoch timeout (khác ⚠️ stall)
+						errMsg := fmt.Sprintf("\n⏰ EPOCH TIMEOUT: Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Đang ở block: %d | Pending TXs: %d | Nodes: %v | Time: %s",
+							epochWait, elapsedSec, startEpoch, currentMonitorBlock, pendingEpoch, activeTCPs, time.Now().Format("15:04:05.000"))
 						fmt.Println(errMsg)
 						logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 
@@ -1219,7 +1224,8 @@ func main() {
 							}
 						}
 
-						teleMsg := fmt.Sprintf("Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d | Nodes: %v\n5 giao dịch chưa được đưa vào:\n%s", epochWait, elapsedSec, startEpoch, pendingEpoch, activeTCPs, strings.Join(missingTxs, "\n"))
+						teleMsg := fmt.Sprintf("⏰ Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Đang ở block: %d | Pending TXs: %d | Nodes: %v\n5 giao dịch chưa được đưa vào:\n%s",
+							epochWait, elapsedSec, startEpoch, currentMonitorBlock, pendingEpoch, activeTCPs, strings.Join(missingTxs, "\n"))
 						sendTelegramAlert(teleMsg, "tps_blast_cc")
 						lastEpochAlertTime = time.Now()
 					}
@@ -1277,18 +1283,23 @@ func main() {
 			if err != nil {
 				continue
 			}
+			currentMonitorBlock = currentBlockNum // cập nhật để log vào cảnh báo
 
 			newTxs := uint64(0)
 			nextLastBlockNum := lastBlockNum
 			for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
 				blk, err := rpcClient.GetBlockByNumber(bn)
 				if err == nil && blk != nil {
-					// Check epoch transition
-					if startEpoch == 0 {
+					// FIX: chỉ gán startEpoch từ block nếu chưa được thiết lập hợp lệ
+					// Bug cũ: khi startEpoch=0 (epoch đầu tiên của chain), code gán lại
+					// startEpoch = blk.Epoch = 0 mỗi vòng lặp, khiến điều kiện
+					// blk.Epoch > startEpoch không bao giờ đúng khi epoch 0→1.
+					if !epochStartSet {
 						startEpoch = blk.Epoch
+						epochStartSet = true
 					}
 					if epochWait > 0 && !epochTransitioned && blk.Epoch > startEpoch {
-						fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", blk.Epoch, bn, time.Now().Format("15:04:05.000"))
+						fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d → %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", startEpoch, blk.Epoch, bn, time.Now().Format("15:04:05.000"))
 						epochTransitioned = true
 						processStart = time.Now()
 						lastProgressTime = time.Now()
@@ -1363,15 +1374,18 @@ func main() {
 				processingDuration = time.Since(epochWaitStart)
 			}
 
-			// Get current epoch at timeout
+			// Get current block number + epoch at timeout
 			currentEpoch := uint64(0)
+			currentBlockAtTimeout := uint64(0)
 			if bn, err := rpcClient.GetBlockNumber(); err == nil {
+				currentBlockAtTimeout = bn
 				if blk, err := rpcClient.GetBlockByNumber(bn); err == nil && blk != nil {
 					currentEpoch = blk.Epoch
 				}
 			}
 
-			epochInfo := fmt.Sprintf(" (Epoch ban đầu: %d | Epoch tính giờ: %d | Epoch hiện tại: %d)", startEpochBeforeBlast, timeoutStartEpoch, currentEpoch)
+			epochInfo := fmt.Sprintf(" (Block hiện tại: %d | Epoch ban đầu: %d | Epoch tính giờ: %d | Epoch hiện tại: %d)",
+				currentBlockAtTimeout, startEpochBeforeBlast, timeoutStartEpoch, currentEpoch)
 
 			if !seenAnyTx {
 				errMsg := fmt.Sprintf("TIMEOUT: Hết %s chờ mà KHÔNG có TX nào vào block! Kiểm tra: (1) Node có đang chạy? (2) TX có bị reject ở mempool? (3) Chain có bị kẹt không?%s", maxWait, epochInfo)
@@ -1396,15 +1410,15 @@ func main() {
 					if err := internalTx.Unmarshal(tx.bytes); err == nil {
 						pbHash = internalTx.Hash()
 					}
-					
+
 					clientAddr := "Unknown"
 					if len(clients) > 0 && batchSize > 0 {
 						clientAddr = clients[(idx/batchSize)%len(clients)].addr
 					}
 
-					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s | Node: %s\n", 
+					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s | Node: %s\n",
 						stuckCount+1, tx.txHash.Hex(), pbHash.Hex(), tx.addr, clientAddr)
-					
+
 					stuckCount++
 					if stuckCount >= 10 {
 						break
