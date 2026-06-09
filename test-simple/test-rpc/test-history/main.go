@@ -619,10 +619,10 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 				if attempts%10 == 0 {
 					fmt.Printf("   🔌 Node %s (Node %s) chưa phản hồi (%v). Đang thử lại...\n", u, nodeNum, errBlock)
 				}
-				// Thử lại sau 30s mà node vẫn KHÔNG phản hồi thì báo lỗi qua Tele luôn và dừng test
-				if !isAlive && time.Since(waitStart) > 30*time.Second && !alertSent {
+				// Thử lại sau 120s mà node vẫn KHÔNG phản hồi thì báo lỗi qua Tele luôn và dừng test
+				if !isAlive && time.Since(waitStart) > 120*time.Second && !alertSent {
 					alertSent = true
-					reason := fmt.Sprintf("🛑 LỖI TIMEOUT: Node %s (Node %s) không phản hồi RPC quá 30s! Lỗi: %v", u, nodeNum, errBlock)
+					reason := fmt.Sprintf("🛑 LỖI TIMEOUT: Node %s (Node %s) không phản hồi RPC quá 120s! Lỗi: %v", u, nodeNum, errBlock)
 					// Ghi vào file này thì ci_monitor.py bên ngoài sẽ tự động nhận diện và gửi qua Tele
 					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 					appendLocalErrorLog(reason)

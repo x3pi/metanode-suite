@@ -46,6 +46,20 @@ fi
 
 echo "🟢 Health Checker started for parent PID $PARENT_PID (mode: $DEPLOY_MODE)"
 
+# ─── Startup Grace Period (120 seconds) ──────────────────────────────
+# We wait 120s to allow remote execution layers to completely import genesis blocks (e.g. 50k accounts).
+# We check parent process status every 10s to exit early if parent is killed.
+echo "⏳ Waiting 120 seconds for nodes to initialize completely (genesis loading)..."
+for ((i=1; i<=12; i++)); do
+    sleep 10
+    if ! kill -0 "$PARENT_PID" 2>/dev/null; then
+        echo "ℹ️ Parent process $PARENT_PID has exited during startup grace period. Health checker exiting cleanly."
+        exit 0
+    fi
+done
+
+echo "🟢 Startup grace period completed. Starting active node health monitoring..."
+
 while true; do
     sleep 10
     
