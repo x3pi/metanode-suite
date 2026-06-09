@@ -1723,6 +1723,10 @@ func runWatch(client *http.Client, nodes []nodeInfo, interval time.Duration, lag
 	for {
 		select {
 		case <-ticker.C:
+			if os.Getppid() == 1 {
+				fmt.Println("ℹ️ Parent process has exited. Watcher exiting cleanly.")
+				os.Exit(0)
+			}
 			if watchOnce(client, nodes, &totalChecks, &totalMismatches, trackedGhosts, &lastVerifiedBlock, nodeWasDead, lagThreshold) {
 				fmt.Printf("\n🛑 DỪNG WATCH MODE: Phát hiện lệch hash! Chi tiết đã ghi vào %s\n", mismatchAlertFile)
 				fmt.Printf("📊 Tổng kết: %d lần check, %d lệch phát hiện\n", totalChecks, totalMismatches)

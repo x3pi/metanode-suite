@@ -180,11 +180,16 @@ _simple_test_cleanup() {
     # Preserve exit code trước khi kill background processes
     disown $CHECKER_PID $HISTORY_PID 2>/dev/null || true
     kill -9 $CHECKER_PID $HISTORY_PID 2>/dev/null || true
-    pkill -f 'go run main.go --watch' || true
-    pkill -f 'exe/main --watch' || true
-    pkill -f 'test-rpc/test-history' || true
-    pkill -f 'config-local.json.*-loop' || true
-    pkill -f 'config-local.json.*-wait' || true
+    pkill -9 -f 'go run main.go --watch' || true
+    pkill -9 -f 'exe/main --watch' || true
+    pkill -9 -f 'test-rpc/test-history' || true
+    pkill -9 -f 'config-local.json.*-loop' || true
+    pkill -9 -f 'config-local.json.*-wait' || true
+    pkill -9 -f 'config-mutil.json' || true
+    pkill -9 -f 'config-m-nodes.json' || true
+    pkill -9 -f 'config-3nodes.json' || true
+    pkill -9 -f 'test-history' || true
+    pkill -9 -f 'block_hash_checker' || true
     exit $_exit_code
 }
 trap _simple_test_cleanup EXIT

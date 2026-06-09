@@ -1308,6 +1308,10 @@ func main() {
 		fmt.Println("🔄 CHẾ ĐỘ LẶP VÒNG LẶP ĐƯỢC BẬT (Nhấn Ctrl+C để dừng)")
 		count := 1
 		for {
+			if os.Getppid() == 1 {
+				fmt.Println("ℹ️ Parent process has exited. History checker exiting cleanly.")
+				os.Exit(0)
+			}
 			fmt.Printf("\n▶️  BẮT ĐẦU VÒNG LẶP KIỂM TRA THỨ %d\n", count)
 			ok := runHistoryCheck(fc, fromAddress, toAddress, *waitBlocksFlag)
 			if !ok {

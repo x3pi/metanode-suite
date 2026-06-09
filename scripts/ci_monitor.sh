@@ -201,6 +201,12 @@ cleanup_all_processes() {
 
     # 3.1. Kill các tool chạy qua go run (watch/loop)
     pkill -9 -f "main.go -loop" 2>/dev/null || true
+    pkill -9 -f "config-mutil.json" 2>/dev/null || true
+    pkill -9 -f "config-local.json" 2>/dev/null || true
+    pkill -9 -f "config-m-nodes.json" 2>/dev/null || true
+    pkill -9 -f "config-3nodes.json" 2>/dev/null || true
+    pkill -9 -f "test-history" 2>/dev/null || true
+    pkill -9 -f "block_hash_checker" 2>/dev/null || true
 
     if [ "$NO_START" != "true" ] && [ "${MODE:-}" != "multi" ]; then
         # 3.5. Dừng Nginx nếu đang chạy và chiếm cổng
@@ -302,10 +308,10 @@ if [ -d "$AUTO_TEST_LOGS" ]; then
 fi
 
 # Đợi các port cũ giải phóng hoàn toàn
-if [ "$NO_START" != "true" ]; then
+if [ "$NO_START" != "true" ] && [ "${MODE:-}" != "multi" ]; then
     wait_for_ports_to_release 8545 8547 8548 8549 8550 8757 10746 10747 10748 10749 10750 9100 9101 9102 9103 9104 19200 19201 19202 19203 19204 10100 10101 10102 10103 10104 6060 6061 6062 6063 6064 6065 6200 6201 6202 6203 6204 6211 6221 6241 4201 9080 9081 9082 9083 9084 8600 8601 8602 8603 8604
 else
-    echo "   → Bỏ qua bước chờ giải phóng port do có flag --no-start"
+    echo "   → Bỏ qua bước chờ giải phóng port do có flag --no-start hoặc --mode multi"
 fi
 
 
