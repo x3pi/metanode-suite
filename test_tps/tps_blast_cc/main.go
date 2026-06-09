@@ -1194,16 +1194,24 @@ func main() {
 					if time.Since(lastEpochAlertTime) >= 60*time.Second {
 						elapsedSec := int(time.Since(epochWaitStart).Seconds())
 						pendingEpoch := len(expectedTxHashes)
-						errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d | Time: %s", epochWait, elapsedSec, startEpoch, pendingEpoch, time.Now().Format("15:04:05.000"))
+						var activeTCPs []string
+						for _, cl := range clients {
+							activeTCPs = append(activeTCPs, cl.addr)
+						}
+						errMsg := fmt.Sprintf("\n🛑 LỖI TIMEOUT: Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d | Nodes: %v | Time: %s", epochWait, elapsedSec, startEpoch, pendingEpoch, activeTCPs, time.Now().Format("15:04:05.000"))
 						fmt.Println(errMsg)
 						logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 
 						var missingTxs []string
 						count := 0
-						for _, tx := range allTxs {
+						for idx, tx := range allTxs {
 							txHashLower := strings.ToLower(tx.txHash.Hex())
 							if expectedTxHashes[txHashLower] {
-								missingTxs = append(missingTxs, tx.txHash.Hex())
+								clientAddr := "Unknown"
+								if len(clients) > 0 && batchSize > 0 {
+									clientAddr = clients[(idx/batchSize)%len(clients)].addr
+								}
+								missingTxs = append(missingTxs, fmt.Sprintf("%s (Node: %s)", tx.txHash.Hex(), clientAddr))
 								count++
 								if count >= 5 {
 									break
@@ -1211,7 +1219,7 @@ func main() {
 							}
 						}
 
-						teleMsg := fmt.Sprintf("Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d\n5 giao dịch chưa được đưa vào:\n%s", epochWait, elapsedSec, startEpoch, pendingEpoch, strings.Join(missingTxs, "\n"))
+						teleMsg := fmt.Sprintf("Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Pending TXs: %d | Nodes: %v\n5 giao dịch chưa được đưa vào:\n%s", epochWait, elapsedSec, startEpoch, pendingEpoch, activeTCPs, strings.Join(missingTxs, "\n"))
 						sendTelegramAlert(teleMsg, "tps_blast_cc")
 						lastEpochAlertTime = time.Now()
 					}
@@ -1229,26 +1237,35 @@ func main() {
 				if stalledFor > 2*time.Minute && time.Since(lastAlertTime) >= 2*time.Minute {
 					pendingCount := len(expectedTxHashes)
 					var sample []string
-					for _, tx := range allTxs {
+					for idx, tx := range allTxs {
 						txHashLower := strings.ToLower(tx.txHash.Hex())
 						if expectedTxHashes[txHashLower] {
-							sample = append(sample, tx.txHash.Hex())
+							clientAddr := "Unknown"
+							if len(clients) > 0 && batchSize > 0 {
+								clientAddr = clients[(idx/batchSize)%len(clients)].addr
+							}
+							sample = append(sample, fmt.Sprintf("%s (Node: %s)", tx.txHash.Hex(), clientAddr))
 							if len(sample) >= 5 {
 								break
 							}
 						}
 					}
 					totalElapsed := time.Since(processStart).Round(time.Second)
-					aMsg := fmt.Sprintf("\n⚠️  [%s] STALL ALERT: %d giao dịch chưa phản hồi\n   Tổng thời gian chờ kể từ epoch: %s | Không tiến triển (stalled): %s | Timeout còn lại: %s\n   5 giao dịch minh họa:\n   %s\n",
+					var activeTCPs []string
+					for _, cl := range clients {
+						activeTCPs = append(activeTCPs, cl.addr)
+					}
+					aMsg := fmt.Sprintf("\n⚠️  [%s] STALL ALERT: %d giao dịch chưa phản hồi (Nodes: %v)\n   Tổng thời gian chờ kể từ epoch: %s | Không tiến triển (stalled): %s | Timeout còn lại: %s\n   5 giao dịch minh họa:\n   %s\n",
 						time.Now().Format("15:04:05.000"),
 						pendingCount,
+						activeTCPs,
 						totalElapsed,
 						stalledFor.Round(time.Second),
 						(maxWait - stalledFor).Round(time.Second),
 						strings.Join(sample, "\n   "))
 					fmt.Print(aMsg)
-					teleMsg := fmt.Sprintf("%d giao dịch chưa phản hồi\nTổng thời gian chờ kể từ epoch: %s | Không tiến triển: %s | Timeout còn lại: %s\n5 giao dịch minh họa:\n%s",
-						pendingCount, totalElapsed, stalledFor.Round(time.Second), (maxWait - stalledFor).Round(time.Second), strings.Join(sample, "\n"))
+					teleMsg := fmt.Sprintf("%d giao dịch chưa phản hồi (Nodes: %v)\nTổng thời gian chờ kể từ epoch: %s | Không tiến triển: %s | Timeout còn lại: %s\n5 giao dịch minh họa:\n%s",
+						pendingCount, activeTCPs, totalElapsed, stalledFor.Round(time.Second), (maxWait - stalledFor).Round(time.Second), strings.Join(sample, "\n"))
 					sendTelegramAlert(teleMsg, "tps_blast_cc")
 					lastAlertTime = time.Now()
 				}
@@ -1371,7 +1388,7 @@ func main() {
 			// Find and print stuck transactions
 			fmt.Printf("\n🔍 [DIAGNOSTIC] Danh sách 10 giao dịch đầu tiên bị kẹt (không có receipt):\n")
 			stuckCount := 0
-			for _, tx := range allTxs {
+			for idx, tx := range allTxs {
 				ethHashLower := strings.ToLower(tx.txHash.Hex())
 				if expectedTxHashes[ethHashLower] {
 					pbHash := common.Hash{}
@@ -1380,8 +1397,13 @@ func main() {
 						pbHash = internalTx.Hash()
 					}
 					
-					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s\n", 
-						stuckCount+1, tx.txHash.Hex(), pbHash.Hex(), tx.addr)
+					clientAddr := "Unknown"
+					if len(clients) > 0 && batchSize > 0 {
+						clientAddr = clients[(idx/batchSize)%len(clients)].addr
+					}
+
+					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s | Node: %s\n", 
+						stuckCount+1, tx.txHash.Hex(), pbHash.Hex(), tx.addr, clientAddr)
 					
 					stuckCount++
 					if stuckCount >= 10 {
