@@ -88,7 +88,7 @@ monitor_error_flag() {
                         fi
                     fi
                     if [ "$is_excluded" = false ]; then
-                        if ! curl -s -m 2 "$node_url" >/dev/null 2>&1; then
+                        if ! curl -s -m 5 "$node_url" >/dev/null 2>&1; then
                             check_failed=true
                             error_msg="Node HTTP Server ($node_key: $node_url) không phản hồi. Có thể process đã bị crash!"
                             break
@@ -107,7 +107,7 @@ monitor_error_flag() {
                 fi
                 if [ "$is_excluded" = false ]; then
                     local port="${ports[$node_id]}"
-                    if ! curl -s -m 2 "http://127.0.0.1:$port" >/dev/null 2>&1; then
+                    if ! curl -s -m 5 "http://127.0.0.1:$port" >/dev/null 2>&1; then
                         check_failed=true
                         error_msg="Node HTTP Server (Node $node_id tại cổng $port) không phản hồi. Có thể process đã bị crash!"
                         break
