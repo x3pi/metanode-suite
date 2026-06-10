@@ -1870,7 +1870,29 @@ func watchOnce(client *http.Client, nodes []nodeInfo, totalChecks, totalMismatch
 		return false
 	}
 
-	mismatches, matched, _, skipped, nilBlocks, emptyBlocks := checkBatch(client, nodes, from, maxBlock)
+	var mismatches []mismatch
+	var matched, skipped uint64
+	var nilBlocks, emptyBlocks []uint64
+
+	// LỖI OOM FIX: Chunk checkBatch để tránh cấp phát mảng results khổng lồ (chứa full txOrderEntry) khi node bị tụt hậu xa
+	batchSize := uint64(20)
+	for batchStart := from; batchStart <= maxBlock; batchStart += batchSize {
+		batchEnd := batchStart + batchSize - 1
+		if batchEnd > maxBlock {
+			batchEnd = maxBlock
+		}
+		
+		bMismatches, bMatched, _, bSkipped, bNilBlocks, bEmptyBlocks := checkBatch(client, nodes, batchStart, batchEnd)
+		mismatches = append(mismatches, bMismatches...)
+		matched += bMatched
+		skipped += bSkipped
+		nilBlocks = append(nilBlocks, bNilBlocks...)
+		emptyBlocks = append(emptyBlocks, bEmptyBlocks...)
+		
+		if len(mismatches) > 0 {
+			break // Dừng ngay nếu phát hiện lệch hash trong chunk này
+		}
+	}
 
 	if len(mismatches) == 0 {
 		if skipped > 0 {
