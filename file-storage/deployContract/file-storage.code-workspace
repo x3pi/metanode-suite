@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../file-storage"
+		},
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../MetaCoSign"
+		}
+	],
+	"settings": {}
+}
