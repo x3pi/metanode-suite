@@ -231,8 +231,11 @@ for ((i=1; i<=LOOPS; i++)); do
     go run main.go --count "$TPS_COUNT" --parallel_native=true --rounds "$TPS_ROUNDS" --load_balance=false --batch=10 $TPS_CONFIG_ARG &
     TPS_PID=$!
 
-    # Giám sát: nếu checker bị kill (do lệch hash) trong lúc TPS đang chạy thì dừng ngay
-    while kill -0 $TPS_PID 2>/dev/null; do
+    TARGET_SNAPSHOT_BLOCK=400
+    echo "👉 Bước 2.5: Chờ Node 4 đạt block $TARGET_SNAPSHOT_BLOCK để tạo snapshot..."
+
+    while true; do
+        # Kiểm tra checker có bị kill không
         if ! kill -0 $CHECKER_PID 2>/dev/null; then
             echo ""
             echo "❌ LỖI NGHIÊM TRỌNG (Đang test Node $NODE_ID): block_hash_checker đã bị kill (khả năng phát hiện lệch hash)!"
@@ -243,18 +246,62 @@ for ((i=1; i<=LOOPS; i++)); do
             kill -9 $TPS_PID 2>/dev/null
             exit 1
         fi
+
+        # Kiểm tra block height của node 4
+        LAST_LINE=$(grep "Heights:" "$CHECKER_DIR/hash_checker_loop_${i}.log" | tail -n 1)
+        if [[ "$LAST_LINE" == *"Heights:"* ]]; then
+            NODE4_HEIGHT_STR=$(echo "$LAST_LINE" | grep -o "m4=[0-9]*" || echo "")
+            NODE4_HEIGHT=${NODE4_HEIGHT_STR#*=}
+            if [ -n "$NODE4_HEIGHT" ] && [ "$NODE4_HEIGHT" != "ERR" ]; then
+                if [ "$NODE4_HEIGHT" -ge $TARGET_SNAPSHOT_BLOCK ]; then
+                    echo "   ✅ Node 4 đã đạt block $NODE4_HEIGHT (>= $TARGET_SNAPSHOT_BLOCK). Snapshot dự kiến đã sẵn sàng."
+                    break
+                fi
+            fi
+        fi
+
+        # Nếu TPS đã dừng mà chưa đạt block, chạy lại TPS để kích block
+        if ! kill -0 $TPS_PID 2>/dev/null; then
+            wait $TPS_PID
+            TPS_EXIT_CODE=$?
+            if [ $TPS_EXIT_CODE -ne 0 ]; then
+                echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình TPS blast thất bại (exit code $TPS_EXIT_CODE)"
+                kill -9 $CHECKER_PID 2>/dev/null
+                exit 1
+            fi
+            
+            echo "   ⚠️ TPS đã xong nhưng Node 4 mới ở block ${NODE4_HEIGHT:-0}/$TARGET_SNAPSHOT_BLOCK. Tiếp tục spam giao dịch..."
+            cd "$TPS_DIR" || exit 1
+            go run main.go --count 5000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 $TPS_CONFIG_ARG &
+            TPS_PID=$!
+        fi
+
         sleep 2
     done
 
-    # Lấy exit code của TPS (sau khi TPS chạy xong)
-    wait $TPS_PID
-    TPS_EXIT_CODE=$?
-    if [ $TPS_EXIT_CODE -ne 0 ]; then
-        echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình TPS blast thất bại (exit code $TPS_EXIT_CODE)"
-        kill -9 $CHECKER_PID 2>/dev/null
-        exit 1
+    # Sau khi đạt block mục tiêu, chờ TPS hiện tại hoàn thành (nếu còn đang chạy)
+    if kill -0 $TPS_PID 2>/dev/null; then
+        echo "   ⏳ Đang đợi tiến trình TPS hiện tại hoàn tất..."
+        while kill -0 $TPS_PID 2>/dev/null; do
+            if ! kill -0 $CHECKER_PID 2>/dev/null; then
+                echo "❌ LỖI NGHIÊM TRỌNG (Đang test Node $NODE_ID): block_hash_checker đã bị kill!"
+                kill -9 $TPS_PID 2>/dev/null
+                exit 1
+            fi
+            sleep 2
+        done
+        wait $TPS_PID
+        TPS_EXIT_CODE=$?
+        if [ $TPS_EXIT_CODE -ne 0 ]; then
+            echo "❌ LỖI (Đang test Node $NODE_ID): Tiến trình TPS blast thất bại (exit code $TPS_EXIT_CODE)"
+            kill -9 $CHECKER_PID 2>/dev/null
+            exit 1
+        fi
     fi
-    echo "   ✅ Chạy TPS hoàn tất."
+
+    echo "   ✅ Chạy TPS hoàn tất và block đã vượt mức snapshot."
+    echo "   ⏳ Đợi thêm 15s để đảm bảo file snapshot được ghi hoàn tất xuống đĩa..."
+    sleep 15
 
     # 3. Restore Node
     echo "👉 Bước 3: Restore Node $NODE_ID từ snapshot của Node 4..."
