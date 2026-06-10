@@ -320,7 +320,7 @@ func main() {
 	configFlag := flag.String("config", "config.json", "Đường dẫn file cấu hình JSON")
 	fromBlock := flag.Uint64("from", 1, "Block bắt đầu kiểm tra")
 	toBlock := flag.Uint64("to", 0, "Block kết thúc (0 = lấy block mới nhất)")
-	batchSize := flag.Int("batch", 50, "Số block kiểm tra song song mỗi lần")
+	batchSize := flag.Int("batch", 10, "Số block kiểm tra song song mỗi lần")
 	timeout := flag.Duration("timeout", 5*time.Second, "Timeout cho mỗi RPC call")
 	watchMode := flag.Bool("watch", true, "Chế độ giám sát liên tục — kiểm tra block mới nhất định kỳ")
 	watchInterval := flag.Duration("interval", 2*time.Second, "Khoảng thời gian giữa mỗi lần check (watch mode)")
