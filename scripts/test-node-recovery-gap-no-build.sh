@@ -348,7 +348,7 @@ monitor_error_flag() {
             
             if [ "$check_failed" = true ]; then
                 consecutive_failures=$((consecutive_failures + 1))
-                if [ "$consecutive_failures" -ge 3 ]; then
+                if [ "$consecutive_failures" -ge 15 ]; then
                     echo "$error_msg" > /tmp/MTN_CHAIN_ERROR_STOP
                 fi
             else
