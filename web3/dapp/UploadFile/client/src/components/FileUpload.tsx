@@ -26,7 +26,7 @@ export default function FileUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFileActive, setIsFileActive] = useState(false);
-  
+
   // Lưu danh sách các fileKey đã active trong suốt phiên chạy của web
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
 
@@ -46,7 +46,7 @@ export default function FileUpload() {
         }
       },
     });
-    
+
     return () => unwatch();
   }, []);
 
@@ -121,7 +121,7 @@ export default function FileUpload() {
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800">Upload & Download File to Blockchain</h2>
+      <h2 className="text-2xl font-bold mb-6 text-gray-800">Upload File</h2>
 
       {/* File Input */}
       <div className="mb-6">
@@ -155,7 +155,7 @@ export default function FileUpload() {
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed
           text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200"
       >
-        {isUploading ? "Đang upload..." : "Upload File & Auto Download File"}
+        {isUploading ? "Đang upload..." : "Upload File"}
       </button>
 
       {/* Progress Section */}

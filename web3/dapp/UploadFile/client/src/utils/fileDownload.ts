@@ -2,7 +2,6 @@ import { createPublicClient, createWalletClient, http, type Hex, decodeEventLog,
 import { privateKeyToAccount, sign } from "viem/accounts";
 import { contracts, privateKey } from "../constants/contracts";
 import { chain991, DOWNLOAD_SERVER_1, DOWNLOAD_SERVER_2 } from "../constants/customChain";
-import { fetchChunkViaWt } from "./wtTransport";
 
 const publicClient = createPublicClient({
   chain: chain991,
@@ -16,7 +15,8 @@ const walletClient = createWalletClient({
   account,
 });
 
-export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: string) => void) {
+export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: string) => void): Promise<void> {
+  const startTime = Date.now();
   try {
     onProgress?.("Đang lấy thông tin tệp từ blockchain...");
     const fileInfo = await publicClient.readContract({
@@ -114,7 +114,7 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
           batch.push((async () => {
             let lastError: any;
             const MAX_RETRIES = 3;
-            
+
             for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
               try {
                 // transport được lấy dựa theo chunkIndex (t1 hoặc t2)
@@ -126,7 +126,7 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
               } catch (err: any) {
                 lastError = err;
                 console.warn(`[Retry ${attempt}/${MAX_RETRIES}] Lỗi tải chunk ${chunkIndex}:`, err);
-                
+
                 if (attempt < MAX_RETRIES) {
                   // Đợi 1 chút trước khi thử lại (tăng dần thời gian chờ)
                   await new Promise(res => setTimeout(res, 1000 * attempt));
@@ -162,6 +162,10 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
 
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
+
+    const endTime = Date.now();
+    console.log(`⏱️ Tổng thời gian download: ${((endTime - startTime) / 1000).toFixed(2)}s`);
+
     onProgress?.("Tải file thành công!");
 
   } catch (error) {

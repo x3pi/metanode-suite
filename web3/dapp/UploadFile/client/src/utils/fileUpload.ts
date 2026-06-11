@@ -192,6 +192,7 @@ export async function uploadFile(
   file: File,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<Hex> {
+  const startTime = Date.now();
   try {
     onProgress?.({ stage: "preparing" });
 
@@ -255,6 +256,9 @@ export async function uploadFile(
       );
       await Promise.all(batchPromises);
     }
+
+    const endTime = Date.now();
+    console.log(`⏱️ Tổng thời gian upload: ${((endTime - startTime) / 1000).toFixed(2)}s`);
 
     onProgress?.({ stage: "completed", fileKey, currentChunk: Number(totalChunks), totalChunks: Number(totalChunks) });
     return fileKey;
