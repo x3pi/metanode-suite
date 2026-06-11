@@ -245,6 +245,8 @@ def main():
 
     args = [TEST_SCRIPT] + sys.argv[1:]
 
+    # Dọn dẹp tiến trình mồ côi cũ trước khi chạy test đầu tiên để tránh xung đột
+    clean_up_orphans()
     # Dọn log cũ ngay cả trước lần chạy test đầu tiên
     clean_old_logs()
 
