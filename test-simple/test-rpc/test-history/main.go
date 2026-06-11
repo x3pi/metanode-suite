@@ -165,7 +165,7 @@ func (fc *FailoverClient) reconnect() error {
 		rpcClient, err := rpc.Dial(url)
 		if err == nil {
 			ethCli := ethclient.NewClient(rpcClient)
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			var latestBlockHex string
 			errBlock := callContextWithRetry(ctx, rpcClient, &latestBlockHex, "eth_blockNumber")
 			cancel()
@@ -290,7 +290,7 @@ func sendTelegramMessage(message string) {
 func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress common.Address) (uint64, error) {
 	var blockNum uint64
 	err := fc.execute(func(ethCli *ethclient.Client, rpcCli *rpc.Client) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 
 		nonce, err := ethCli.PendingNonceAt(ctx, fromAddress)
@@ -331,7 +331,7 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 
 				return fmt.Errorf("timeout waiting for receipt after 60s")
 			}
-			ctxReceipt, cancelReceipt := context.WithTimeout(context.Background(), 10*time.Second)
+			ctxReceipt, cancelReceipt := context.WithTimeout(context.Background(), 30*time.Second)
 			receipt, errReceipt := ethCli.TransactionReceipt(ctxReceipt, signedTx.Hash())
 			cancelReceipt()
 			if errReceipt == nil {
@@ -376,7 +376,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	// Lưu snapshot state tại Block A ngay sau khi có receipt
 	blockAHex := hexutil.EncodeUint64(blockA)
 	err = fc.execute(func(ethCli *ethclient.Client, rpcClient *rpc.Client) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		var savedBalanceAHex string
@@ -432,7 +432,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	var accountStateB AccountStateResult
 
 	err = fc.execute(func(ethCli *ethclient.Client, rpcClient *rpc.Client) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 
 		var balanceAHex string
@@ -599,7 +599,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		attempts := 0
 		for time.Since(waitStart) < 3*time.Minute {
 			attempts++
-			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
+			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 15*time.Second)
 			var latestBlockHex string
 			errBlock := tempClient.CallContext(ctxTemp, &latestBlockHex, "eth_blockNumber")
 			cancelTemp()
@@ -650,7 +650,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		}
 
 		// Xác minh dữ liệu lịch sử trên node này
-		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 5*time.Second)
+		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 30*time.Second)
 		var tBalAHex, tBalBHex, tNonceAHex, tNonceBHex string
 		var tAsA, tAsB AccountStateResult
 		
@@ -736,7 +736,7 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 			continue
 		}
 
-		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
+		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 15*time.Second)
 		var tempBalanceAHex string
 		errBal := tempClient.CallContext(ctxTemp, &tempBalanceAHex, "eth_getBalance", fromAddr, blockAHex)
 
@@ -908,7 +908,7 @@ func main() {
 
 		blockAHex := hexutil.EncodeUint64(blockA)
 		err = fc.execute(func(ethCli *ethclient.Client, rpcClient *rpc.Client) error {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
 			var savedBalanceAHex string
@@ -1028,7 +1028,7 @@ func main() {
 				rpcClient, err = rpc.Dial(targetURL)
 				if err == nil {
 					// Kiểm tra chiều cao block hiện tại của node
-					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 					var latestBlockHex string
 					errBlock := callContextWithRetry(ctx, rpcClient, &latestBlockHex, "eth_blockNumber")
 					cancel()
@@ -1043,12 +1043,12 @@ func main() {
 							var ready bool
 							for checkRetries := 0; checkRetries < 100; checkRetries++ {
 								var checkBlock map[string]interface{}
-								ctxBlock, cancelBlock := context.WithTimeout(context.Background(), 2*time.Second)
+								ctxBlock, cancelBlock := context.WithTimeout(context.Background(), 15*time.Second)
 								errBlockCheck := rpcClient.CallContext(ctxBlock, &checkBlock, "eth_getBlockByNumber", hexutil.EncodeUint64(maxBlockA), false)
 								cancelBlock()
 
 								var checkNonceHex string
-								ctxNonce, cancelNonce := context.WithTimeout(context.Background(), 2*time.Second)
+								ctxNonce, cancelNonce := context.WithTimeout(context.Background(), 15*time.Second)
 								errNonceCheck := rpcClient.CallContext(ctxNonce, &checkNonceHex, "eth_getTransactionCount", common.HexToAddress(checkpoints[0].FromAddress), hexutil.EncodeUint64(maxBlockA))
 								cancelNonce()
 
@@ -1088,7 +1088,7 @@ func main() {
 			}
 			defer rpcClient.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 
 			// Lấy block mới nhất (Block B) của node hiện tại

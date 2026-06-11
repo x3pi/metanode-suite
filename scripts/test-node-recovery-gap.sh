@@ -347,6 +347,11 @@ monitor_error_flag() {
     local loop_count=0
     local consecutive_failures=0
     while true; do
+        # Tự động thoát nếu tiến trình cha (script test chính) đã chết
+        if ! kill -0 $PPID 2>/dev/null; then
+            exit 0
+        fi
+
         if [ -f /tmp/MTN_CHAIN_ERROR_STOP ]; then
             echo -e "\n\n🛑 PHÁT HIỆN LỖI NGHIÊM TRỌNG: /tmp/MTN_CHAIN_ERROR_STOP đã được tạo!"
             echo "Nội dung lỗi:"

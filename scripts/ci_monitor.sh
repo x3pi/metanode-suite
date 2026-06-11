@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ─── Đảm bảo duy nhất một instance ci_monitor.sh hoạt động ───
 MY_PID=$$
-OTHER_PIDS=$(pgrep -f "ci_monitor.sh" | grep -v "^$MY_PID$" || true)
+OTHER_PIDS=$(pgrep -f "ci_monitor.sh" | grep -v "^$MY_PID$" | grep -v "^$PPID$" || true)
 if [ -n "$OTHER_PIDS" ]; then
     echo "⚠️ Phát hiện phiên bản ci_monitor.sh khác đang chạy (PIDs: $OTHER_PIDS). Tiến hành tắt tiến trình cũ..."
     for pid in $OTHER_PIDS; do
@@ -239,6 +239,16 @@ cleanup_all_processes() {
     # Xóa cờ lỗi dừng test cũ để tránh nhận diện nhầm
     rm -f /tmp/MTN_CHAIN_ERROR_STOP
 
+    # Tắt tiến trình periodic reporter cũ nếu có
+    if [ -f /tmp/ci_reporter.pid ]; then
+        local rpid=$(cat /tmp/ci_reporter.pid)
+        if [ -n "$rpid" ]; then
+            echo "   → Tắt tiến trình periodic block reporter cũ (PID: $rpid)..."
+            kill -9 "$rpid" 2>/dev/null || true
+        fi
+        rm -f /tmp/ci_reporter.pid
+    fi
+
     echo "   ✅ Đã dọn sạch các tiến trình."
 }
 
@@ -315,6 +325,103 @@ else
 fi
 
 
+# ─── Định nghĩa các hàm báo cáo block định kỳ qua Telegram ───
+get_system_ip_info() {
+    local hostname=$(hostname 2>/dev/null || echo "Unknown")
+    local local_ips=$(hostname -I 2>/dev/null | xargs | tr ' ' ',' || echo "Unknown")
+    local public_ip=$(curl -s -m 2 https://api.ipify.org 2>/dev/null || echo "Unknown")
+    if [ "$public_ip" != "Unknown" ]; then
+        echo "${hostname} (Static/Private IP: ${local_ips}, Public IP: ${public_ip})"
+    else
+        echo "${hostname} (Static/Private IP: ${local_ips})"
+    fi
+}
+
+start_periodic_reporter() {
+    (
+        echo $BASHPID > /tmp/ci_reporter.pid
+        # Đợi 5 giây sau khi khởi động cụm node để hệ thống ổn định trước khi gửi báo cáo đầu tiên
+        sleep 5
+        
+        local token="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+        local chat_id="-1003867050625"
+        
+        while true; do
+            local ip_info=$(get_system_ip_info)
+            local node_reports=()
+            local all_nodes_ok=true
+            
+            # Đọc danh sách các node động hoặc tĩnh
+            local node_names=()
+            local node_urls=()
+            
+            if [ -f /tmp/rpc_nodes.json ]; then
+                # Đọc từ file JSON (cho cluster/multi-node)
+                while read -r node_key node_url; do
+                    node_names+=("Node ${node_key#m}")
+                    node_urls+=("$node_url")
+                done < <(jq -r '.nodes | to_entries[] | "\(.key) \(.value)"' /tmp/rpc_nodes.json 2>/dev/null || true)
+            fi
+            
+            # Nếu rỗng, fallback sang cấu hình local single cluster
+            if [ ${#node_names[@]} -eq 0 ]; then
+                node_names=("Node 0" "Node 1" "Node 2" "Node 3" "Node 4")
+                node_urls=("http://127.0.0.1:8757" "http://127.0.0.1:10747" "http://127.0.0.1:10749" "http://127.0.0.1:10750" "http://127.0.0.1:10748")
+            fi
+            
+            for idx in "${!node_names[@]}"; do
+                local name="${node_names[$idx]}"
+                local url="${node_urls[$idx]}"
+                
+                local res=$(curl -s -m 5 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "$url" 2>/dev/null)
+                local block="ERR"
+                if [ $? -eq 0 ] && [[ "$res" == *"result"* ]]; then
+                    local hex=$(echo "$res" | jq -r '.result' 2>/dev/null)
+                    if [ "$hex" != "null" ] && [ -n "$hex" ]; then
+                        block=$((hex))
+                    fi
+                fi
+                
+                if [ "$block" = "ERR" ]; then
+                    node_reports+=("❌ *${name}*: Không phản hồi RPC")
+                    all_nodes_ok=false
+                else
+                    node_reports+=("✅ *${name}*: Block \`${block}\`")
+                fi
+            done
+            
+            local status_icon="🟢"
+            local status_text="Mạng hoạt động ổn định"
+            if [ "$all_nodes_ok" = false ]; then
+                status_icon="⚠️"
+                status_text="Phát hiện sự cố trên một số node"
+            fi
+            
+            local message=$(cat <<EOF
+${status_icon} *[CI NETWORK REPORT]* — ${status_text}
+
+🖥️ *Server*: ${ip_info}
+⏰ *Thời gian*: $(date '+%Y-%m-%d %H:%M:%S %Z')
+
+📊 *Trạng thái các Node*:
+$(printf "   %s\n" "${node_reports[@]}")
+EOF
+)
+            
+            curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+                -d "chat_id=${chat_id}" \
+                -d "text=${message}" \
+                -d "parse_mode=Markdown" >/dev/null 2>&1
+            
+            # Đợi 10 phút (600 giây)
+            sleep 600
+        done
+    ) &
+    local reporter_pid=$!
+    disown $reporter_pid 2>/dev/null || true
+    echo "   📡 Đã khởi chạy định kỳ báo cáo block lên Telegram (PID: $reporter_pid)"
+}
+
 export MTN_TELE_ALERT=true
 
 # Khởi chạy python monitor dưới nền bằng nohup
@@ -370,6 +477,9 @@ else
         exit 1
     fi
 fi
+
+# Khởi động periodic reporter
+start_periodic_reporter
 
 # Chờ tối đa 5 giây để Python monitor thực hiện git ls-remote/pull và tạo log file mới
 LATEST_LOG_FILE=""
