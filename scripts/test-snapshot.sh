@@ -51,6 +51,61 @@ get_system_ip_info() {
     fi
 }
 
+send_telegram_notification() {
+    local text="$1"
+    local token="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+    local chat_id="-1003867050625"
+    curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+        -d "chat_id=${chat_id}" \
+        -d "text=${text}" \
+        -d "parse_mode=Markdown" >/dev/null 2>&1
+}
+
+get_all_nodes_status() {
+    local node_names=()
+    local node_urls=()
+    local node_reports=()
+    
+    if [ -f /tmp/rpc_nodes.json ]; then
+        while read -r node_key node_url; do
+            node_names+=("Node ${node_key#m}")
+            node_urls+=("$node_url")
+        done < <(jq -r '.nodes | to_entries[] | "\(.key) \(.value)"' /tmp/rpc_nodes.json 2>/dev/null || true)
+    fi
+    
+    if [ ${#node_names[@]} -eq 0 ]; then
+        node_names=("Node 0" "Node 1" "Node 2" "Node 3" "Node 4")
+        node_urls=("http://127.0.0.1:8757" "http://127.0.0.1:10747" "http://127.0.0.1:10749" "http://127.0.0.1:10750" "http://127.0.0.1:10748")
+    fi
+    
+    for idx in "${!node_names[@]}"; do
+        local name="${node_names[$idx]}"
+        local url="${node_urls[$idx]}"
+        
+        local res=$(curl -s -m 2 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' "$url" 2>/dev/null)
+        local block="ERR"
+        local epoch="ERR"
+        if [ $? -eq 0 ] && [[ "$res" == *"result"* ]]; then
+            local hex_block=$(echo "$res" | jq -r '.result.number' 2>/dev/null)
+            local hex_epoch=$(echo "$res" | jq -r '.result.epoch' 2>/dev/null)
+            if [ "$hex_block" != "null" ] && [ -n "$hex_block" ]; then
+                block=$((hex_block))
+            fi
+            if [ "$hex_epoch" != "null" ] && [ -n "$hex_epoch" ]; then
+                epoch=$((hex_epoch))
+            fi
+        fi
+        
+        if [ "$block" = "ERR" ]; then
+            node_reports+=("❌ *${name}*: Không phản hồi RPC")
+        else
+            node_reports+=("✅ *${name}*: Block \`${block}\` (Epoch \`${epoch}\`)")
+        fi
+    done
+    
+    printf "   %s\n" "${node_reports[@]}"
+}
+
 # Tự động định vị đường dẫn dựa theo vị trí của file script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_TEST_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -321,6 +376,9 @@ for ((i=1; i<=LOOPS; i++)); do
 
     # 3. Restore Node
     echo "👉 Bước 3: Restore Node $NODE_ID từ snapshot của Node 4..."
+    ip_info=$(get_system_ip_info 2>/dev/null || hostname 2>/dev/null || echo "Unknown")
+    send_telegram_notification "🔄 *[SNAPSHOT TEST]* Vòng test \`${i} / ${LOOPS}\`: Bắt đầu khôi phục Node \`${NODE_ID}\` từ snapshot Node 4...
+🖥️ *Server:* \`${ip_info}\`"
     echo "$NODE_ID" > /tmp/MTN_EXCLUDE_NODES
     echo "📥 Lưu trạng thái lịch sử trước khi restore Node $NODE_ID..."
     (
@@ -342,6 +400,13 @@ for ((i=1; i<=LOOPS; i++)); do
         exit 1
     fi
     echo "   ✅ Restore Node $NODE_ID hoàn tất."
+    ip_info=$(get_system_ip_info 2>/dev/null || hostname 2>/dev/null || echo "Unknown")
+    nodes_status=$(get_all_nodes_status)
+    send_telegram_notification "📥 *[SNAPSHOT TEST]* Vòng test \`${i} / ${LOOPS}\`: Khôi phục thành công dữ liệu snapshot tại Node \`${NODE_ID}\`! Node đang khởi động lại và bắt đầu quá trình đồng bộ (sync)...
+🖥️ *Server:* \`${ip_info}\`
+
+📊 *Tình trạng các Node lúc khôi phục:*
+${nodes_status}"
 
     # 4. Chờ các node đồng bộ block (dựa theo log CHÊNH)
     echo "👉 Bước 4: Chờ các node đồng bộ block (theo dõi 'CHÊNH' trong log)..."
@@ -367,6 +432,10 @@ for ((i=1; i<=LOOPS; i++)); do
                 if [ "$NODE_DIFF" -le 10 ]; then
                     echo "   ✅ Node $NODE_ID đã đồng bộ đủ gần nhau (chênh lệch: $NODE_DIFF blocks)!"
                     SYNCED=true
+                    ip_info=$(get_system_ip_info 2>/dev/null || hostname 2>/dev/null || echo "Unknown")
+                    send_telegram_notification "⚡ *[SNAPSHOT TEST]* Vòng test \`${i} / ${LOOPS}\`: Node \`${NODE_ID}\` đã khởi động lại và đồng bộ thành công (Chênh lệch: \`${NODE_DIFF}\` blocks)!
+🖥️ *Server:* \`${ip_info}\`
+📊 *Trạng thái:* Node \`${NODE_ID}\` đạt Block \`${NODE_HEIGHT}\` / Max Block \`${MAX_HEIGHT}\`"
                     break
                 else
                     CUR_DIFF=$NODE_DIFF
@@ -473,6 +542,21 @@ for ((i=1; i<=LOOPS; i++)); do
         exit 1
     fi
     echo "   ✅ Các giao dịch kiểm tra hoàn tất thành công!"
+    ip_info=$(get_system_ip_info 2>/dev/null || hostname 2>/dev/null || echo "Unknown")
+    target_rpc="http://127.0.0.1:8757"
+    if [ "$NODE_ID" = "0" ]; then target_rpc="http://127.0.0.1:10747"; fi
+    block_info=$(curl -s -m 5 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' "$target_rpc" 2>/dev/null)
+    cur_block="N/A"
+    cur_epoch="N/A"
+    if [[ "$block_info" == *"result"* ]]; then
+        hex_num=$(echo "$block_info" | jq -r '.result.number' 2>/dev/null)
+        hex_ep=$(echo "$block_info" | jq -r '.result.epoch' 2>/dev/null)
+        if [ "$hex_num" != "null" ] && [ -n "$hex_num" ]; then cur_block=$((hex_num)); fi
+        if [ "$hex_ep" != "null" ] && [ -n "$hex_ep" ]; then cur_epoch=$((hex_ep)); fi
+    fi
+    send_telegram_notification "✅ *[SNAPSHOT TEST]* Vòng test \`${i} / ${LOOPS}\`: Xác minh lịch sử & chạy giao dịch kiểm tra (RPC) thành công trên Node \`${NODE_ID}\`!
+🖥️ *Server:* \`${ip_info}\`
+📊 *Trạng thái:* Block \`${cur_block}\` (Epoch \`${cur_epoch}\`)"
 
     # 6. Chờ để kiểm tra hash cuối cùng
     echo "👉 Bước 6: Chờ 10s để block_hash_checker xác minh các node có cùng hash block không..."
@@ -486,9 +570,6 @@ for ((i=1; i<=LOOPS; i++)); do
     else
         echo "   ✅ Khớp Hash! Không phát hiện lỗi phân nhánh."
         
-        # Telegram notification on successful restore and stability
-        token="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
-        chat_id="-1003867050625"
         ip_info=$(get_system_ip_info 2>/dev/null || hostname 2>/dev/null || echo "Unknown")
         
         # Get current epoch/block from Node 4 (which should be running/stable) or target node
@@ -504,13 +585,10 @@ for ((i=1; i<=LOOPS; i++)); do
             if [ "$hex_ep" != "null" ] && [ -n "$hex_ep" ]; then cur_epoch=$((hex_ep)); fi
         fi
 
-        curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
-            -d "chat_id=${chat_id}" \
-            -d "text=🔄 *[SNAPSHOT TEST]* Khôi phục thành công Node \`${NODE_ID}\` từ snapshot Node 4 và hoạt động ổn định!
+        send_telegram_notification "🔄 *[SNAPSHOT TEST]* Khôi phục thành công Node \`${NODE_ID}\` từ snapshot Node 4 và hoạt động ổn định!
 🖥️ *Server:* \`${ip_info}\`
 📊 *Trạng thái:* Block \`${cur_block}\` (Epoch \`${cur_epoch}\`)
-📈 *Vòng test:* \`${i} / ${LOOPS}\`" \
-            -d "parse_mode=Markdown" >/dev/null 2>&1
+📈 *Vòng test:* \`${i} / ${LOOPS}\`"
     fi
 
     # 7. Dọn dẹp tiến trình checker cho vòng lặp hiện tại
