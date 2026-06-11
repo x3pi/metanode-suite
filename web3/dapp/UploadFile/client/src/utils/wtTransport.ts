@@ -5,11 +5,8 @@
  * Frame format (Request → Server):
  *   [4 byte BE uint32 length][JSON bytes]
  *
- * Frame format (Response ← Server, thành công):
- *   [4 byte BE uint32 length][1 byte ID length][ID bytes][raw chunk bytes]
- *
- * Frame format (Response ← Server, lỗi):
- *   [4 byte BE uint32 length][0xFF][1 byte ID length][ID bytes][error message UTF-8]
+ * Frame format (Response ← Server):
+ *   [4 byte BE uint32 length][2 byte BE uint16 JSON length][JSON header bytes][raw chunk bytes]
  */
 import { IS_PRODUCTION } from "../constants/customChain";
 
@@ -26,6 +23,8 @@ export interface WtChunkRequest {
 export interface WtChunkResponseOk {
   ok: true;
   id: string;
+  chunkIndex?: number;
+  command?: string;
   data: ArrayBuffer;
 }
 
@@ -69,7 +68,7 @@ export async function readResponseFrame(
     }
   }
 
-  if (total < 5) return { ok: false, error: "Response quá ngắn (< 5 bytes)" };
+  if (total < 6) return { ok: false, error: "Response quá ngắn (< 6 bytes)" };
 
   // Ghép tất cả chunks lại
   const bytes = new Uint8Array(total);
@@ -82,23 +81,32 @@ export async function readResponseFrame(
   const payloadLen = new DataView(bytes.buffer).getUint32(0, false);
   const payload = bytes.slice(4, 4 + payloadLen);
 
-  // Error frame: byte đầu tiên là 0xFF
-  if (payload[0] === 0xff) {
-    const idLen = payload[1];
-    const errMsg = new TextDecoder().decode(payload.slice(2 + idLen));
-    return { ok: false, error: errMsg };
+  if (payload.length < 2) return { ok: false, error: "Payload quá ngắn để parse JSON header" };
+
+  const jsonLen = new DataView(payload.buffer, payload.byteOffset).getUint16(0, false);
+  if (payload.length < 2 + jsonLen) return { ok: false, error: "JSON header bị cắt cụt" };
+
+  const jsonBytes = payload.slice(2, 2 + jsonLen);
+  const jsonStr = new TextDecoder().decode(jsonBytes);
+
+  let header: any;
+  try {
+    header = JSON.parse(jsonStr);
+  } catch (e) {
+    return { ok: false, error: "Lỗi parse JSON header" };
   }
 
-  const idLen = payload[0];
-  const idStr = new TextDecoder().decode(payload.slice(1, 1 + idLen));
+  if (header.status === "error") {
+    return { ok: false, error: header.message || "Unknown server error" };
+  }
 
   // ArrayBuffer cần copy vì slice trả về view trên cùng buffer
-  const rawData = payload.slice(1 + idLen).buffer.slice(
-    payload.byteOffset + 1 + idLen,
+  const rawData = payload.slice(2 + jsonLen).buffer.slice(
+    payload.byteOffset + 2 + jsonLen,
     payload.byteOffset + payloadLen
   );
 
-  return { ok: true, id: idStr, data: rawData };
+  return { ok: true, id: header.id, command: header.command, data: rawData };
 }
 
 
