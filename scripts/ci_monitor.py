@@ -140,6 +140,27 @@ def get_local_commit():
     except subprocess.CalledProcessError:
         return None
 
+def clean_up_orphans():
+    """Dọn dẹp các tiến trình có thể còn sót lại của bài test trước"""
+    processes_to_kill = [
+        "block_hash_checker_ci",
+        "rpc-tcp-simple",
+        "tps_blast_cc",
+        "auto_test",
+        "simple_test.sh",
+        "setup_chain.sh",
+        "test-node-recovery-gap.sh",
+        "test-snapshot.sh",
+        "test-spam-xapian.sh",
+        "test-snapshot-no-build.sh",
+        "test-node-recovery-gap-no-build.sh",
+        "test-spam-xapian-no-deploy.sh",
+        "auto_test_all.sh",
+        "auto_test_loccal.sh"
+    ]
+    for proc in processes_to_kill:
+        subprocess.run(["pkill", "-f", proc], capture_output=True)
+
 def kill_process_group(process):
     if process:
         try:
@@ -249,6 +270,8 @@ def main():
 
     args = [TEST_SCRIPT] + sys.argv[1:]
 
+    # Dọn dẹp tiến trình mồ côi cũ trước khi chạy test đầu tiên để tránh xung đột
+    clean_up_orphans()
     # Dọn log cũ ngay cả trước lần chạy test đầu tiên
     clean_old_logs()
 
@@ -312,7 +335,7 @@ def main():
                             sys.exit(1)
                         else:
                             print(f"[{datetime.datetime.now()}] Cờ --no-listen được bật. Chạy xong 1 vòng không lỗi. Tiếp tục chạy vòng test mới...")
-                            subprocess.run(["pkill", "-f", "block_hash_checker_ci"], capture_output=True)
+                            clean_up_orphans()
                             print(f"[{datetime.datetime.now()}] Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
                             time.sleep(5)
                             clean_old_logs()
@@ -356,7 +379,7 @@ def main():
                     if current_process and current_process.poll() is None:
                         kill_process_group(current_process)
                     
-                    subprocess.run(["pkill", "-f", "block_hash_checker_ci"], capture_output=True)
+                    clean_up_orphans()
                     print(f"[{datetime.datetime.now()}] Đang đợi 5 giây để đóng hoàn toàn các port cũ...")
                     time.sleep(5)
                     
