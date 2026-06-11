@@ -385,6 +385,12 @@ for ((i=1; i<=LOOPS; i++)); do
         cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
         go run main.go -config $HISTORY_CONFIG -action save -file "/tmp/pending_check_${NODE_ID}.json"
     )
+    SAVE_EXIT_CODE=$?
+    if [ $SAVE_EXIT_CODE -ne 0 ]; then
+        echo "❌ LỖI (Đang test Node $NODE_ID): Lưu trạng thái lịch sử (save) thất bại!"
+        kill -9 $CHECKER_PID 2>/dev/null
+        exit 1
+    fi
     cd "$METANODE_SCRIPT_DIR" || exit 1
     # Thực hiện restore node tùy theo mode
     if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
@@ -482,6 +488,12 @@ ${nodes_status}"
         cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
         go run main.go -config $HISTORY_CONFIG -action verify -file "/tmp/pending_check_${NODE_ID}.json" -target-node "$NODE_ID"
     )
+    VERIFY_EXIT_CODE=$?
+    if [ $VERIFY_EXIT_CODE -ne 0 ]; then
+        echo "❌ LỖI (Đang test Node $NODE_ID): Xác minh trạng thái lịch sử (verify) thất bại!"
+        kill -9 $CHECKER_PID 2>/dev/null
+        exit 1
+    fi
 
     # echo "🔎 Gọi API meta_verifyHistoricalRoot để kiểm chứng tính toàn vẹn của State Trie trên Node $NODE_ID..."
     # if [ "$NODE_ID" = "0" ]; then TARGET_PORT=8757; fi
