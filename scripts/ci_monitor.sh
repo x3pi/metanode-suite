@@ -227,7 +227,7 @@ cleanup_all_processes() {
         # 5. Tắt triệt để các tiến trình Go/Rust và các RPC proxy server
         echo "   → Tắt triệt để các tiến trình simple_chain, metanode, rpc-client, config-rpc..."
         pkill -9 -f "[s]imple_chain" 2>/dev/null || true
-        pkill -9 -f "[m]etanode" 2>/dev/null || true
+        pkill -9 -x metanode 2>/dev/null || true
         pkill -9 -f "[r]pc-client" 2>/dev/null || true
         pkill -9 -f "rpc-client-bin" 2>/dev/null || true
         pkill -9 -f "config-rpc-node" 2>/dev/null || true
