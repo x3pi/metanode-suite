@@ -40,6 +40,17 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+get_system_ip_info() {
+    local hostname=$(hostname 2>/dev/null || echo "Unknown")
+    local local_ips=$(hostname -I 2>/dev/null | xargs | tr ' ' ',' || echo "Unknown")
+    local public_ip=$(curl -s -m 2 https://api.ipify.org 2>/dev/null || echo "Unknown")
+    if [ "$public_ip" != "Unknown" ]; then
+        echo "${hostname} (Static/Private IP: ${local_ips}, Public IP: ${public_ip})"
+    else
+        echo "${hostname} (Static/Private IP: ${local_ips})"
+    fi
+}
+
 # Tự động định vị đường dẫn dựa theo vị trí của file script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_TEST_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -474,6 +485,32 @@ for ((i=1; i<=LOOPS; i++)); do
         exit 1
     else
         echo "   ✅ Khớp Hash! Không phát hiện lỗi phân nhánh."
+        
+        # Telegram notification on successful restore and stability
+        local token="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+        local chat_id="-1003867050625"
+        local ip_info=$(get_system_ip_info 2>/dev/null || hostname 2>/dev/null || echo "Unknown")
+        
+        # Get current epoch/block from Node 4 (which should be running/stable) or target node
+        local target_rpc="http://127.0.0.1:8757"
+        if [ "$NODE_ID" = "0" ]; then target_rpc="http://127.0.0.1:10747"; fi
+        local block_info=$(curl -s -m 5 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' "$target_rpc" 2>/dev/null)
+        local cur_block="N/A"
+        local cur_epoch="N/A"
+        if [[ "$block_info" == *"result"* ]]; then
+            local hex_num=$(echo "$block_info" | jq -r '.result.number' 2>/dev/null)
+            local hex_ep=$(echo "$block_info" | jq -r '.result.epoch' 2>/dev/null)
+            if [ "$hex_num" != "null" ] && [ -n "$hex_num" ]; then cur_block=$((hex_num)); fi
+            if [ "$hex_ep" != "null" ] && [ -n "$hex_ep" ]; then cur_epoch=$((hex_ep)); fi
+        fi
+
+        curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+            -d "chat_id=${chat_id}" \
+            -d "text=🔄 *[SNAPSHOT TEST]* Khôi phục thành công Node \`${NODE_ID}\` từ snapshot Node 4 và hoạt động ổn định!
+🖥️ *Server:* \`${ip_info}\`
+📊 *Trạng thái:* Block \`${cur_block}\` (Epoch \`${cur_epoch}\`)
+📈 *Vòng test:* \`${i} / ${LOOPS}\`" \
+            -d "parse_mode=Markdown" >/dev/null 2>&1
     fi
 
     # 7. Dọn dẹp tiến trình checker cho vòng lặp hiện tại

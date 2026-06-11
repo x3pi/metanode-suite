@@ -377,12 +377,17 @@ start_periodic_reporter() {
                 local name="${node_names[$idx]}"
                 local url="${node_urls[$idx]}"
                 
-                local res=$(curl -s -m 5 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "$url" 2>/dev/null)
+                local res=$(curl -s -m 5 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' "$url" 2>/dev/null)
                 local block="ERR"
+                local epoch="ERR"
                 if [ $? -eq 0 ] && [[ "$res" == *"result"* ]]; then
-                    local hex=$(echo "$res" | jq -r '.result' 2>/dev/null)
-                    if [ "$hex" != "null" ] && [ -n "$hex" ]; then
-                        block=$((hex))
+                    local hex_block=$(echo "$res" | jq -r '.result.number' 2>/dev/null)
+                    local hex_epoch=$(echo "$res" | jq -r '.result.epoch' 2>/dev/null)
+                    if [ "$hex_block" != "null" ] && [ -n "$hex_block" ]; then
+                        block=$((hex_block))
+                    fi
+                    if [ "$hex_epoch" != "null" ] && [ -n "$hex_epoch" ]; then
+                        epoch=$((hex_epoch))
                     fi
                 fi
                 
@@ -390,7 +395,7 @@ start_periodic_reporter() {
                     node_reports+=("❌ *${name}*: Không phản hồi RPC")
                     all_nodes_ok=false
                 else
-                    node_reports+=("✅ *${name}*: Block \`${block}\`")
+                    node_reports+=("✅ *${name}*: Block \`${block}\` (Epoch \`${epoch}\`)")
                 fi
             done
             
