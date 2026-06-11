@@ -93,7 +93,7 @@ export async function pushFileInfo(
 
   // Wait for transaction receipt
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  
+
   if (receipt.status !== "success") {
     throw new Error("Transaction failed");
   }
@@ -102,7 +102,7 @@ export async function pushFileInfo(
   // FileAdded event signature: FileAdded(bytes32 fileKey, string name, uint64 contentLen)
   // Event topic[0] is keccak256("FileAdded(bytes32,string,uint64)")
   let fileKey: Hex | null = null;
-  
+
   for (const log of receipt.logs) {
     try {
       const decoded = decodeEventLog({
@@ -110,7 +110,7 @@ export async function pushFileInfo(
         data: log.data,
         topics: log.topics,
       });
-      
+
       if (decoded.eventName === "FileAdded") {
         // decoded.args can be an object or array depending on event structure
         const args = decoded.args as unknown;
@@ -168,7 +168,7 @@ async function uploadChunk(
         ],
         gas: 3000000n,
       });
-      
+
       // await publicClient.waitForTransactionReceipt({ hash });
       return; // Success
     } catch (error: unknown) {
@@ -176,7 +176,7 @@ async function uploadChunk(
       if (errorMessage.includes("to store chunk on disk")) {
         return; // Server error, skip this chunk
       }
-      
+
       if (attempt < maxRetries) {
         console.warn(`Chunk ${chunkIndex}, attempt ${attempt}/${maxRetries} failed:`, error);
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -207,7 +207,7 @@ export async function uploadFile(
       const end = Math.min(start + CHUNK_SIZE, fileData.length);
       chunks.push(fileData.slice(start, end));
     }
-    
+
     const { paddedLeaves, merkleRoot } = buildMerkleTreePadded(chunks);
     const merkleRootHex = `0x${Array.from(merkleRoot).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
 
@@ -250,7 +250,7 @@ export async function uploadFile(
     // Process chunks in batches
     for (let i = 0; i < chunks.length; i += concurrencyLimit) {
       const batch = chunks.slice(i, i + concurrencyLimit);
-      const batchPromises = batch.map((_, batchIndex) => 
+      const batchPromises = batch.map((_, batchIndex) =>
         uploadChunkWithIndex(i + batchIndex)
       );
       await Promise.all(batchPromises);

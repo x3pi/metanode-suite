@@ -5,7 +5,7 @@ export interface ContractConfig {
   abi: Abi;
   address: `0x${string}`;
 }
-export const privateKey ="be21792cee9dd376447c9de7fb3b4f49d58dfdd13f7e9d0886bfbb303e8db901"
+export const privateKey = "be21792cee9dd376447c9de7fb3b4f49d58dfdd13f7e9d0886bfbb303e8db901"
 export const contracts = {
   File: {
     abi: FileAbi as Abi,

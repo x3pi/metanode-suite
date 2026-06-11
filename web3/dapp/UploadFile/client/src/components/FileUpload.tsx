@@ -1,7 +1,17 @@
 import { useState, useCallback } from "react";
 import { uploadFile, type UploadProgress } from "../utils/fileUpload";
+import { downloadFileAndSave } from "../utils/fileDownload";
+import { useEffect } from "react";
+import { createPublicClient, http } from "viem";
+import { chain991 } from "../constants/customChain";
+import { contracts } from "../constants/contracts";
 // Định nghĩa bên ngoài để tránh re-render
-const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; 
+const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+
+const publicClient = createPublicClient({
+  chain: chain991,
+  transport: http(),
+});
 
 const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return "0 B";
@@ -15,6 +25,40 @@ export default function FileUpload() {
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isFileActive, setIsFileActive] = useState(false);
+  
+  // Lưu danh sách các fileKey đã active trong suốt phiên chạy của web
+  const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
+
+  // Lắng nghe TỪ ĐẦU (khi component mới mount lên)
+  useEffect(() => {
+    const unwatch = publicClient.watchContractEvent({
+      address: contracts.File.address as `0x${string}`,
+      abi: contracts.File.abi as any,
+      eventName: "FileActivated",
+      onLogs: (logs) => {
+        for (const log of logs) {
+          const { fileKey: activatedKey } = (log as any).args;
+          if (activatedKey) {
+            console.log("🎉 Bắt được event FileActivated từ Blockchain:", activatedKey);
+            setActiveKeys((prev) => new Set(prev).add(activatedKey.toLowerCase()));
+          }
+        }
+      },
+    });
+    
+    return () => unwatch();
+  }, []);
+
+  // Kiểm tra xem file hiện tại đã nằm trong danh sách activeKeys chưa
+  useEffect(() => {
+    if (progress?.stage === "completed" && progress.fileKey) {
+      const fileKey = progress.fileKey.toLowerCase();
+      if (activeKeys.has(fileKey)) {
+        setIsFileActive(true);
+      }
+    }
+  }, [progress?.stage, progress?.fileKey, activeKeys]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -27,6 +71,7 @@ export default function FileUpload() {
       }
       setFile(selectedFile);
       setProgress(null);
+      setIsFileActive(false);
     }
   }, []);
 
@@ -35,6 +80,7 @@ export default function FileUpload() {
 
     setIsUploading(true);
     setProgress({ stage: "preparing" });
+    setIsFileActive(false);
 
     try {
       const fileKey = await uploadFile(file, (prog) => {
@@ -75,7 +121,7 @@ export default function FileUpload() {
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800">Upload File to Blockchain</h2>
+      <h2 className="text-2xl font-bold mb-6 text-gray-800">Upload & Download File to Blockchain</h2>
 
       {/* File Input */}
       <div className="mb-6">
@@ -109,7 +155,7 @@ export default function FileUpload() {
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed
           text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200"
       >
-        {isUploading ? "Đang upload..." : "Upload File"}
+        {isUploading ? "Đang upload..." : "Upload File & Auto Download File"}
       </button>
 
       {/* Progress Section */}
@@ -136,9 +182,23 @@ export default function FileUpload() {
 
           {/* FileKey Display */}
           {progress.fileKey && (
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm font-medium text-green-800 mb-1">FileKey:</p>
-              <p className="text-xs font-mono text-green-700 break-all">{progress.fileKey}</p>
+            <div className={`mt-4 p-3 border rounded-lg ${isFileActive ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"}`}>
+              <div className="flex items-center justify-between mb-2">
+                <p className={`text-sm font-medium ${isFileActive ? "text-green-800" : "text-yellow-800"}`}>
+                  {isFileActive ? "🎉 File đã Active (Có thể tải về)" : "⏳ Đang chờ blockchain xác nhận..."}
+                </p>
+                {isFileActive && (
+                  <button
+                    onClick={() => navigator.clipboard.writeText(progress.fileKey!)}
+                    className="text-xs bg-green-200 hover:bg-green-300 text-green-800 px-2 py-1 rounded"
+                  >
+                    Copy Key
+                  </button>
+                )}
+              </div>
+              <p className={`text-xs font-mono break-all ${isFileActive ? "text-green-700" : "text-yellow-700"}`}>
+                {progress.fileKey}
+              </p>
             </div>
           )}
 

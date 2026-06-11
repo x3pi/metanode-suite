@@ -15,24 +15,7 @@ const publicClient = createPublicClient({
 const account = privateKeyToAccount(`0x${privateKey}` as Hex);
 
 function App() {
-  // Lắng nghe sự kiện FileActivated từ smart contract
-  useEffect(() => {
-    const unwatch = publicClient.watchContractEvent({
-      address: contracts.File.address as `0x${string}`,
-      abi: contracts.File.abi as Abi,
-      eventName: "FileActivated",
-      onLogs: (logs) => {
-        for (const log of logs) {
-          const { user, fileKey } = (log as any).args;
-          if (user?.toLowerCase() === account.address.toLowerCase()) {
-            console.log("🎉 FileActivated:", fileKey);
-            downloadFileAndSave(fileKey, (msg) => console.log(`[Download]: ${msg}`));
-          }
-        }
-      },
-    });
-    return () => unwatch();
-  }, []);
+  // Không cần lắng nghe ở đây nữa vì FileUpload.tsx đã tự xử lý
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">

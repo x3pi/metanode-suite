@@ -6,10 +6,10 @@
  *   [4 byte BE uint32 length][JSON bytes]
  *
  * Frame format (Response ← Server, thành công):
- *   [4 byte BE uint32 length][32 byte SHA-256][raw chunk bytes]
+ *   [4 byte BE uint32 length][1 byte ID length][ID bytes][raw chunk bytes]
  *
  * Frame format (Response ← Server, lỗi):
- *   [4 byte BE uint32 length][0xFF][error message UTF-8]
+ *   [4 byte BE uint32 length][0xFF][1 byte ID length][ID bytes][error message UTF-8]
  */
 
 export interface WtChunkRequest {
@@ -24,7 +24,7 @@ export interface WtChunkRequest {
 
 export interface WtChunkResponseOk {
   ok: true;
-  sha256: string;
+  id: string;
   data: ArrayBuffer;
 }
 
@@ -83,50 +83,49 @@ export async function readResponseFrame(
 
   // Error frame: byte đầu tiên là 0xFF
   if (payload[0] === 0xff) {
-    const errMsg = new TextDecoder().decode(payload.slice(1));
+    const idLen = payload[1];
+    const errMsg = new TextDecoder().decode(payload.slice(2 + idLen));
     return { ok: false, error: errMsg };
   }
 
-  if (payloadLen < 32) return { ok: false, error: "Frame không đủ 32 byte SHA-256" };
-
-  const sha256Hex = Array.from(payload.slice(0, 32))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const idLen = payload[0];
+  const idStr = new TextDecoder().decode(payload.slice(1, 1 + idLen));
 
   // ArrayBuffer cần copy vì slice trả về view trên cùng buffer
-  const rawData = payload.slice(32).buffer.slice(
-    payload.byteOffset + 32,
+  const rawData = payload.slice(1 + idLen).buffer.slice(
+    payload.byteOffset + 1 + idLen,
     payload.byteOffset + payloadLen
   );
 
-  return { ok: true, sha256: sha256Hex, data: rawData };
+  return { ok: true, id: idStr, data: rawData };
 }
 
-/**
- * Tải 1 chunk từ WebTransport server.
- * Mở kết nối mới, gửi 1 request, đọc 1 response, đóng kết nối.
- *
- * @param serverUrl - VD: "https://192.168.1.234:8081"
- * @param downloadKey - hex string (không có 0x)
- * @param chunkIndex - số thứ tự chunk
- * @param signature - hex string chữ ký
- */
-export async function fetchChunkViaWt(
-  serverUrl: string,
+
+export function getWtOptions() {
+  return {
+    serverCertificateHashes: [
+      {
+        algorithm: "sha-256",
+        value: new Uint8Array([
+          0xec, 0x3b, 0x50, 0xed, 0xc4, 0xd0, 0x56, 0xdc, 0xd1, 0xf7, 0xb2, 0x36, 0xdd, 0xa4, 0x3d, 0x1a,
+          0xdc, 0x19, 0xcd, 0x38, 0xf1, 0xca, 0xf1, 0xd4, 0x6a, 0x05, 0xa9, 0x49, 0x26, 0x4c, 0xf9, 0x23
+        ]),
+      },
+    ],
+  };
+}
+
+export async function fetchChunkOnStream(
+  transport: WebTransport,
   downloadKey: string,
   chunkIndex: number,
   signature: string
 ): Promise<WtChunkResponse> {
-  const url = `${serverUrl}/quic`;
-  const transport = new WebTransport(url);
+  const stream = await transport.createBidirectionalStream();
+  const writer = stream.writable.getWriter();
+  const reader = stream.readable.getReader();
 
   try {
-    await transport.ready;
-
-    const stream = await transport.createBidirectionalStream();
-    const writer = stream.writable.getWriter();
-    const reader = stream.readable.getReader();
-
     const request: WtChunkRequest = {
       id: crypto.randomUUID(),
       command: "download_chunk",
@@ -139,22 +138,27 @@ export async function fetchChunkViaWt(
     writer.releaseLock();
 
     const result = await readResponseFrame(reader);
-    reader.releaseLock();
-
     return result;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function fetchChunkViaWt(
+  serverUrl: string,
+  downloadKey: string,
+  chunkIndex: number,
+  signature: string
+): Promise<WtChunkResponse> {
+  const url = `${serverUrl}/quic`;
+  const transport = new WebTransport(url, getWtOptions());
+
+  try {
+    await transport.ready;
+    return await fetchChunkOnStream(transport, downloadKey, chunkIndex, signature);
   } finally {
     transport.close();
   }
 }
 
-/**
- * Verify SHA-256 của một ArrayBuffer (dùng Web Crypto API).
- * @returns true nếu khớp với expectedHex
- */
-export async function verifySha256(data: ArrayBuffer, expectedHex: string): Promise<boolean> {
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const clientHash = Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  return clientHash === expectedHex;
-}
+
