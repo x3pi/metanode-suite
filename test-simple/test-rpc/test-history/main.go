@@ -70,6 +70,16 @@ func callContextWithRetry(ctx context.Context, rpcClient *rpc.Client, result int
 	return err
 }
 
+func dialWithTimeout(urlStr string) (*rpc.Client, error) {
+	if strings.HasPrefix(urlStr, "http://") || strings.HasPrefix(urlStr, "https://") {
+		httpClient := &http.Client{
+			Timeout: 30 * time.Second,
+		}
+		return rpc.DialHTTPWithClient(urlStr, httpClient)
+	}
+	return rpc.Dial(urlStr)
+}
+
 type FailoverClient struct {
 	urls        []string
 	activeIdx   int
@@ -162,7 +172,7 @@ func (fc *FailoverClient) reconnect() error {
 		}
 
 		fmt.Printf("🔌 Đang kết nối tới RPC: %s...\n", url)
-		rpcClient, err := rpc.Dial(url)
+		rpcClient, err := dialWithTimeout(url)
 		if err == nil {
 			ethCli := ethclient.NewClient(rpcClient)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -584,7 +594,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 			continue
 		}
 		fmt.Printf("🔍 Đang kiểm tra node: %s (Node %s)\n", u, nodeNum)
-		tempClient, errDial := rpc.Dial(u)
+		tempClient, errDial := dialWithTimeout(u)
 		if errDial != nil {
 			fmt.Printf("   ⚠️ Node %s (Node %s) không thể kết nối (%v). Bỏ qua...\n", u, nodeNum, errDial)
 			continue
@@ -730,7 +740,7 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 	sb.WriteString("       RPC URL                        | eth_getBalance / mtn_balance                      | eth_nonce / mtn_nonce\n")
 	sb.WriteString("       ------------------------------------------------------------------------------------------------------\n")
 	for _, u := range urls {
-		tempClient, errDial := rpc.Dial(u)
+		tempClient, errDial := dialWithTimeout(u)
 		if errDial != nil {
 			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi kết nối: %v\n", u, errDial))
 			continue
@@ -1025,7 +1035,7 @@ func main() {
 
 			maxRetries := 300
 			for r := 1; r <= maxRetries; r++ {
-				rpcClient, err = rpc.Dial(targetURL)
+				rpcClient, err = dialWithTimeout(targetURL)
 				if err == nil {
 					// Kiểm tra chiều cao block hiện tại của node
 					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
