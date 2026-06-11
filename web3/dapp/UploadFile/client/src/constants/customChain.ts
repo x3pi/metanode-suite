@@ -2,18 +2,20 @@
 import { type Chain } from "viem";
 
 // Bật cờ này thành `true` khi deploy lên server thật có SSL và tên miền chuẩn
-export const IS_PRODUCTION = false;
+export const IS_PRODUCTION = true;
 // export const GO_BACKEND_RPC_URL = window.location.origin;
 // export const WS_BASE = window.location.origin.replace(/^http/, "ws");
 // export const WSS_RPC = `${WS_BASE}/interceptor`;
-export const WSS_RPC = "ws://192.168.1.234:8545";
-export const GO_BACKEND_RPC_URL = "http://192.168.1.234:8545";
-// const GO_BACKEND_RPC_URL = "https://rpc-proxy-sequoia.iqnb.com:8446";
-// export const WSS_RPC = "wss://rpc-proxy-sequoia.iqnb.com:8446";
+// export const WSS_RPC = "ws://192.168.1.234:8545";
+// export const GO_BACKEND_RPC_URL = "http://192.168.1.234:8545";
+const GO_BACKEND_RPC_URL = "https://rpc-proxy-sequoia.iqnb.com:8446";
+export const WSS_RPC = "wss://rpc-proxy-sequoia.iqnb.com:8446";
 
 // Cấu hình các server tải file
-export const DOWNLOAD_SERVER_1 = "https://192.168.1.234:8081";
-export const DOWNLOAD_SERVER_2 = "https://192.168.1.234:8082";
+// export const DOWNLOAD_SERVER_1 = "https://192.168.1.234:8081";
+// export const DOWNLOAD_SERVER_2 = "https://192.168.1.234:8082";
+export const DOWNLOAD_SERVER_1 = "https://file-keeper-2.iqnb.com:8081";
+export const DOWNLOAD_SERVER_2 = "https://file-keeper-2.iqnb.com:8081";
 
 // Replace with your actual Chain ID 991 details
 export const chain991 = {

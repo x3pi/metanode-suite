@@ -1,7 +1,7 @@
 [
     {
         "action": "send",
-        "contract": "0x7f31406D2D5cc34cd4D0851350714043Ea532663",
+        "contract": "0x5b9bd6157d69771aac09c7c9b2e2ca78bd9a8173",
         "method": "",
         "input_data": "",
         "amount": "1000000000000000000000"

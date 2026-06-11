@@ -141,7 +141,7 @@ rm -f /tmp/MTN_INTEGRITY_FAILED 2>/dev/null || sudo rm -f /tmp/MTN_INTEGRITY_FAI
 # multi mode: đọc từ /tmp/rpc_nodes.json, nếu không có thì fallback 8545
 if [ "${DEPLOY_MODE:-single}" == "multi" ]; then
     if [ -f /tmp/rpc_nodes.json ]; then
-        EPOCH_RPC=$(jq -r '.nodes.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "http://127.0.0.1:8545")
+        EPOCH_RPC=$(jq -r '.rpc_proxies.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "http://127.0.0.1:8545")
     else
         EPOCH_RPC="http://127.0.0.1:8545"
     fi
@@ -645,7 +645,7 @@ wait_for_sync_to_highest_block() {
     # - single mode: dùng direct port cố định
     local target_rpc
     if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
-        target_rpc=$(jq -r ".nodes.m${target_node} // empty" /tmp/rpc_nodes.json 2>/dev/null || echo "")
+        target_rpc=$(jq -r ".rpc_proxies.m${target_node} // empty" /tmp/rpc_nodes.json 2>/dev/null || echo "")
         if [ -z "$target_rpc" ]; then
             target_rpc="$EPOCH_RPC"
         fi
@@ -660,7 +660,7 @@ wait_for_sync_to_highest_block() {
     # RPC của Node 0 (chuẩn tham chiếu)
     local ref_rpc
     if [ "${DEPLOY_MODE:-single}" == "multi" ] && [ -f /tmp/rpc_nodes.json ]; then
-        ref_rpc=$(jq -r '.nodes.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "$EPOCH_RPC")
+        ref_rpc=$(jq -r '.rpc_proxies.m0 // empty' /tmp/rpc_nodes.json 2>/dev/null || echo "$EPOCH_RPC")
     else
         ref_rpc="http://127.0.0.1:8757"
     fi
