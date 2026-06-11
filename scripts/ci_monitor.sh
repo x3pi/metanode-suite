@@ -200,6 +200,10 @@ cleanup_all_processes() {
     done
 
     # 3.1. Kill các tool chạy qua go run (watch/loop)
+    pkill -9 -f "go run main.go" 2>/dev/null || true
+    pkill -9 -f "exe/main --watch" 2>/dev/null || true
+    pkill -9 -f "exe/main --count" 2>/dev/null || true
+    pkill -9 -f "exe/main --rounds" 2>/dev/null || true
     pkill -9 -f "main.go -loop" 2>/dev/null || true
     pkill -9 -f "config-mutil.json" 2>/dev/null || true
     pkill -9 -f "config-local.json" 2>/dev/null || true
