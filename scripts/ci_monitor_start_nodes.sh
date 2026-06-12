@@ -40,6 +40,11 @@ cmd_stop() {
         fi
         rm -f "$PID_FILE"
     fi
+    
+    echo "🧹 Dọn dẹp các tiến trình phụ (Monitors)..."
+    pkill -f "start_monitors.sh health" 2>/dev/null || true
+    pkill -f "go run main.go.*--no-stop-flag" 2>/dev/null || true
+    echo "✅ Toàn bộ Monitor đã được tắt hoàn toàn."
 }
 
 cmd_status() {

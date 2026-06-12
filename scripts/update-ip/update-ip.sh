@@ -73,13 +73,13 @@ fi
 # Note: For checkhash, we include node 4 (m4).
 FILE3="/home/abc/nhat/con-chain-v2/metanode-suite/block/block_hash_checker/config-m-nodes.json"
 if [ -f "$FILE3" ]; then
-    echo "Updating $FILE3 using RPC Proxies (including node 4)..."
+    echo "Updating $FILE3 using Nodes (including node 4)..."
     
-    new_m0=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
-    new_m1=$(jq -r '.rpc_proxies.m1' "$RPC_NODES_FILE")
-    new_m2=$(jq -r '.rpc_proxies.m2' "$RPC_NODES_FILE")
-    new_m3=$(jq -r '.rpc_proxies.m3' "$RPC_NODES_FILE")
-    new_m4=$(jq -r '.rpc_proxies.m4' "$RPC_NODES_FILE")
+    new_m0=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
+    new_m1=$(jq -r '.nodes.m1' "$RPC_NODES_FILE")
+    new_m2=$(jq -r '.nodes.m2' "$RPC_NODES_FILE")
+    new_m3=$(jq -r '.nodes.m3' "$RPC_NODES_FILE")
+    new_m4=$(jq -r '.nodes.m4' "$RPC_NODES_FILE")
 
     jq --arg m0 "$new_m0" \
        --arg m1 "$new_m1" \

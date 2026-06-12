@@ -12,7 +12,7 @@ import socket
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), "metanode")
 DEPLOY_SCRIPT_DIR = os.path.join(METANODE_DIR, "consensus", "metanode", "scripts", "node")
-DEPLOY_CMD = ["./deploy_systemd_cluster.sh", "--env", "deploy-muti-node.env", "--all"]
+DEPLOY_CMD = ["./deploy_systemd_cluster.sh", "--env", "deploy-muti-node.env", "--all", "--keep-data"]
 LOGS_DIR = os.path.join(SCRIPT_DIR, "auto_update_logs")
 
 TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
