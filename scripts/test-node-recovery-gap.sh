@@ -752,6 +752,19 @@ wait_for_sync_to_highest_block() {
     analyze_mismatch "$TARGET_NODE"
     echo "✅ Nếu không có Alert văng ra, Node đã đồng bộ Block và Hash thành công!"
 
+    # Gửi thông báo Telegram node vừa khởi động và đồng bộ thành công
+    if [ "${MTN_TELE_ALERT:-false}" == "true" ]; then
+        TELEGRAM_TOKEN="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+        TELEGRAM_CHAT_ID="-1003867050625"
+        SERVER_IP=$(curl -s -m 2 https://api.ipify.org 2>/dev/null || echo "Unknown")
+        MSG="🔄 *[RECOVERY TEST]* Node \`$TARGET_NODE\` vừa khởi động lại và đồng bộ thành công! (Loop: $loop)
+🖥️ *Server*: \`${SERVER_IP}\`"
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MSG}" \
+            -d "parse_mode=Markdown" >/dev/null 2>&1 &
+    fi
+
     echo -e "\n[7/8] 🚀 Bắn giao dịch trở lại (Stress Test sau hồi phục)..."
     cd "$ROOT_DIR/metanode-suite/test_tps/tps_blast_cc"
     SPAM_NODE_1=$TARGET_NODE

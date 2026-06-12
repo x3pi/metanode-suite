@@ -177,7 +177,7 @@ cleanup_all_processes() {
     done
 
     # 2. Kill tất cả Shell test runners
-    for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh" "test-spam-xapian.sh" "run_spam.sh"; do
+    for t in "auto_test.sh" "test-node-recovery-gap.sh" "test-snapshot.sh" "test-spam-xapian.sh" "run_spam.sh" "simple_test.sh" "setup_chain.sh" "test-node-recovery-gap-no-build.sh" "test-snapshot-no-build.sh" "test-spam-xapian-no-deploy.sh" "auto_test_all.sh" "auto_test_loccal.sh" "tps-spam.sh" "rpc-tcp-simple.sh"; do
         local pat="[${t:0:1}]${t:1}"
         PIDS_T=$(pgrep -f "$pat" 2>/dev/null)
         if [ -n "$PIDS_T" ]; then
@@ -187,6 +187,7 @@ cleanup_all_processes() {
             pkill -9 -f "$pat" 2>/dev/null || true
         fi
     done
+
 
     # 3. Kill các tiến trình phụ trợ
     for proc in "block_hash_checker_ci" "rpc-tcp-simple" "tps_blast_cc" "tx_sender" "spam_xapian_test"; do

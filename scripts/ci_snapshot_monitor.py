@@ -142,10 +142,21 @@ def clean_up_orphans():
         "block_hash_checker_ci",
         "rpc-tcp-simple",
         "tps_blast_cc",
-        "test-snapshot"
+        "test-snapshot",
+        "simple_test.sh",
+        "setup_chain.sh",
+        "auto_test.sh",
+        "test-node-recovery-gap.sh",
+        "test-spam-xapian.sh",
+        "test-snapshot-no-build.sh",
+        "test-node-recovery-gap-no-build.sh",
+        "test-spam-xapian-no-deploy.sh",
+        "auto_test_all.sh",
+        "auto_test_loccal.sh"
     ]
     for proc in processes_to_kill:
         subprocess.run(["pkill", "-f", proc], capture_output=True)
+
 
 def kill_process_group(process):
     if process:
