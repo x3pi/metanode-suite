@@ -31,13 +31,15 @@ run_tests() {
 
 # Parse arguments
 LOOP_MODE=false
-NODE_ID="0"
+MULTI_MODE=false
+NODE_ID=""
 RPC_URL_OVERRIDE=""
 TCP_URL_OVERRIDE=""
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --loop) LOOP_MODE=true; shift ;;
+        --multi) MULTI_MODE=true; shift ;;
         --node) NODE_ID="$2"; shift 2 ;;
         --rpc-url) RPC_URL_OVERRIDE="$2"; shift 2 ;;
         --tcp-url) TCP_URL_OVERRIDE="$2"; shift 2 ;;
@@ -45,60 +47,123 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-# Áp dụng cấu hình tương ứng với Node ID
-case $NODE_ID in
-    0)
-        RPC_URL="http://127.0.0.1:8545"
-        TCP_URL="127.0.0.1:4201"
-        ;;
-    1)
-        RPC_URL="http://127.0.0.1:8547"
-        TCP_URL="127.0.0.1:6201"
-        ;;
-    2)
-        RPC_URL="http://127.0.0.1:8548"
-        TCP_URL="127.0.0.1:6211"
-        ;;
-    3)
-        RPC_URL="http://127.0.0.1:8549"
-        TCP_URL="127.0.0.1:6221"
-        ;;
-    4)
-        RPC_URL="http://127.0.0.1:8550"
-        TCP_URL="127.0.0.1:6241"
-        ;;
-    *)
-        echo "❌ Node ID không hợp lệ: $NODE_ID. Chọn từ 0 đến 4."
+run_single() {
+    # Default cho single mode
+    if [ -z "$NODE_ID" ]; then
+        NODE_ID="0"
+    fi
+
+    # Áp dụng cấu hình tương ứng với Node ID
+    case $NODE_ID in
+        0)
+            export RPC_URL="http://127.0.0.1:8545"
+            export TCP_URL="127.0.0.1:4200"
+            ;;
+        1)
+            export RPC_URL="http://127.0.0.1:8547"
+            export TCP_URL="127.0.0.1:6201"
+            ;;
+        2)
+            export RPC_URL="http://127.0.0.1:8548"
+            export TCP_URL="127.0.0.1:6211"
+            ;;
+        3)
+            export RPC_URL="http://127.0.0.1:8549"
+            export TCP_URL="127.0.0.1:6221"
+            ;;
+        4)
+            export RPC_URL="http://127.0.0.1:8550"
+            export TCP_URL="127.0.0.1:6241"
+            ;;
+        *)
+            echo "❌ Node ID không hợp lệ: $NODE_ID. Chọn từ 0 đến 4."
+            exit 1
+            ;;
+    esac
+
+    # Ưu tiên cấu hình override trực tiếp nếu có
+    if [ -n "$RPC_URL_OVERRIDE" ]; then
+        export RPC_URL="$RPC_URL_OVERRIDE"
+    fi
+    if [ -n "$TCP_URL_OVERRIDE" ]; then
+        export TCP_URL="$TCP_URL_OVERRIDE"
+    fi
+
+    echo "📌 Cấu hình chạy test (Single Mode):"
+    echo "   - Node Target: Node $NODE_ID"
+    echo "   - RPC URL:     $RPC_URL"
+    echo "   - TCP Host:    $TCP_URL"
+    echo ""
+
+    run_tests
+}
+
+run_multi() {
+    if [ ! -f "/tmp/rpc_nodes.json" ]; then
+        echo "❌ Không tìm thấy file /tmp/rpc_nodes.json. Vui lòng chạy deploy để tạo file này."
         exit 1
-        ;;
-esac
-
-# Ưu tiên cấu hình override trực tiếp nếu có
-if [ -n "$RPC_URL_OVERRIDE" ]; then
-    RPC_URL="$RPC_URL_OVERRIDE"
-fi
-if [ -n "$TCP_URL_OVERRIDE" ]; then
-    TCP_URL="$TCP_URL_OVERRIDE"
-fi
-
-echo "📌 Cấu hình chạy test:"
-echo "   - Node Target: Node $NODE_ID"
-echo "   - RPC URL:     $RPC_URL"
-echo "   - TCP Host:    $TCP_URL"
-echo ""
+    fi
+    
+    echo "📌 Cấu hình chạy test (Multi Mode từ /tmp/rpc_nodes.json):"
+    
+    if [ -n "$NODE_ID" ]; then
+        if [[ "$NODE_ID" =~ ^[0-9]+$ ]]; then
+            TARGET_KEY="m${NODE_ID}"
+        else
+            TARGET_KEY="$NODE_ID"
+        fi
+        
+        CHECK_EXISTS=$(jq -r ".rpc_proxies[\"$TARGET_KEY\"]" /tmp/rpc_nodes.json)
+        if [ "$CHECK_EXISTS" = "null" ] || [ -z "$CHECK_EXISTS" ]; then
+            echo "❌ Node $TARGET_KEY không tồn tại trong /tmp/rpc_nodes.json"
+            exit 1
+        fi
+        NODE_KEYS="$TARGET_KEY"
+    else
+        NODE_KEYS=$(jq -r '.rpc_proxies | keys[]' /tmp/rpc_nodes.json | sort)
+    fi
+    
+    for key in $NODE_KEYS; do
+        export RPC_URL=$(jq -r ".rpc_proxies[\"$key\"]" /tmp/rpc_nodes.json)
+        export TCP_URL=$(jq -r ".tcp_nodes[\"$key\"]" /tmp/rpc_nodes.json)
+        
+        # Ưu tiên cấu hình override trực tiếp nếu có
+        if [ -n "$RPC_URL_OVERRIDE" ]; then
+            export RPC_URL="$RPC_URL_OVERRIDE"
+        fi
+        if [ -n "$TCP_URL_OVERRIDE" ]; then
+            export TCP_URL="$TCP_URL_OVERRIDE"
+        fi
+        
+        echo "=================================================="
+        echo "📌 Đang chuẩn bị test Node: $key"
+        echo "   - RPC URL: $RPC_URL"
+        echo "   - TCP Host: $TCP_URL"
+        
+        run_tests
+    done
+}
 
 if [ "$LOOP_MODE" = true ]; then
     echo "🔄 CHẾ ĐỘ LẶP VÒNG LẶP ĐƯỢC BẬT (Nhấn Ctrl+C để dừng)"
     count=1
     while true; do
         echo "▶️  BẮT ĐẦU VÒNG LẶP THỨ $count"
-        run_tests
+        if [ "$MULTI_MODE" = true ]; then
+            run_multi
+        else
+            run_single
+        fi
         count=$((count + 1))
         echo "⏳ Đợi 2s trước khi bắt đầu vòng tiếp theo..."
         sleep 2
     done
 else
     echo "▶️  CHẾ ĐỘ CHẠY 1 LẦN"
-    run_tests
-    echo "✅ ĐÃ CHẠY XONG. Các tùy chọn mở rộng: ./rpc-tcp-simple.sh [--loop] [--node 0-4] [--rpc-url http://...] [--tcp-url host:port]"
+    if [ "$MULTI_MODE" = true ]; then
+        run_multi
+    else
+        run_single
+    fi
+    echo "✅ ĐÃ CHẠY XONG. Các tùy chọn mở rộng: ./rpc-tcp-simple.sh [--loop] [--multi] [--node 0-4] [--rpc-url http://...] [--tcp-url host:port]"
 fi

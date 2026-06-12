@@ -23,11 +23,11 @@ if [ -f "$FILE1" ]; then
     
     new_parent="${IP_0}:${parent_port}"
     new_rpc_0=$(jq -r '.rpc_proxies.m0 | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_1=$(jq -r '.tcp_proxies.m1' "$RPC_NODES_FILE")
+    new_conn_1=$(jq -r '.tcp_nodes.m1' "$RPC_NODES_FILE")
     new_rpc_1=$(jq -r '.rpc_proxies.m1 | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_2=$(jq -r '.tcp_proxies.m2' "$RPC_NODES_FILE")
+    new_conn_2=$(jq -r '.tcp_nodes.m2' "$RPC_NODES_FILE")
     new_rpc_2=$(jq -r '.rpc_proxies.m2 | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_3=$(jq -r '.tcp_proxies.m3' "$RPC_NODES_FILE")
+    new_conn_3=$(jq -r '.tcp_nodes.m3' "$RPC_NODES_FILE")
     new_rpc_3=$(jq -r '.rpc_proxies.m3 | sub("^https?://"; "")' "$RPC_NODES_FILE")
 
     jq --arg p "$new_parent" \
