@@ -23,22 +23,23 @@ if [ "${1:-}" == "health" ]; then
                 if ! curl -s -m 2 "$node_url" >/dev/null 2>&1; then
                     if [ "${dead_nodes[$node_key]:-0}" == "0" ]; then
                         dead_nodes[$node_key]=1
-                        send_tele "🚨🚨🚨 [Health Monitor] PHÁT HIỆN NODE CHẾT!
-Node: $node_key
-URL: $node_url"
-
-                        # Tự động fetch nguyên folder log của node bị chết về máy hiện tại
                         ip=$(echo "$node_url" | awk -F/ '{print $3}' | awk -F: '{print $1}')
                         node_id=${node_key#m}
-                        ssh_user=${SSH_USER:-abc}
+                        ssh_user="abc"
                         ssh_pass="1234@abcd"
                         
-                        ts=$(date +%Y%m%d_%H%M%S)
-                        target_dir="$(pwd)/logs_crash/node_${node_id}_crash_${ts}"
-                        mkdir -p "$target_dir"
-                        
-                        echo "Đang fetch log folder của node ${node_id} từ $ip về $target_dir..."
-                        sshpass -p "$ssh_pass" scp -o StrictHostKeyChecking=no -r "$ssh_user@$ip:/opt/metanode/node-${node_id}/logs" "$target_dir" > "${target_dir}_fetch.log" 2>&1 &
+                        echo "Đang fetch log lỗi mới nhất của node ${node_id} từ $ip..."
+                        latest_log=$(sshpass -p "$ssh_pass" ssh -o StrictHostKeyChecking=no "$ssh_user@$ip" "tail -n 30 /opt/metanode/node-${node_id}/logs/App.log 2>/dev/null || journalctl -u metanode-execution-${node_id} -n 30 --no-pager" || echo "Không thể lấy log từ server")
+
+                        send_tele "🚨🚨🚨 [Health Monitor] PHÁT HIỆN NODE CHẾT!
+Node: $node_key
+IP: $ip
+URL: $node_url
+
+📄 LOG MỚI NHẤT:
+\`\`\`
+$latest_log
+\`\`\`"
                     fi
                 else
                     if [ "${dead_nodes[$node_key]:-0}" == "1" ]; then

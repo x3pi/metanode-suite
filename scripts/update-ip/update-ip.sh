@@ -17,11 +17,7 @@ FILE1="/home/abc/nhat/con-chain-v2/metanode-suite/test_tps/tps_blast_cc/config-m
 if [ -f "$FILE1" ]; then
     echo "Updating $FILE1 using RPC Proxies (excluding node 4)..."
     
-    # Lấy parent_port cũ (thường là 4201)
-    parent_port=$(jq -r '.parent_connection_address | split(":")[1]' "$FILE1")
-    IP_0=$(jq -r '.nodes.m0 | sub("^https?://"; "") | split(":")[0]' "$RPC_NODES_FILE")
-    
-    new_parent="${IP_0}:${parent_port}"
+    new_parent=$(jq -r '.tcp_nodes.m0' "$RPC_NODES_FILE")
     new_rpc_0=$(jq -r '.rpc_proxies.m0 | sub("^https?://"; "")' "$RPC_NODES_FILE")
     new_conn_1=$(jq -r '.tcp_nodes.m1' "$RPC_NODES_FILE")
     new_rpc_1=$(jq -r '.rpc_proxies.m1 | sub("^https?://"; "")' "$RPC_NODES_FILE")

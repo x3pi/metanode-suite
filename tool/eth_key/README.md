@@ -42,7 +42,7 @@ go run main.go rec <PRIVATE_KEY_HEX>
 
 *Ví dụ:*
 ```bash
-go run main.go recover be21792cee9dd376447c9de7fb3b4f49d58dfdd13f7e9d0886bfbb303e8db901
+go run main.go recover 28f0ad246c39b9b5a32692e4f9364e29c3df3cdd6ca6d88fcb40e9dc6bc6c511
 ```
 
 ---
