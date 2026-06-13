@@ -543,7 +543,6 @@ func (client *Client) runReceiptRouter() {
 	for {
 		select {
 		case receipt := <-client.receiptChan:
-			logger.Info("_______________________Receipt received: %v", receipt)
 			if receipt == nil {
 				continue
 			}
