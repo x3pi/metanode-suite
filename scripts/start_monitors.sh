@@ -26,6 +26,19 @@ if [ "${1:-}" == "health" ]; then
                         send_tele "🚨🚨🚨 [Health Monitor] PHÁT HIỆN NODE CHẾT!
 Node: $node_key
 URL: $node_url"
+
+                        # Tự động fetch nguyên folder log của node bị chết về máy hiện tại
+                        ip=$(echo "$node_url" | awk -F/ '{print $3}' | awk -F: '{print $1}')
+                        node_id=${node_key#m}
+                        ssh_user=${SSH_USER:-abc}
+                        ssh_pass="1234@abcd"
+                        
+                        ts=$(date +%Y%m%d_%H%M%S)
+                        target_dir="$(pwd)/logs_crash/node_${node_id}_crash_${ts}"
+                        mkdir -p "$target_dir"
+                        
+                        echo "Đang fetch log folder của node ${node_id} từ $ip về $target_dir..."
+                        sshpass -p "$ssh_pass" scp -o StrictHostKeyChecking=no -r "$ssh_user@$ip:/opt/metanode/node-${node_id}/logs" "$target_dir" > "${target_dir}_fetch.log" 2>&1 &
                     fi
                 else
                     if [ "${dead_nodes[$node_key]:-0}" == "1" ]; then

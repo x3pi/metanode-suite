@@ -17,15 +17,15 @@ import (
 )
 
 // Danh sách tất cả các server cần lấy log
-// var RUST_SERVERS = []string{
-// 	"192.168.1.233:7081",
-// 	"192.168.1.233:7082",
-// }
-
 var RUST_SERVERS = []string{
-	"206.189.152.114:7081",
-	"157.245.202.80:7082",
+	"192.168.1.233:7081",
+	"192.168.1.233:7082",
 }
+
+// var RUST_SERVERS = []string{
+// 	"206.189.152.114:7081",
+// 	"157.245.202.80:7082",
+// }
 
 // --- CÁC STRUCT CŨ (CHO ListChunks) ---
 
