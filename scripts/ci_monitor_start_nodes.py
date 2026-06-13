@@ -242,7 +242,7 @@ def main():
                     # Chạy lệnh cập nhật cluster
                     exit_code, log_file = run_deployment(commit_short)
                     
-                    if exit_code > 0:
+                    if exit_code != 0:
                         tail_logs = "Không thể đọc file log."
                         try:
                             if os.path.exists(log_file):
