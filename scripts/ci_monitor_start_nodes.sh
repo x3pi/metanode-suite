@@ -14,8 +14,13 @@ cmd_start() {
         return
     fi
     
+    if [ -f "$SCRIPT_DIR/.env" ]; then
+        set -a
+        source "$SCRIPT_DIR/.env"
+        set +a
+    fi
     echo "🚀 Starting CI Monitor..."
-    nohup python3 "$SCRIPT_DIR/$PYTHON_SCRIPT" > "$LOG_FILE" 2>&1 &
+    nohup python3 -u "$SCRIPT_DIR/$PYTHON_SCRIPT" > "$LOG_FILE" 2>&1 &
     PID=$!
     echo $PID > "$PID_FILE"
     echo "✅ Started successfully. PID: $PID"
