@@ -154,6 +154,29 @@ def clean_old_logs():
     except Exception as e:
         print(f"[{datetime.datetime.now()}] ⚠️ Lỗi khi dọn dẹp logs cũ: {e}")
 
+def run_rpc_test():
+    try:
+        print(f"[{datetime.datetime.now()}] 🧪 Đang chạy script kiểm tra RPC rpc-tcp-simple.sh --multi...")
+        process = subprocess.run(
+            ["./rpc-tcp-simple.sh", "--multi"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+            timeout=180 # 3 phút max
+        )
+        if process.returncode != 0:
+            print(f"[{datetime.datetime.now()}] ❌ RPC Test thất bại với mã lỗi {process.returncode}")
+            return False, process.stdout + "\n" + process.stderr
+        else:
+            print(f"[{datetime.datetime.now()}] ✅ RPC Test thành công!")
+            return True, process.stdout
+    except subprocess.TimeoutExpired:
+        print(f"[{datetime.datetime.now()}] ❌ RPC Test bị timeout (vượt quá 180s)!")
+        return False, "Lỗi: Script RPC kiểm tra bị Timeout (180s)!"
+    except Exception as e:
+        print(f"[{datetime.datetime.now()}] ❌ Lỗi khi chạy RPC Test: {e}")
+        return False, str(e)
+
 def run_deployment(commit_short):
     clean_old_logs()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -265,6 +288,26 @@ def main():
                         send_telegram_message(msg)
                         print(f"[{datetime.datetime.now()}] Đang khởi động lại các monitors ngầm...")
                         subprocess.Popen(["./start_monitors.sh"], cwd=os.path.dirname(os.path.abspath(__file__)))
+                        
+                        # Chạy test RPC sau khi deploy thành công
+                        rpc_success, rpc_logs = run_rpc_test()
+                        if not rpc_success:
+                            # Lấy 30 dòng cuối của rpc_logs để gửi
+                            lines = rpc_logs.split('\n')
+                            tail_logs = "\n".join(lines[-30:]) if len(lines) > 30 else rpc_logs
+                            if len(tail_logs) > 3000:
+                                tail_logs = tail_logs[-3000:]
+                                
+                            err_msg = (f"❌ [Auto-Update] 𝗖𝗔̉𝗡𝗛 𝗕𝗔́𝗢: 𝗥𝗣𝗖 𝗧𝗘𝗦𝗧 𝗧𝗛𝗔̂́𝗧 𝗕𝗔̣𝗜!\n\n"
+                                       f"📡 Server: {server_info}\n"
+                                       f"🔖 Commit: {commit_short}\n"
+                                       f"⚠️ Hệ thống đã deploy thành công nhưng test RPC/TCP sau đó phát hiện lỗi (có thể node bị treo hoặc chậm).\n\n"
+                                       f"📄 *Log lỗi:* \n```\n{tail_logs}\n```")
+                            send_telegram_message(err_msg)
+                        else:
+                            ok_msg = (f"🧪 [Auto-Update] 𝗥𝗣𝗖 𝗧𝗘𝗦𝗧 𝗧𝗛𝗔̀𝗡𝗛 𝗖𝗢̂𝗡𝗚!\n\n"
+                                      f"Hệ thống hiện tại hoạt động hoàn toàn ổn định (Tx Deploy và Send thành công trên các nodes).")
+                            send_telegram_message(ok_msg)
                         
             except Exception as loop_err:
                 print(f"[{datetime.datetime.now()}] ⚠️ Lỗi trong vòng lặp chính của Monitor (Đã bắt lỗi để tránh crash): {loop_err}")
