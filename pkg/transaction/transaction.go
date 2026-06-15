@@ -1052,7 +1052,7 @@ func (t *Transaction) ValidNonce(fromAccountState types.AccountState) bool {
 }
 
 func (t *Transaction) ValidMinTimeUse() bool {
-	return t.MaxTimeUse() >= p_common.MIN_TX_TIME && t.MaxTimeUse() <= p_common.MAX_GROUP_TIME
+	return t.MaxTimeUse() >= uint64(p_common.MIN_TX_TIME) && t.MaxTimeUse() <= uint64(p_common.MAX_GROUP_TIME)
 }
 
 func (t *Transaction) ValidTx0(fromAccountState types.AccountState, chainId string) (bool, int64) {
@@ -1101,7 +1101,7 @@ func (t *Transaction) ValidDeviceKey(fromAccountState types.AccountState) bool {
 }
 
 func (t *Transaction) ValidMaxGas() bool {
-	return t.MaxGas() >= p_common.TRANSFER_GAS_COST
+	return t.MaxGas() >= uint64(p_common.TRANSFER_GAS_COST)
 }
 
 func (t *Transaction) ValidMaxGasPrice(currentGasPrice uint64) bool {

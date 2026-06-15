@@ -11,8 +11,8 @@ import socket
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), "metanode")
-DEPLOY_SCRIPT_DIR = os.path.join(METANODE_DIR, "consensus", "metanode", "scripts", "node")
-DEPLOY_CMD = ["./deploy_systemd_cluster.sh", "--env", "deploy-muti-node.env", "--all", "--keep-data"]
+DEPLOY_SCRIPT_DIR = os.path.join(METANODE_DIR, "ansible")
+DEPLOY_CMD = ["./ansible_deploy.sh", "--start"]
 LOGS_DIR = os.path.join(SCRIPT_DIR, "auto_update_logs")
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -289,25 +289,25 @@ def main():
                         print(f"[{datetime.datetime.now()}] Đang khởi động lại các monitors ngầm...")
                         subprocess.Popen(["./start_monitors.sh"], cwd=os.path.dirname(os.path.abspath(__file__)))
                         
-                        # Chạy test RPC sau khi deploy thành công
-                        rpc_success, rpc_logs = run_rpc_test()
-                        if not rpc_success:
-                            # Lấy 30 dòng cuối của rpc_logs để gửi
-                            lines = rpc_logs.split('\n')
-                            tail_logs = "\n".join(lines[-30:]) if len(lines) > 30 else rpc_logs
-                            if len(tail_logs) > 3000:
-                                tail_logs = tail_logs[-3000:]
-                                
-                            err_msg = (f"❌ [Auto-Update] 𝗖𝗔̉𝗡𝗛 𝗕𝗔́𝗢: 𝗥𝗣𝗖 𝗧𝗘𝗦𝗧 𝗧𝗛𝗔̂́𝗧 𝗕𝗔̣𝗜!\n\n"
-                                       f"📡 Server: {server_info}\n"
-                                       f"🔖 Commit: {commit_short}\n"
-                                       f"⚠️ Hệ thống đã deploy thành công nhưng test RPC/TCP sau đó phát hiện lỗi (có thể node bị treo hoặc chậm).\n\n"
-                                       f"📄 *Log lỗi:* \n```\n{tail_logs}\n```")
-                            send_telegram_message(err_msg)
-                        else:
-                            ok_msg = (f"🧪 [Auto-Update] 𝗥𝗣𝗖 𝗧𝗘𝗦𝗧 𝗧𝗛𝗔̀𝗡𝗛 𝗖𝗢̂𝗡𝗚!\n\n"
-                                      f"Hệ thống hiện tại hoạt động hoàn toàn ổn định (Tx Deploy và Send thành công trên các nodes).")
-                            send_telegram_message(ok_msg)
+                        # Chạy test RPC sau khi deploy thành công (Tạm thời bỏ theo yêu cầu)
+                        # rpc_success, rpc_logs = run_rpc_test()
+                        # if not rpc_success:
+                        #     # Lấy 30 dòng cuối của rpc_logs để gửi
+                        #     lines = rpc_logs.split('\n')
+                        #     tail_logs = "\n".join(lines[-30:]) if len(lines) > 30 else rpc_logs
+                        #     if len(tail_logs) > 3000:
+                        #         tail_logs = tail_logs[-3000:]
+                        #         
+                        #     err_msg = (f"❌ [Auto-Update] 𝗖𝗔̉𝗡𝗛 𝗕𝗔́𝗢: 𝗥𝗣𝗖 𝗧𝗘𝗦𝗧 𝗧𝗛𝗔̂́𝗧 𝗕𝗔̣𝗜!\n\n"
+                        #                f"📡 Server: {server_info}\n"
+                        #                f"🔖 Commit: {commit_short}\n"
+                        #                f"⚠️ Hệ thống đã deploy thành công nhưng test RPC/TCP sau đó phát hiện lỗi (có thể node bị treo hoặc chậm).\n\n"
+                        #                f"📄 *Log lỗi:* \n```\n{tail_logs}\n```")
+                        #     send_telegram_message(err_msg)
+                        # else:
+                        #     ok_msg = (f"🧪 [Auto-Update] 𝗥𝗣𝗖 𝗧𝗘𝗦𝗧 𝗧𝗛𝗔̀𝗡𝗛 𝗖𝗢̂𝗡𝗚!\n\n"
+                        #               f"Hệ thống hiện tại hoạt động hoàn toàn ổn định (Tx Deploy và Send thành công trên các nodes).")
+                        #     send_telegram_message(ok_msg)
                         
             except Exception as loop_err:
                 print(f"[{datetime.datetime.now()}] ⚠️ Lỗi trong vòng lặp chính của Monitor (Đã bắt lỗi để tránh crash): {loop_err}")
