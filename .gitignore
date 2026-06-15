@@ -12,8 +12,7 @@ scripts/error_report.txt
 **/*.key
 test-simple/test-rpc/test-history/history_records.json
 block/block_hash_checker/block_hash_checker
-block/block_hash_checker/metanode.code-workspace
-test-simple/test-rpc/metanode.code-workspace
+*.code-workspace
 test-simple/test-rpc/spam_bin
 test-simple/test-rpc/spam_counter/counter_test
 test-simple/test-rpc/spam_counter/test-counter_TestCounter.abi
@@ -25,5 +24,4 @@ proof/rust-verifier/target/.rustc_info.json
 test_tps/tps_blast_cc/main
 block/block_hash_checker/block_hash_checker_ci
 register_bls/bls_keys.json
-scripts/snapshot_test_logs/metanode.code-workspace
 scripts/.ci_monitor.pid
