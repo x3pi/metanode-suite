@@ -16,7 +16,7 @@ TEST_SCRIPT = "./test-spam-xapian.sh"
 TEST_SCRIPT_NO_START = "./test-spam-xapian-no-deploy.sh"
 LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "spam_xapian_logs")
 
-TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = "-1003867050625"
 
 _SERVER_IP_INFO_CACHE = None

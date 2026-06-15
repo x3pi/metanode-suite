@@ -1,17 +1,42 @@
 package common
 
 import (
+	"os"
+	"strconv"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 )
 
+// LoadConfigFromEnv allows overriding default configurations with environment variables.
+func LoadConfigFromEnv() {
+	if val := os.Getenv("MTN_TRANSFER_GAS_COST"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil {
+			TRANSFER_GAS_COST = parsed
+		}
+	}
+	if val := os.Getenv("MTN_BLOCK_GAS_LIMIT"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil {
+			BLOCK_GAS_LIMIT = parsed
+		}
+	}
+	if val := os.Getenv("MTN_MAX_GASS_FEE"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil {
+			MAX_GASS_FEE = parsed
+		}
+	}
+	// Note: We can add more parsers as needed for other variables.
+}
+
 const (
 	MAX_VALIDATOR = 101
-	// TODO MOVE TO CONFIG
-	TRANSFER_GAS_COST     = 20000
-	OPEN_CHANNEL_GAS_COST = 20000000
-	PUNISH_GAS_COST       = 10000
+)
 
+var (
+	// TODO MOVE TO CONFIG -> Moved to vars for runtime config load via env
+	TRANSFER_GAS_COST                     = 20000
+	OPEN_CHANNEL_GAS_COST                 = 20000000
+	PUNISH_GAS_COST                       = 10000
 	BLOCK_GAS_LIMIT                       = 10000000000
 	OFF_CHAIN_GAS_LIMIT                   = 1000000000
 	BASE_FEE_INCREASE_GAS_USE_THRESH_HOLD = 5000000000
@@ -25,7 +50,9 @@ const (
 	MAX_TOTAL_TIME   = 9999999999999999999 // Millisecond giây
 	MIN_TX_TIME      = 1                   // Millisecond giây
 	MAX_TIME_PENDING = 5                   // phút
+)
 
+const (
 	//Wallet Select
 	ACCOUNT_SETTING_ADDRESS_SELECT = "account"
 

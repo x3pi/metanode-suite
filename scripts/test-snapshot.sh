@@ -53,7 +53,7 @@ get_system_ip_info() {
 
 send_telegram_notification() {
     local text="$1"
-    local token="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+    local token="${TELEGRAM_BOT_TOKEN:-""}"
     local chat_id="-1003867050625"
     curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
         -d "chat_id=${chat_id}" \

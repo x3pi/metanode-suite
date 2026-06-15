@@ -185,7 +185,7 @@ func sendTelegramAlertDirect(message string, isCritical bool) {
 	if noStopFlag {
 		return
 	}
-	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := "-1003867050625"
 	ipInfo := getSystemIPInfo()
 

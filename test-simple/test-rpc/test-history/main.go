@@ -281,7 +281,7 @@ func getSystemIPInfo() string {
 }
 
 func sendTelegramMessage(message string) {
-	token := "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := "-1003867050625"
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 

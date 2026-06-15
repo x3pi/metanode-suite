@@ -1,6 +1,8 @@
 package common
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -17,16 +19,14 @@ func TestGetRealConnectionAddress(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		// TODO: Add test cases.
-		// TODO: Add test cases.
 		{
-			name: "test_case_1",
+			name: "valid_address_but_no_server_running_returns_error",
 			args: args{
-				dnsLink: "http://127.0.0.1:7080/api/dns/connection-address/",
+				dnsLink: "http://127.0.0.1:9999/api/dns/connection-address/",
 				address: common.HexToAddress("51bdebc98ad4e158b7bc02220ab8ab4cf18af6bd"),
 			},
-			want:    "127.0.0.1:3002",
-			wantErr: false,
+			want:    "",
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -44,6 +44,13 @@ func TestGetRealConnectionAddress(t *testing.T) {
 }
 
 func TestReadLastLine(t *testing.T) {
+	tempDir := t.TempDir()
+	tempFile := filepath.Join(tempDir, "test.csv")
+	err := os.WriteFile(tempFile, []byte("line1\nline2\nline3\nlast_line"), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	type args struct {
 		filePath string
 	}
@@ -54,11 +61,20 @@ func TestReadLastLine(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "test_case_1",
+			name: "read_existing_file",
 			args: args{
-				filePath: "/Users/hieuphandinhminh/Desktop/Repo/meta-node/cmd/validator/pkg/chain/tmp/test/chain/block/chain.csv",
+				filePath: tempFile,
 			},
-			want: "11,0x6f641b71850f0555d074cab2ee73b53f26964107fdfd63ce75fdb37b39105a67",
+			want:    "last_line",
+			wantErr: false,
+		},
+		{
+			name: "read_non_existing_file",
+			args: args{
+				filePath: filepath.Join(tempDir, "does_not_exist.csv"),
+			},
+			want:    "",
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {

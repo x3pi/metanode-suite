@@ -754,7 +754,7 @@ wait_for_sync_to_highest_block() {
 
     # Gửi thông báo Telegram node vừa khởi động và đồng bộ thành công
     if [ "${MTN_TELE_ALERT:-false}" == "true" ]; then
-        TELEGRAM_TOKEN="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+        TELEGRAM_TOKEN="${TELEGRAM_BOT_TOKEN:-""}"
         TELEGRAM_CHAT_ID="-1003867050625"
         SERVER_IP=$(curl -s -m 2 https://api.ipify.org 2>/dev/null || echo "Unknown")
         MSG="🔄 *[RECOVERY TEST]* Node \`$TARGET_NODE\` vừa khởi động lại và đồng bộ thành công! (Loop: $loop)

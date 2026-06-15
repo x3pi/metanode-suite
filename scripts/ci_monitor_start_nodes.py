@@ -15,7 +15,7 @@ DEPLOY_SCRIPT_DIR = os.path.join(METANODE_DIR, "consensus", "metanode", "scripts
 DEPLOY_CMD = ["./deploy_systemd_cluster.sh", "--env", "deploy-muti-node.env", "--all", "--keep-data"]
 LOGS_DIR = os.path.join(SCRIPT_DIR, "auto_update_logs")
 
-TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = "-1003867050625"
 
 _SERVER_IP_INFO_CACHE = None
