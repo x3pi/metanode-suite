@@ -1,12 +1,12 @@
 {
   "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
   "version": "0.0.1.0",
-  "parent_connection_address": "139.59.243.85:4200",
+  "parent_connection_address": "192.168.1.234:6200",
   "chain_id": 991,
   "nation_id": 1,
   "parent_connection_type": "client",
   "parent_address": "0x2C71210D239D472e963a7Be8362eCBdeD5337fE6",
   "eth_pk": "41acc857cdc74215d5b5e1c4f497ef88409c8f095689f11930f1924efdf8bb12",
-  "http_rpc": "http://139.59.243.85:8545",
-  "websocket_rpc": "ws://139.59.243.85:8545"
+  "http_rpc": "http://192.168.1.234:8650",
+  "websocket_rpc": "ws://192.168.1.234:8650"
 }

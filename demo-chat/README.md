@@ -20,6 +20,20 @@ go run main.go -config=user1.json -contract=0x1098Ed005916B0C2a2fe56E358C96015bB
 go run main_rpc.go -config=user2.json -contract=0x1098Ed005916B0C2a2fe56E358C96015bBe2FbFA -target=0x5e582475A504998c5631E12A5a2585D2B1911812
 
 go run main_rpc.go -config=user1.json -contract=0x1098Ed005916B0C2a2fe56E358C96015bBe2FbFA -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6
+
+
+
+
+
+go run main_rpc.go -config=user2.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x5e582475A504998c5631E12A5a2585D2B1911812
+
+go run main_rpc.go -config=user1.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6 -spam 200 -ping
+
+
+go run main.go -config=user2.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x5e582475A504998c5631E12A5a2585D2B1911812
+
+go run main.go -config=user1.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6 -spam 200 -ping
+
 ```
 
 ## 3. Cách nhắn tin qua lại

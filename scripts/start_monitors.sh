@@ -10,7 +10,7 @@ RPC_JSON_PATH="/tmp/rpc_nodes.json"
 send_tele() {
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
         -d chat_id="${TELEGRAM_CHAT_ID}" \
-        -d text="$1" >/dev/null
+        --data-urlencode text="$1" >/dev/null
 }
 
 # If arg is "health", run the health loop (Background worker)
@@ -28,18 +28,23 @@ if [ "${1:-}" == "health" ]; then
                         ssh_user="abc"
                         ssh_pass="1234@abcd"
                         
-                        echo "Đang fetch log lỗi mới nhất của node ${node_id} từ $ip..."
-                        latest_log=$(sshpass -p "$ssh_pass" ssh -o StrictHostKeyChecking=no "$ssh_user@$ip" "tail -n 30 /opt/metanode/node-${node_id}/logs/App.log 2>/dev/null || journalctl -u metanode-execution-${node_id} -n 30 --no-pager" || echo "Không thể lấy log từ server")
+                        crash_time=$(date +%Y%m%d_%H%M%S)
+                        crash_dir="/home/abc/nhat/con-chain-v2/metanode-suite/scripts/logs_crash/node_${node_id}_crash_${crash_time}"
+                        
+                        # Tự động kéo log từ node sập về máy monitor (234)
+                        mkdir -p /home/abc/nhat/con-chain-v2/metanode-suite/scripts/logs_crash
+                        sshpass -p "$ssh_pass" scp -o StrictHostKeyChecking=no -r "$ssh_user@$ip:/opt/metanode/node-$node_id/logs" "$crash_dir" >/dev/null 2>&1 || true
+
+                        # Xóa các thư mục cũ, chỉ giữ lại 4 thư mục mới nhất
+                        ls -dt /home/abc/nhat/con-chain-v2/metanode-suite/scripts/logs_crash/* 2>/dev/null | tail -n +5 | xargs rm -rf
 
                         send_tele "🚨🚨🚨 [Health Monitor] PHÁT HIỆN NODE CHẾT!
 Node: $node_key
 IP: $ip
 URL: $node_url
 
-📄 LOG MỚI NHẤT:
-\`\`\`
-$latest_log
-\`\`\`"
+🛠 Lệnh kéo thư mục Logs về máy tính của bạn:
+sshpass -p \"1234@abcd\" scp -r abc@192.168.1.234:$crash_dir ./node_${node_id}_crash_${crash_time}"
                     fi
                 else
                     if [ "${dead_nodes[$node_key]:-0}" == "1" ]; then
