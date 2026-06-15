@@ -1,7 +1,6 @@
 package common
 
 import (
-	"math"
 	"os"
 	"strconv"
 
@@ -34,7 +33,7 @@ const (
 )
 
 var (
-	// TODO MOVE TO CONFIG -> Moved to vars for runtime config load via env
+	// Moved to vars for runtime config load via env
 	TRANSFER_GAS_COST                     = 20000
 	OPEN_CHANNEL_GAS_COST                 = 20000000
 	PUNISH_GAS_COST                       = 10000
@@ -45,12 +44,12 @@ var (
 	BASE_FEE_CHANGE_PERCENTAGE            = 12.5
 	MAX_GASS_FEE                          = 5000000
 
-	MAX_GROUP_GAS    = math.MaxInt64
-	MAX_TOTAL_GAS    = math.MaxInt64
-	MAX_GROUP_TIME   = math.MaxInt64 // Millisecond giây
-	MAX_TOTAL_TIME   = math.MaxInt64 // Millisecond giây
-	MIN_TX_TIME      = 1                   // Millisecond giây
-	MAX_TIME_PENDING = 5                   // phút
+	MAX_GROUP_GAS    uint64 = 9999999999999999999
+	MAX_TOTAL_GAS    uint64 = 9999999999999999999
+	MAX_GROUP_TIME   uint64 = 9999999999999999999 // Millisecond giây
+	MAX_TOTAL_TIME   uint64 = 9999999999999999999 // Millisecond giây
+	MIN_TX_TIME             = 1                   // Millisecond giây
+	MAX_TIME_PENDING        = 5                   // phút
 )
 
 const (
@@ -74,7 +73,6 @@ var (
 	SLASH_VALIDATOR_AMOUNT          = uint256.NewInt(0).SetBytes(common.FromHex("8ac7230489e80000"))
 	MINIMUM_VALIDATOR_STAKE_AMOUNT  = uint256.NewInt(0)
 	MINIMUM_OPEN_ACCOUNT_AMOUNT     = uint256.NewInt(0).SetBytes(common.FromHex("2386F26FC10000"))
-
 )
 
 const (
