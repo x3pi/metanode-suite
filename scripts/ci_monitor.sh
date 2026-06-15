@@ -348,7 +348,7 @@ start_periodic_reporter() {
         # Đợi 5 giây sau khi khởi động cụm node để hệ thống ổn định trước khi gửi báo cáo đầu tiên
         sleep 5
         
-        local token="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+        local token="${TELEGRAM_BOT_TOKEN:-""}"
         local chat_id="-1003867050625"
         
         while true; do

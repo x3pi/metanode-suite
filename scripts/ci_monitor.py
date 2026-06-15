@@ -14,8 +14,21 @@ METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "
 TEST_SCRIPT = "./auto_test.sh"
 LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "auto_test_logs")
 
-TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
-TELEGRAM_CHAT_ID = "-1003867050625"
+# Load variables from .env file if it exists
+env_file = os.path.join(TEST_SCRIPT_DIR, ".env")
+if os.path.exists(env_file):
+    with open(env_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip())
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+if not TELEGRAM_BOT_TOKEN:
+    print("⚠️ WARNING: TELEGRAM_BOT_TOKEN environment variable is not set. Telegram notifications may fail or be disabled.")
 
 _SERVER_IP_INFO_CACHE = None
 

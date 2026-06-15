@@ -16,13 +16,19 @@ func TestKeybytesToHex(t *testing.T) {
 		args args
 		want []byte
 	}{
-		// TODO: Add test cases.
 		{
 			name: "Test 1",
 			args: args{
 				str: common.FromHex("1111"),
 			},
 			want: common.FromHex("0101010110"),
+		},
+		{
+			name: "Test empty string",
+			args: args{
+				str: []byte{},
+			},
+			want: []byte{16},
 		},
 	}
 	for _, tt := range tests {
@@ -44,7 +50,6 @@ func TestPrefixLen(t *testing.T) {
 		args args
 		want int
 	}{
-		// TODO: Add test cases.
 		{
 			name: "Test 1",
 			args: args{
@@ -52,6 +57,22 @@ func TestPrefixLen(t *testing.T) {
 				b: common.FromHex("01010202"),
 			},
 			want: 2,
+		},
+		{
+			name: "Test no common prefix",
+			args: args{
+				a: common.FromHex("01010302"),
+				b: common.FromHex("02010302"),
+			},
+			want: 0,
+		},
+		{
+			name: "Test all common prefix",
+			args: args{
+				a: common.FromHex("01010302"),
+				b: common.FromHex("01010302"),
+			},
+			want: 4,
 		},
 	}
 	for _, tt := range tests {

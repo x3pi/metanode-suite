@@ -14,7 +14,7 @@ METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(TEST_SCRIPT_DIR)), "
 TEST_SCRIPT = "./test-node-recovery-gap.sh"
 LOGS_DIR = os.path.join(TEST_SCRIPT_DIR, "recovery_test_logs")
 
-TELEGRAM_BOT_TOKEN = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = "-1003867050625"
 
 _SERVER_IP_INFO_CACHE = None
