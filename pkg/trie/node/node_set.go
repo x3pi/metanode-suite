@@ -103,8 +103,7 @@ func (set *NodeSet) Merge(nodes map[string]*NodeWrapper) error {
 	return nil
 }
 
-// AddLeaf adds the provided leaf node into set. TODO(rjl493456442) how can
-// we get rid of it?
+// AddLeaf adds the provided leaf node into set.
 func (set *NodeSet) AddLeaf(parent e_common.Hash, blob []byte) {
 	set.Leaves = append(set.Leaves, &leaf{Blob: blob, Parent: parent})
 }
@@ -114,8 +113,7 @@ func (set *NodeSet) Size() (int, int) {
 	return set.updates, set.deletes
 }
 
-// Hashes returns the hashes of all updated nodes. TODO(rjl493456442) how can
-// we get rid of it?
+// Hashes returns the hashes of all updated nodes.
 func (set *NodeSet) Hashes() []e_common.Hash {
 	var ret []e_common.Hash
 	for _, node := range set.Nodes {

@@ -33,7 +33,7 @@ const (
 )
 
 var (
-	// TODO MOVE TO CONFIG -> Moved to vars for runtime config load via env
+	// Moved to vars for runtime config load via env
 	TRANSFER_GAS_COST                     = 20000
 	OPEN_CHANNEL_GAS_COST                 = 20000000
 	PUNISH_GAS_COST                       = 10000
