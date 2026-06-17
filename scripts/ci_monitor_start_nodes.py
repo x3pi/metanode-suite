@@ -11,7 +11,7 @@ import socket
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METANODE_DIR = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), "metanode")
-DEPLOY_SCRIPT_DIR = os.path.join(METANODE_DIR, "ansible")
+DEPLOY_SCRIPT_DIR = os.path.join(METANODE_DIR, "deploy", "ansible")
 DEPLOY_CMD = ["./ansible_deploy.sh", "--start"]
 LOGS_DIR = os.path.join(SCRIPT_DIR, "auto_update_logs")
 

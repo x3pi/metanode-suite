@@ -38,13 +38,19 @@ if [ "${1:-}" == "health" ]; then
                         # Xóa các thư mục cũ, chỉ giữ lại 4 thư mục mới nhất
                         ls -dt /home/abc/nhat/con-chain-v2/metanode-suite/scripts/logs_crash/* 2>/dev/null | tail -n +5 | xargs rm -rf
 
+                        # Lấy IP local của máy monitor
+                        MONITOR_IP=$(hostname -I | tr ' ' '\n' | grep -E '^(192\.168\.|10\.|172\.)' | head -n 1)
+                        if [ -z "$MONITOR_IP" ]; then
+                            MONITOR_IP=$(hostname -I | awk '{print $1}')
+                        fi
+
                         send_tele "🚨🚨🚨 [Health Monitor] PHÁT HIỆN NODE CHẾT!
 Node: $node_key
 IP: $ip
 URL: $node_url
 
 🛠 Lệnh kéo thư mục Logs về máy tính của bạn:
-sshpass -p \"1234@abcd\" scp -r abc@192.168.1.234:$crash_dir ./node_${node_id}_crash_${crash_time}"
+sshpass -p \"1234@abcd\" scp -r abc@$MONITOR_IP:$crash_dir ./node_${node_id}_crash_${crash_time}"
                     fi
                 else
                     if [ "${dead_nodes[$node_key]:-0}" == "1" ]; then
