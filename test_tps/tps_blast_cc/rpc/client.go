@@ -237,3 +237,40 @@ func (c *RPCClient) GetReceipt(txHash string) (map[string]interface{}, error) {
 
 	return receipt, nil
 }
+
+// BlockTrace corresponds to pipeline.BlockTrace
+type BlockTrace struct {
+	BlockNumber uint64 `json:"block_number"`
+	TxCount     int    `json:"tx_count"`
+
+	ConsensusDurationMs int64 `json:"consensus_duration_ms"`
+
+	ProcessTxsDurationMs   int64 `json:"process_txs_duration_ms"`
+	ReceiptsRootDurationMs int64 `json:"receipts_root_duration_ms"`
+	TxsRootDurationMs      int64 `json:"txs_root_duration_ms"`
+	Phase1TotalDurationMs  int64 `json:"phase1_total_duration_ms"`
+
+	CommitMemoryDurationMs int64 `json:"commit_memory_duration_ms"`
+	SaveDBDurationMs       int64 `json:"save_db_duration_ms"`
+	Phase2TotalDurationMs  int64 `json:"phase2_total_duration_ms"`
+
+	TotalBlockDurationMs int64 `json:"total_block_duration_ms"`
+}
+
+// GetBlockTraces fetches block traces via JSON-RPC
+func (c *RPCClient) GetBlockTraces(startBlock, endBlock uint64) ([]BlockTrace, error) {
+	result, err := c.call("mt_getBlockTraces", startBlock, endBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	if string(result) == "null" {
+		return nil, nil
+	}
+
+	var traces []BlockTrace
+	if err := json.Unmarshal(result, &traces); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal traces: %v", err)
+	}
+	return traces, nil
+}

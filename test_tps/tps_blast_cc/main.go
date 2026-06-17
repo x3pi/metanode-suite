@@ -1531,6 +1531,28 @@ func main() {
 		fmt.Printf("  📈 Max TXs in a block:   %d\n", maxTxInBlock)
 		if blockCount > 0 {
 			fmt.Printf("  📉 Avg TXs per block:    %.1f\n", float64(totalTxInBlocks)/float64(blockCount))
+			
+			// --- IN BLOCK TRACES REPORT ---
+			fmt.Printf("\n  📝 BLOCK PERFORMANCE TRACES (Blocks %d to %d)\n", startBlock, endBlock)
+			fmt.Printf("  %-10s | %-8s | %-15s | %-15s | %-15s | %-15s | %-15s | %-15s\n", 
+				"Block", "TXs", "Rust Consensus", "Process TXs", "Calc Roots", "Commit Memory", "Save DB", "Total Block")
+			fmt.Printf("  %s\n", strings.Repeat("-", 125))
+			
+			traces, err := rpcClient.GetBlockTraces(startBlock, endBlock)
+			if err != nil {
+				fmt.Printf("  ❌ Could not fetch block traces: %v\n", err)
+			} else {
+				for _, t := range traces {
+					fmt.Printf("  %-10d | %-8d | %-13dms | %-13dms | %-13dms | %-13dms | %-13dms | %-13dms\n",
+						t.BlockNumber, t.TxCount, 
+						t.ConsensusDurationMs, 
+						t.ProcessTxsDurationMs,
+						t.Phase1TotalDurationMs - t.ProcessTxsDurationMs, // calc roots
+						t.CommitMemoryDurationMs,
+						t.SaveDBDurationMs,
+						t.TotalBlockDurationMs)
+				}
+			}
 		}
 
 		// ── Verify: Kiểm tra cụ thể Balance và Receipt ──────────────────
