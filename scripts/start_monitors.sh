@@ -44,7 +44,7 @@ IP: $ip
 URL: $node_url
 
 🛠 Lệnh kéo thư mục Logs về máy tính của bạn:
-sshpass -p \"1234@abcd\" scp -r abc@192.168.1.234:$crash_dir ./node_${node_id}_crash_${crash_time}"
+sshpass -p \"1234@abcd\" scp -r abc@192.168.1.232:$crash_dir ./node_${node_id}_crash_${crash_time}"
                     fi
                 else
                     if [ "${dead_nodes[$node_key]:-0}" == "1" ]; then
