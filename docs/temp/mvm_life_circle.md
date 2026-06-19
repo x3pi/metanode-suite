@@ -267,47 +267,7 @@ func (vmP *VmProcessor) ProcessNativeMintBurn(...) (types.ExecuteSCResult, error
 
 **Kết luận:** Cùng BUG #2 — phụ thuộc `commitWorker` để clear.
 
----
 
-### BUG #4: Early return paths thiếu ClearMVMApi (RESOLVED/DEFUNCT)
-
-**Vấn đề:** Đã được giải quyết triệt để. Hàm `ProcessSingleTransactionVirtual` đã bị xóa bỏ hoàn toàn khỏi codebase.
-
-```go
-// Nếu TX revert:
-if exRs.ReceiptStatus() == pb.RECEIPT_STATUS_THREW || ... {
-    return nil, fmt.Errorf("..."), exRs.Return()
-    // ❌ KHÔNG CÓ ClearMVMApi(mvmId)!
-    // ❌ KHÔNG CÓ UnprotectMVMApi(mvmId)!
-}
-// Nếu err != nil:
-if err != nil {
-    return nil, err, nil
-    // ❌ KHÔNG CÓ ClearMVMApi(mvmId)!
-}
-// Nếu exRs == nil:
-if exRs == nil {
-    return nil, fmt.Errorf("..."), nil
-    // ❌ KHÔNG CÓ ClearMVMApi(mvmId)!
-}
-
-// Chỉ clear ở happy path (L189-190):
-mvm.UnprotectMVMApi(mvmId)
-mvm.ClearMVMApi(mvmId)
-```
-
-**Vấn đề:**
-- `ProtectMVMApi(mvmId)` được gọi ở L112.
-- Nếu TX revert (L142) hoặc error (L168) hoặc exRs nil (L172) → return sớm → **KHÔNG gọi `UnprotectMVMApi` và `ClearMVMApi`**.
-- Instance bị **PROTECTED + không clear** = **permanent leak** (GC `RemoveOldApiInstances` skip protected instances!).
-
-**Mức độ nghiêm trọng:** 🐛 **NGHIÊM TRỌNG**
-- Protected instance **KHÔNG BAO GIỜ** được clear bởi GC (`RemoveOldApiInstances` skip protected).
-- C++ `MVM_cancelTransaction` không được gọi → dirty Xapian state.
-- Nếu cùng mvmId (= random address) được reuse (rất khó vì random) → không lệch hash.
-- Nhưng **bộ nhớ leak vĩnh viễn** cho mỗi failed virtual TX.
-
-**Tần suất:** Mỗi khi một virtual TX fail (revert, error, nil result) → +1 leaked entry.
 
 ---
 
