@@ -16,7 +16,6 @@
 | `--dest` | `2` | ID của chuỗi đích (Destination Chain ID) để thực hiện giao dịch cross-chain. |
 | `--amount` | `100` | Số lượng coin giao dịch tính bằng Wei (mặc định là 100 Wei). |
 | `--rounds` | `1` | Số vòng (rounds) chạy kiểm tra hiệu năng liên tiếp. |
-| `--parallel_native` | `false` | Nếu bật `true`, công cụ chuyển sang chế độ tự chuyển tiền song song (Native Transfers) thay vì cross-chain contract. |
 | `--load_balance` | `false` | Nếu bật `true`, giao dịch sẽ được chia đều xoay vòng (round-robin) qua tất cả các `connection_node_*` có trong cấu hình. |
 | `--verify` | `false` | Xác minh số dư tài khoản nhận tiền sau khi hoàn thành mỗi vòng để đảm bảo giao dịch thực tế đã thành công. |
 | `--epoch-wait` | `600` | Thời gian tối đa (giây) chờ cho hệ thống chuyển dịch sang Epoch mới trước khi bắt đầu tính timeout giao dịch. Gán `0` để tắt chức năng này. |
@@ -39,8 +38,9 @@ Từ phiên bản nâng cấp, công cụ hỗ trợ cơ chế định tuyến v
 go run main.go --count 5000 --target-node 2
 
 
+go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amount 1 --config=config-multi.json
 
-go run main.go --count 20000 --parallel_native=true --rounds 20 --load_balance=false --batch=300 --amount 1
+go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amount 1
 ```
 
 ### 2. Chạy tải song song với cơ chế Epoch Wait (Mặc định 10 phút / 600 giây):
@@ -50,20 +50,20 @@ go run main.go --count 10000 --epoch-wait 600 --target-node 0
 
 ### 3. Tắt cơ chế chờ chuyển epoch (Bắn TX và tính giờ timeout luôn):
 ```bash
-go run main.go --count 20000 --parallel_native=true --epoch-wait 0 --batch 500 --target-node 1
+go run main.go --count 20000 --epoch-wait 0 --batch 500 --target-node 1
 ```
 
 ### 4. Chạy tải nặng song song (Parallel Native) chia đều qua nhiều node (Load Balancing):
 ```bash
-go run main.go --count 50000 --parallel_native=true --rounds 5 --load_balance=true --batch 10000 --sleep 0 --epoch-wait 300
+go run main.go --count 50000 --rounds 5 --load_balance=true --batch 10000 --sleep 0 --epoch-wait 300
 ```
 
 ### 5. Kết hợp trong script Node Recovery / Snapshot:
 Trong quá trình node đang dừng hoặc vừa khôi phục, chúng ta định tuyến tải tới các node cụ thể:
 ```bash
 # Gửi giao dịch ngầm tạo GAP lên Node 1 khi Node 0 đang tắt
-go run main.go --count 20000 --parallel_native=true --target-node 1 > blast_gap.log 2>&1 &
+go run main.go --count 20000 --target-node 1 > blast_gap.log 2>&1 &
 
 # Kiểm tra sức chịu tải cụ thể trên Node vừa khôi phục (Ví dụ Node 2)
-go run main.go --count 5000 --parallel_native=true --target-node 2 > blast_restore.log 2>&1
+go run main.go --count 5000 --target-node 2 > blast_restore.log 2>&1
 ```

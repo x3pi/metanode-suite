@@ -12,6 +12,11 @@ info!("Consensus committee: {:?}", committee);
 Để kiểm tra trực tiếp xem có bao nhiêu dữ liệu đang "lơ lửng" trên RAM mà chưa kịp lưu xuống ổ cứng, bạn có thể chạy lệnh này trên Terminal của hệ điều hành Linux (tại máy Node 4) trong lúc Node đang hoạt động:
 cat /proc/meminfo | grep Dirty
 
+
+# xem log
+grep -rn "\[PERF-POOL-BATCH\] addTransactionsToPoolInternal took" /home/abc/nhat/con-chain-v2/metanode/consensus/logs_systemd/run_20260618_080945/
+grep -rnE "\[BLOCK-TRACE\]|\[PERF-EVM\]" /home/abc/nhat/con-chain-v2/metanode/consensus/logs_systemd/run_20260618_080945/
+
 ```
 
 key genesis:

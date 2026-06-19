@@ -255,9 +255,9 @@ if should_run 8; then
     echo "📌 BƯỚC 8: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
     else
-        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --config config-multi.json --count 20000 --parallel_native=true --rounds 30 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --config config-multi.json --count 20000 --rounds 30 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
     fi
 fi
 

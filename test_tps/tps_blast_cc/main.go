@@ -3,6 +3,9 @@
 package main
 
 import (
+	"path/filepath"
+	"sort"
+
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -21,7 +24,6 @@ import (
 
 	"bufio"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
@@ -309,6 +311,9 @@ func sendTelegramAlert(message string, testName string) {
 }
 
 func main() {
+	os.MkdirAll("reports", 0755)
+	reportFilename := fmt.Sprintf("reports/tps_report_%s.md", time.Now().Format("20060102_150405"))
+	cleanupReports()
 	var (
 		configPath     string
 		keysFile       string
@@ -322,18 +327,18 @@ func main() {
 		destId         int
 		amountWei      string
 		numRounds      int
-		parallelNative bool
 		loadBalance    bool
 		verify         bool
 		epochWait      int
 		targetNode     int
+		trace          bool
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
 	flag.StringVar(&keysFile, "keys", "../gen_spam_keys/generated_keys.json", "Generated keys JSON")
 	flag.IntVar(&count, "count", 10000, "Number of lockAndBridge TXs")
 	flag.IntVar(&batchSize, "batch", 500, "Batch size")
-	flag.IntVar(&sleepMs, "sleep", 10, "Sleep between batches (ms)")
+	flag.IntVar(&sleepMs, "sleep", 0, "Sleep between batches (ms)")
 	flag.StringVar(&nodeAddr, "node", "", "Override node TCP address")
 	flag.StringVar(&rpcAddr, "rpc", "", "RPC URL for verification")
 	flag.IntVar(&waitSecs, "wait", 600, "Max seconds to wait for chain processing")
@@ -341,21 +346,17 @@ func main() {
 	flag.IntVar(&destId, "dest", 2, "Destination chain ID")
 	flag.StringVar(&amountWei, "amount", "100", "Amount in wei (default: 1 ETH)")
 	flag.IntVar(&numRounds, "rounds", 1, "Number of benchmark rounds")
-	flag.BoolVar(&parallelNative, "parallel_native", false, "Use native self-transfers for parallel execution benchmarking")
 	flag.BoolVar(&loadBalance, "load_balance", false, "Round-robin transactions across all connection_node_* in config")
 	flag.BoolVar(&verify, "verify", false, "After each round, check recipient balance to confirm TXs landed")
 	flag.IntVar(&epochWait, "epoch-wait", 300, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
+	flag.BoolVar(&trace, "trace", false, "Enable fetching block traces at the end of the round")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
 
 	fmt.Println("═══════════════════════════════════════════════════")
-	if parallelNative {
-		fmt.Println("  🔥 TPS BLAST — Parallel Native Self-Transfers")
-	} else {
-		fmt.Println("  🔥 TPS BLAST — lockAndBridge Cross-Chain")
-	}
+	fmt.Println("  🔥 TPS BLAST — Parallel Native Self-Transfers")
 	fmt.Println("═══════════════════════════════════════════════════")
 
 	// Load config
@@ -477,9 +478,6 @@ func main() {
 	// nonce trả về sẽ là nonce cũ.
 	fetchNonce := func(addr string, expectedNonce int64) (uint64, error) {
 		poolSize := len(rpcPool)
-		if !parallelNative {
-			poolSize = 1
-		}
 
 		// Pick node once — all retries stay on the same node
 		// This ensures consistency: the node we ask is the node we wait for
@@ -532,11 +530,7 @@ func main() {
 	}
 
 	// Fetch nonce for ALL accounts concurrently (load-balanced conditional)
-	if parallelNative {
-		fmt.Printf("  🔍 Fetching nonces for %d accounts (pool size: %d RPC nodes)...\n", len(toSend), len(rpcPool))
-	} else {
-		fmt.Printf("  🔍 Fetching nonces for %d accounts (using single RPC: %s)...\n", len(toSend), rpcPool[0].Endpoint)
-	}
+	fmt.Printf("  🔍 Fetching nonces for %d accounts (pool size: %d RPC nodes)...\n", len(toSend), len(rpcPool))
 	nonceMap := make(map[string]uint64) // address -> nonce
 	var nonceMu sync.Mutex
 	var nonceWg sync.WaitGroup
@@ -600,26 +594,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Build lockAndBridge ABI
-	addressType, _ := abi.NewType("address", "", nil)
-	uint256Type, _ := abi.NewType("uint256", "", nil)
-	lockMethod := abi.NewMethod("lockAndBridge", "lockAndBridge", abi.Function, "", false, true,
-		abi.Arguments{
-			{Name: "recipient", Type: addressType},
-			{Name: "destinationId", Type: uint256Type},
-		},
-		abi.Arguments{},
-	)
-
-	destBig := big.NewInt(int64(destId))
-	ccContract := common.HexToAddress("0x00000000000000000000000000000000B429C0B2")
 	amount, _ := new(big.Int).SetString(amountWei, 10)
 
 	// Pre-build all TXs
-	txTypeName := "lockAndBridge"
-	if parallelNative {
-		txTypeName = "Native parallel"
-	}
+	txTypeName := "Native parallel"
 	fmt.Printf("\n📦 Pre-building %d %s TXs...\n", len(toSend), txTypeName)
 	buildStart := time.Now()
 
@@ -632,7 +610,7 @@ func main() {
 	}
 	var allTxs []rawTx
 	var buildErrors int
-	for i, acc := range toSend {
+	for _, acc := range toSend {
 		privKeyBytes, err := hex.DecodeString(acc.PrivateKey)
 		if err != nil {
 			buildErrors++
@@ -648,37 +626,11 @@ func main() {
 		var targetContract common.Address
 		var bCallData []byte
 
-		if parallelNative {
-			// Generate a unique dummy address so each sender sends to an untouched recipient
-			// This makes verification perfectly isolated and guarantees the balance must equal txAmount.
-			dummyKey, _ := crypto.GenerateKey()
-			targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
-			bCallData = []byte{}
-		} else {
-			// lockAndBridge Cross-Chain
-			counterpartIdx := (i + 1) % len(toSend)
-			if len(toSend) == 1 {
-				counterpartIdx = 0
-			}
-			counterpartAcc := toSend[counterpartIdx]
-			counterpartAddr := common.HexToAddress(counterpartAcc.Address)
-
-			targetContract = ccContract
-			// Pack calldata: lockAndBridge(counterpartAddr, destinationId)
-			inputData, err := lockMethod.Inputs.Pack(counterpartAddr, destBig)
-			if err != nil {
-				buildErrors++
-				continue
-			}
-			callData := append(lockMethod.ID, inputData...)
-
-			callDataObj := transaction.NewCallData(callData)
-			bCallData, err = callDataObj.Marshal()
-			if err != nil {
-				buildErrors++
-				continue
-			}
-		}
+		// Generate a unique dummy address so each sender sends to an untouched recipient
+		// This makes verification perfectly isolated and guarantees the balance must equal txAmount.
+		dummyKey, _ := crypto.GenerateKey()
+		targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
+		bCallData = []byte{}
 
 		// Get nonce for this account
 		nonce, ok := nonceMap[acc.Address]
@@ -935,7 +887,7 @@ func main() {
 			rebuildStart := time.Now()
 			allTxs = nil
 			var rebuildErrors int
-			for i, acc := range toSend {
+			for _, acc := range toSend {
 				privKeyBytes, err := hex.DecodeString(acc.PrivateKey)
 				if err != nil {
 					rebuildErrors++
@@ -951,28 +903,9 @@ func main() {
 				var targetContract common.Address
 				var bCallData []byte
 
-				if parallelNative {
-					dummyKey, _ := crypto.GenerateKey()
-					targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
-					bCallData = []byte{}
-				} else {
-					counterpartAcc := toSend[len(toSend)-1-i]
-					counterpartAddr := common.HexToAddress(counterpartAcc.Address)
-
-					targetContract = ccContract
-					inputData, err := lockMethod.Inputs.Pack(counterpartAddr, destBig)
-					if err != nil {
-						rebuildErrors++
-						continue
-					}
-					callData := append(lockMethod.ID, inputData...)
-					callDataObj := transaction.NewCallData(callData)
-					bCallData, err = callDataObj.Marshal()
-					if err != nil {
-						rebuildErrors++
-						continue
-					}
-				}
+				dummyKey, _ := crypto.GenerateKey()
+				targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
+				bCallData = []byte{}
 
 				nonce, ok := nonceMap[acc.Address]
 				if !ok {
@@ -1508,60 +1441,87 @@ func main() {
 			ProcessingSec: totalDuration.Seconds(),
 		})
 
-		fmt.Printf("\n\n═══════════════════════════════════════════════════\n")
-		fmt.Printf("  📊 ROUND %d RESULTS\n", round)
-		fmt.Printf("═══════════════════════════════════════════════════\n")
-		fmt.Printf("  📤 Total TXs sent:       %d\n", len(allTxs))
-		fmt.Printf("  🚀 Injection TPS:        %.0f tx/s\n", injectionTPS)
-		fmt.Printf("  ⏱️  Injection time:       %s\n", blastDuration.Round(time.Millisecond))
-		fmt.Printf("  ─────────────────────────────────────────────────\n")
-		fmt.Printf("  📥 TX in blocks:         %d\n", totalTxsInBlocks)
-		fmt.Printf("  📊 End-to-End TPS:       ~%.0f tx/s\n", processingTPS)
-		fmt.Printf("  ⏱️  End-to-End time:      %s\n", totalDuration.Round(time.Millisecond))
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("\n\n═══════════════════════════════════════════════════\n"))
+		sb.WriteString(fmt.Sprintf("  📊 ROUND %d RESULTS\n", round))
+		sb.WriteString(fmt.Sprintf("═══════════════════════════════════════════════════\n"))
+		sb.WriteString(fmt.Sprintf("  📤 Total TXs sent:       %d\n", len(allTxs)))
+		sb.WriteString(fmt.Sprintf("  🚀 Injection TPS:        %.0f tx/s\n", injectionTPS))
+		sb.WriteString(fmt.Sprintf("  ⏱️  Injection time:       %s\n", blastDuration.Round(time.Millisecond)))
+		sb.WriteString(fmt.Sprintf("  ─────────────────────────────────────────────────\n"))
+		sb.WriteString(fmt.Sprintf("  📥 TX in blocks:         %d\n", totalTxsInBlocks))
+		sb.WriteString(fmt.Sprintf("  📊 End-to-End TPS:       ~%.0f tx/s\n", processingTPS))
+		sb.WriteString(fmt.Sprintf("  ⏱️  End-to-End time:      %s\n", totalDuration.Round(time.Millisecond)))
 		if onChainDuration > 0 {
-			fmt.Printf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTPS)
-			fmt.Printf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond))
+			sb.WriteString(fmt.Sprintf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTPS))
+			sb.WriteString(fmt.Sprintf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond)))
 		} else {
-			fmt.Printf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n")
+			sb.WriteString(fmt.Sprintf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n"))
 		}
-		fmt.Printf("  ─────────────────────────────────────────────────\n")
-		fmt.Printf("  📦 BLOCK STATISTICS (Blocks %d to %d)\n", startBlock, endBlock)
-		fmt.Printf("  🧊 Total Blocks:         %d\n", blockCount)
-		fmt.Printf("  📥 Total TXs in blocks:  %d\n", totalTxInBlocks)
-		fmt.Printf("  📈 Max TXs in a block:   %d\n", maxTxInBlock)
+		sb.WriteString(fmt.Sprintf("  ─────────────────────────────────────────────────\n"))
+		sb.WriteString(fmt.Sprintf("  📦 BLOCK STATISTICS (Blocks %d to %d)\n", startBlock+1, endBlock))
+		sb.WriteString(fmt.Sprintf("  🧊 Total Blocks:         %d\n", blockCount))
+		sb.WriteString(fmt.Sprintf("  📥 Total TXs in blocks:  %d\n", totalTxInBlocks))
+		sb.WriteString(fmt.Sprintf("  📈 Max TXs in a block:   %d\n", maxTxInBlock))
 		if blockCount > 0 {
-			fmt.Printf("  📉 Avg TXs per block:    %.1f\n", float64(totalTxInBlocks)/float64(blockCount))
-			
-			// --- IN BLOCK TRACES REPORT ---
-			fmt.Printf("\n  📝 BLOCK PERFORMANCE TRACES (Blocks %d to %d)\n", startBlock, endBlock)
-			fmt.Printf("  %-10s | %-8s | %-15s | %-15s | %-15s | %-15s | %-15s | %-15s\n", 
-				"Block", "TXs", "Rust Consensus", "Process TXs", "Calc Roots", "Commit Memory", "Save DB", "Total Block")
-			fmt.Printf("  %s\n", strings.Repeat("-", 125))
-			
-			traces, err := rpcClient.GetBlockTraces(startBlock, endBlock)
-			if err != nil {
-				fmt.Printf("  ❌ Could not fetch block traces: %v\n", err)
-			} else {
-				for _, t := range traces {
-					fmt.Printf("  %-10d | %-8d | %-13dms | %-13dms | %-13dms | %-13dms | %-13dms | %-13dms\n",
-						t.BlockNumber, t.TxCount, 
-						t.ConsensusDurationMs, 
-						t.ProcessTxsDurationMs,
-						t.Phase1TotalDurationMs - t.ProcessTxsDurationMs, // calc roots
-						t.CommitMemoryDurationMs,
-						t.SaveDBDurationMs,
-						t.TotalBlockDurationMs)
+			sb.WriteString(fmt.Sprintf("  📉 Avg TXs per block:    %.1f\n", float64(totalTxInBlocks)/float64(blockCount)))
+
+			if trace {
+				// --- IN BLOCK TRACES REPORT ---
+				sb.WriteString(fmt.Sprintf("\n  📝 BLOCK PERFORMANCE TRACES (Blocks %d to %d)\n", startBlock+1, endBlock))
+				sb.WriteString(fmt.Sprintf("  %-8s | %-6s | %-10s | %-10s | %-10s | %-8s | %-11s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s\n",
+					"Block", "TXs", "WaitGo", "WaitRust", "Consensus", "RustFFI", "ClientBatch", "ProcessTX", "CalcRoots", "BlockData", "Mapping", "CommitMem", "SaveDB", "Total", "GCPause"))
+				sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 190)))
+
+				traces, err := rpcClient.GetBlockTraces(startBlock+1, endBlock)
+				if err != nil {
+					sb.WriteString(fmt.Sprintf("  ❌ Could not fetch block traces: %v\n", err))
+				} else {
+					for _, t := range traces {
+						// Calculate real total including all phases
+						realTotalUs := float64(t.ConsensusDurationUs) +
+							float64(t.ClientBatchProcessingUs) +
+							float64(t.ProcessTxsDurationUs) +
+							float64(t.TotalBlockDurationUs)
+
+						sb.WriteString(fmt.Sprintf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
+							t.BlockNumber, t.TxCount,
+							float64(t.WaitGoUs)/1000.0,
+							float64(t.WaitRustUs)/1000.0,
+							float64(t.ConsensusDurationUs)/1000.0,
+							float64(t.RustDeliveryFFIDurationUs)/1000.0,
+							float64(t.ClientBatchProcessingUs)/1000.0,
+							float64(t.ProcessTxsDurationUs)/1000.0,
+							float64(t.Phase1TotalDurationUs)/1000.0, // calc roots
+							float64(t.BlockDataDurationUs)/1000.0,
+							float64(t.MappingDurationUs)/1000.0,
+							float64(t.CommitMemoryDurationUs)/1000.0,
+							float64(t.SaveDBDurationUs)/1000.0,
+							realTotalUs/1000.0,
+							float64(t.GCPauseUs)/1000.0))
+					}
 				}
 			}
 		}
 
+		fmt.Print(sb.String())
+
+		// Auto-save to tps_round_results.md
+		f, err := os.OpenFile(reportFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			f.WriteString(sb.String())
+			f.Close()
+			fmt.Printf("  💾 [Saved results to %s]\n", reportFilename)
+		} else {
+			fmt.Printf("  ⚠️ Could not save results to file: %v\n", err)
+		}
+
 		// ── Verify: Kiểm tra cụ thể Balance và Receipt ──────────────────
 		if verify {
-			if parallelNative {
-				fmt.Printf("\n  🔎 Chờ 2s để các node đồng bộ state...\n")
-				time.Sleep(2 * time.Second)
+			fmt.Printf("\n  🔎 Chờ 2s để các node đồng bộ state...\n")
+			time.Sleep(2 * time.Second)
 
-				fmt.Printf("  🔎 Verifying 10000 transactions (Balance & Receipt)...\n")
+			fmt.Printf("  🔎 Verifying %d transactions (Balance & Receipt)...\n", len(allTxs))
 				var verifiedCount int64
 				var failedCount int64
 
@@ -1662,12 +1622,6 @@ func main() {
 				}
 
 				fmt.Printf("\n  ✅ Kết quả: %d TXs xác nhận OK, %d TXs Lỗi\n", verifiedCount, failedCount)
-
-			} else {
-				// lockAndBridge logic nguyên bản
-				fmt.Printf("\n  🔎 Verifying recipient balance (lockAndBridge)...\n")
-				fmt.Printf("  ℹ️  lockAndBridge: token lock nên balance recipient trên chain này không đổi\n")
-			}
 		}
 	} // end round loop
 
@@ -1687,6 +1641,19 @@ func main() {
 		}
 		avgTPS := sumTPS / float64(len(allRoundTPS))
 
+		var summaryBuilder strings.Builder
+		summaryBuilder.WriteString("\n## 📊 BENCHMARK SUMMARY\n\n")
+		summaryBuilder.WriteString(fmt.Sprintf("- **Rounds**: %d\n", numRounds))
+		summaryBuilder.WriteString(fmt.Sprintf("- **TXs per round**: %d\n\n", len(allTxs)))
+		summaryBuilder.WriteString("| Round | TPS |\n|---|---|\n")
+		for i, t := range allRoundTPS {
+			summaryBuilder.WriteString(fmt.Sprintf("| %d | ~%.0f tx/s |\n", i+1, t))
+		}
+		summaryBuilder.WriteString("\n")
+		summaryBuilder.WriteString(fmt.Sprintf("- **Min TPS**: ~%.0f tx/s\n", minTPS))
+		summaryBuilder.WriteString(fmt.Sprintf("- **Max TPS**: ~%.0f tx/s\n", maxTPS))
+		summaryBuilder.WriteString(fmt.Sprintf("- **Avg TPS**: ~%.0f tx/s\n", avgTPS))
+
 		fmt.Println("\n╔═══════════════════════════════════════════════════╗")
 		fmt.Println("║  📊 BENCHMARK SUMMARY")
 		fmt.Println("╠═══════════════════════════════════════════════════╣")
@@ -1701,21 +1668,40 @@ func main() {
 		fmt.Printf("║  📈 Max TPS        : ~%.0f tx/s\n", maxTPS)
 		fmt.Printf("║  📊 Avg TPS        : ~%.0f tx/s\n", avgTPS)
 		fmt.Println("╚═══════════════════════════════════════════════════╝")
-	}
 
-	// Save results
-	results := map[string]interface{}{
-		"type":          txTypeName,
-		"txCount":       len(allTxs),
-		"recipient":     recipient,
-		"destinationId": destId,
-		"amount":        amountWei,
-		"rounds":        numRounds,
-		"roundTPS":      allRoundTPS,
-		"summaries":     roundSummaries,
+		// Append to report filename
+		f, err := os.OpenFile(reportFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			f.WriteString(summaryBuilder.String())
+			f.Close()
+			fmt.Printf("💾 Final summary appended to %s\n", reportFilename)
+		}
 	}
+}
 
-	jsonBytes, _ := json.MarshalIndent(results, "", "  ")
-	os.WriteFile("blast_cc_results.json", jsonBytes, 0644)
-	fmt.Println("💾 Results saved to blast_cc_results.json")
+func cleanupReports() {
+	files, err := os.ReadDir("reports")
+	if err != nil {
+		return
+	}
+	var mdFiles []os.DirEntry
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".md") {
+			mdFiles = append(mdFiles, f)
+		}
+	}
+	sort.Slice(mdFiles, func(i, j int) bool {
+		infoI, errI := mdFiles[i].Info()
+		infoJ, errJ := mdFiles[j].Info()
+		if errI != nil || errJ != nil {
+			return false
+		}
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	if len(mdFiles) > 5 {
+		for _, f := range mdFiles[5:] {
+			os.Remove(filepath.Join("reports", f.Name()))
+		}
+	}
 }

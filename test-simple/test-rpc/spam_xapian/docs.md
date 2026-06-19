@@ -39,6 +39,8 @@ Nếu bạn muốn tạo 1 contract duy nhất và cho toàn bộ 1000 ví cùng
 **Ví dụ:**
 ```bash
 go run main.go -wallets=1000 -deploy-json=deploy.json -method=runStep1_Setup
+
+go run main.go -config="config-m-node.json" -deploy-json="../test_read_wire_xapian/data-xapian-v2.json" -method="runStep1_Setup" -wallets=1000 --num-contracts=100
 ```
 
 ### Cách 3: Spam vào Contract đã có sẵn

@@ -299,7 +299,7 @@ for ((i=1; i<=LOOPS; i++)); do
     # 2. Chạy TPS
     echo "👉 Bước 2: Chạy TPS Blast CC ($TPS_ROUNDS rounds, $TPS_COUNT txs)..."
     cd "$TPS_DIR" || exit 1
-    go run main.go --count "$TPS_COUNT" --parallel_native=true --rounds "$TPS_ROUNDS" --load_balance=false --batch=300 $TPS_CONFIG_ARG &
+    go run main.go --count "$TPS_COUNT" --rounds "$TPS_ROUNDS" --load_balance=false --batch=300 $TPS_CONFIG_ARG &
     TPS_PID=$!
 
     TARGET_SNAPSHOT_BLOCK=400
@@ -343,7 +343,7 @@ for ((i=1; i<=LOOPS; i++)); do
             
             echo "   ⚠️ TPS đã xong nhưng Node 4 mới ở block ${NODE4_HEIGHT:-0}/$TARGET_SNAPSHOT_BLOCK. Tiếp tục spam giao dịch..."
             cd "$TPS_DIR" || exit 1
-            go run main.go --count 5000 --parallel_native=true --rounds 1 --load_balance=false --batch=300 $TPS_CONFIG_ARG &
+            go run main.go --count 5000 --rounds 1 --load_balance=false --batch=300 $TPS_CONFIG_ARG &
             TPS_PID=$!
         fi
 
@@ -533,7 +533,7 @@ ${nodes_status}"
     
     cd "$TPS_DIR" || exit 1
     echo "👉 Chạy giao dịch lên chính node vừa khôi phục ($NODE_ID)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=300 --target-node $NODE_ID $TPS_CONFIG_ARG > blast_restore_node.log 2>&1
+    go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --target-node $NODE_ID $TPS_CONFIG_ARG > blast_restore_node.log 2>&1
     TPS_REC_EXIT=$?
     if [ $TPS_REC_EXIT -ne 0 ]; then
         echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $NODE_ID thất bại (exit code $TPS_REC_EXIT)!"
@@ -544,7 +544,7 @@ ${nodes_status}"
     fi
     
     echo "👉 Đổi sang chạy giao dịch qua node khác ($SPAM_NODE)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=300 --target-node $SPAM_NODE $TPS_CONFIG_ARG > blast_other_node.log 2>&1
+    go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --target-node $SPAM_NODE $TPS_CONFIG_ARG > blast_other_node.log 2>&1
     TPS_OTH_EXIT=$?
     if [ $TPS_OTH_EXIT -ne 0 ]; then
         echo "❌ LỖI (Đang test Node $NODE_ID): TPS blast lên Node $SPAM_NODE thất bại (exit code $TPS_OTH_EXIT)!"

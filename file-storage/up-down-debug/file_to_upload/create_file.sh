@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Tên file đầu ra (mặc định output.txt) - có thể truyền tên file như tham số đầu tiên
 OUT="${1:-output.txt}"
-SIZE_MB=14 # Kích thước file mong muốn test
-TARGET_BYTES=$((SIZE_MB * 250 * 1024 ))
+SIZE_MB=2000 # Kích thước file mong muốn test (2GB = 2048MB)
+TARGET_BYTES=$((SIZE_MB * 1024 * 1024 ))
 
 echo "Tạo file '${OUT}' kích thước ${SIZE_MB}MB (~${TARGET_BYTES} bytes)..."
 

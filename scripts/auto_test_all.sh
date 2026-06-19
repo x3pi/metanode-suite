@@ -295,9 +295,9 @@ if should_run 8; then
     echo "📌 BƯỚC 8: Load Test TPS (20,000 txs)..."
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     if [ "$DEPLOY_MODE" == "single" ]; then
-        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --parallel_native=true --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Single]" go run main.go --count 20000 --rounds 2000 --load_balance=false --batch="${BATCH_SIZE:-10}" --amount 1
     else
-        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --parallel_native=true --rounds 30 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+        run_and_capture "Load Test TPS (Bước 8) [Multi]" go run main.go --count 20000 --rounds 30 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
     fi
 fi
 
@@ -311,7 +311,7 @@ if should_run 9; then
     
     cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
     echo "  -> Chạy TPS khởi động (20 rounds)..."
-    run_and_capture "Init TPS 20 rounds" go run main.go --count 20000 --parallel_native=true --rounds 20 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+    run_and_capture "Init TPS 20 rounds" go run main.go --count 20000 --rounds 20 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
     
     cd "$TOOL_TEST_DIR/scripts"
     
@@ -334,7 +334,7 @@ if should_run 9; then
         # 2. 10 Rounds TPS
         echo "  [2/4] Chạy 10 rounds TPS..."
         cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
-        run_and_capture "TPS 10 rounds sau Recovery" go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+        run_and_capture "TPS 10 rounds sau Recovery" go run main.go --count 20000 --rounds 10 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
         
         # 3. Snapshot Test (Luân phiên 1, 2, 3)
         snap_node=$(( (loop_count - 1) % 3 + 1 ))
@@ -345,7 +345,7 @@ if should_run 9; then
         # 4. 10 Rounds TPS
         echo "  [4/4] Chạy 10 rounds TPS..."
         cd "$TOOL_TEST_DIR/test_tps/tps_blast_cc"
-        run_and_capture "TPS 10 rounds sau Snapshot" go run main.go --count 20000 --parallel_native=true --rounds 10 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
+        run_and_capture "TPS 10 rounds sau Snapshot" go run main.go --count 20000 --rounds 10 --load_balance=false --batch="${BATCH_SIZE:-300}" --amount 1
         
         cd "$TOOL_TEST_DIR/scripts"
         loop_count=$((loop_count + 1))

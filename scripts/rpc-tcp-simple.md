@@ -81,7 +81,7 @@ Thêm cờ `--loop` để script chạy xoay vòng liên tục chu trình test. 
 ./rpc-tcp-simple.sh --loop --multi
 
 # Lặp test với cấu hình tùy chỉnh
-./rpc-tcp-simple.sh --loop --rpc-url http://192.168.1.230:8550 --tcp-url 192.168.1.230:6241
+./rpc-tcp-simple.sh --loop --rpc-url http://192.168.1.230:8654 --tcp-url 192.168.1.230:6204
 ```
 
 > 🛑 **Lưu ý:** Để dừng vòng lặp, nhấn tổ hợp phím **`Ctrl + C`** trên terminal.

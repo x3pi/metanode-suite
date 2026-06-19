@@ -137,6 +137,7 @@ func startKeepAlive(ctx context.Context, client *ethclient.Client) {
 func main() {
 	// --- 1. Kết nối đến client Ethereum ---
 	envFile := flag.String("envfile", ".env.1", "Path to .env file")
+	downloadKeyHex := flag.String("download", "", "FileKey (hex string) to download directly")
 	flag.Parse()
 	config.Load(*envFile)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -179,6 +180,29 @@ func main() {
 		log.Fatalf("Lỗi khởi tạo contract: %v", err)
 	}
 
+	if *downloadKeyHex != "" {
+		// --- CHẾ ĐỘ DOWNLOAD ---
+		bytes, err := hex.DecodeString(strings.TrimPrefix(*downloadKeyHex, "0x"))
+		if err != nil {
+			log.Fatalf("Lỗi decode fileKey hex: %v", err)
+		}
+		if len(bytes) != 32 {
+			log.Fatalf("FileKey phải đúng 32 byte (64 ký tự hex)")
+		}
+		var fileKey [32]byte
+		copy(fileKey[:], bytes)
+
+		startChunk := time.Now()
+		log.Printf("🚀 Bắt đầu Download lúc: %v", startChunk.Format("15:04:05.000"))
+		if err := DownloadFile(client, privateKey, instanceHttp, fileKey); err != nil {
+			log.Fatalf("Lỗi trong quá trình tải xuống: %v", err)
+		}
+		sentTime := time.Now()
+		log.Printf("✅ Download hoàn tất lúc: %v (mất %s)", sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+		return
+	}
+
+	// --- CHẾ ĐỘ UPLOAD ---
 	go func(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instanceHttp *contract.FileContract, fromAddress common.Address) {
 		// for {
 		time.Sleep(1 * time.Second)
@@ -194,26 +218,7 @@ func main() {
 		fmt.Printf("🔑 FileKey để tải xuống: %x\n", fileKey)
 		// }
 	}(client, privateKey, instanceHttp, fromAddress)
-	// --- 4. Thực thi chức năng tải tệp lên ---
-	// hexStr := "a0503b50cfd71c88621b07253029c07487c070cac563dc77f355f836dc7e2e2b"
-	// bytes, err := hex.DecodeString(hexStr)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// // Đảm bảo đúng 32 byte
-	// if len(bytes) != 32 {
-	// 	panic("Không đúng 32 byte")
-	// }
-	// // Chuyển thành [32]byte
-	// var fileKey [32]byte
-	// copy(fileKey[:], bytes)
-	// startChunk := time.Now()
-	// log.Printf("🚀 Download lúc: %v", startChunk.Format("15:04:05.000"))
-	// if err := DownloadFile(client, privateKey, instanceHttp, fileKey); err != nil {
-	// 	log.Fatalf("Lỗi trong quá trình tải xuống riêng biệt: %v", err)
-	// }
-	// sentTime := time.Now()
-	// log.Printf("📤 dowloadChunk gửi xong lúc: %v (mất %s để gửi)", sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

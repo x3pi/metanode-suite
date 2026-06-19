@@ -89,3 +89,27 @@ else
 fi
 
 echo "Done updating configs to use RPC proxies."
+
+# 4. Update /home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/spam_xapian/config-m-node.json
+FILE4="/home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/spam_xapian/config-m-node.json"
+if [ -f "$FILE4" ]; then
+    echo "Updating $FILE4 using RPC Proxies (including node 4)..."
+    
+    new_rpc_url=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
+    new_url_0=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
+    new_url_1=$(jq -r '.rpc_proxies.m1' "$RPC_NODES_FILE")
+    new_url_2=$(jq -r '.rpc_proxies.m2' "$RPC_NODES_FILE")
+    new_url_3=$(jq -r '.rpc_proxies.m3' "$RPC_NODES_FILE")
+    new_url_4=$(jq -r '.rpc_proxies.m4' "$RPC_NODES_FILE")
+
+    jq --arg r "$new_rpc_url" \
+       --arg u0 "$new_url_0" \
+       --arg u1 "$new_url_1" \
+       --arg u2 "$new_url_2" \
+       --arg u3 "$new_url_3" \
+       --arg u4 "$new_url_4" \
+       '.rpc_url = $r | .rpc_urls = [$u0, $u1, $u2, $u3, $u4]' \
+       "$FILE4" > "${FILE4}.tmp" && mv "${FILE4}.tmp" "$FILE4"
+else
+    echo "Warning: $FILE4 not found." >&2
+fi

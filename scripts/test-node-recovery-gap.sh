@@ -574,7 +574,7 @@ for ((loop=1; loop<=LOOP_COUNT; loop++)); do
         if [ "$TARGET_NODE" = "0" ]; then
             SPAM_NODE=1
         fi
-        go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE $TPS_CONFIG_ARG > blast_gap.log 2>&1 &
+        go run main.go --count 20000 --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE $TPS_CONFIG_ARG > blast_gap.log 2>&1 &
         PID_GAP=$!
 
         START_EPOCH=$(get_current_epoch)
@@ -778,7 +778,7 @@ wait_for_sync_to_highest_block() {
     
     echo "👉 Bắn giao dịch lên Node vừa hồi phục ($SPAM_NODE_1) (Chạy tuần tự)..."
     # Chạy tuần tự để tránh lỗi Nonce collision. In ra màn hình bằng lệnh tee để dễ theo dõi.
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_1 $TPS_CONFIG_ARG 2>&1 | tee blast_recovered_node.log
+    go run main.go --count 20000 --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_1 $TPS_CONFIG_ARG 2>&1 | tee blast_recovered_node.log
     
     # Check lỗi nếu lệnh fail
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
@@ -787,7 +787,7 @@ wait_for_sync_to_highest_block() {
     fi
     
     echo "👉 Đổi sang bắn giao dịch qua node khác ($SPAM_NODE_2) (Chạy ngầm)..."
-    go run main.go --count 20000 --parallel_native=true --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_2 $TPS_CONFIG_ARG > blast_other_node.log 2>&1 &
+    go run main.go --count 20000 --rounds 1 --load_balance=false --batch=10 --target-node $SPAM_NODE_2 $TPS_CONFIG_ARG > blast_other_node.log 2>&1 &
     PID_OTH=$!
 
     echo -e "\n[8/8] 👁️ Kiểm tra Hash Checker khi mạng đang chịu tải (Timeout 40s)..."
