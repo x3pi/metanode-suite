@@ -511,11 +511,8 @@ func main() {
 					time.Sleep(1 * time.Second)
 					continue
 				}
-				// All retries exhausted but we KNOW the correct nonce from
-				// previous round's block polling (which confirmed all TXs).
-				// Use expectedNonce directly instead of failing.
-				fmt.Printf("\n    ⚠️  [NONCE FALLBACK] addr=%s node[%d] still stale after 60 retries, using expectedNonce=%d\n", addr, idx, expectedNonce)
-				return uint64(expectedNonce), nil
+				// All retries exhausted -> Return error
+				return 0, lastErr
 			}
 
 			// Log 5 cái đầu để debug
@@ -550,6 +547,9 @@ func main() {
 		go func() {
 			defer nonceWg.Done()
 			for idx := range nonceCh {
+				if atomic.LoadInt64(&nonceErrors) > 0 {
+					continue // fast-fail if another worker failed
+				}
 				acc := toSend[idx]
 				nonce, err := fetchNonce(acc.Address, -1)
 				if err == nil {
@@ -845,11 +845,15 @@ func main() {
 			var refetchMu sync.Mutex
 			var refetchWg sync.WaitGroup
 			refetchCh := make(chan int, len(toSend))
+			atomic.StoreInt64(&loggedErrors, 0)
 			for w := 0; w < 50; w++ {
 				refetchWg.Add(1)
 				go func() {
 					defer refetchWg.Done()
 					for idx := range refetchCh {
+						if atomic.LoadInt64(&refetchErr) > 0 {
+							continue // fast-fail if another worker failed
+						}
 						acc := toSend[idx]
 						exp := int64(-1)
 						if oldN, ok := oldNonceMap[acc.Address]; ok {
@@ -863,10 +867,17 @@ func main() {
 							atomic.AddInt64(&refetchOk, 1)
 						} else {
 							atomic.AddInt64(&refetchErr, 1)
-							if atomic.AddInt64(&loggedErrors, 1) <= maxLoggedErrors {
-								fmt.Printf("\n    ❌ [RE-FETCH NONCE ERROR] addr=%s err=%v\n", acc.Address, err)
+							prevTxHash := "unknown"
+							for _, tx := range allTxs {
+								if strings.EqualFold(tx.addr, acc.Address) {
+									prevTxHash = tx.txHash.Hex()
+									break
+								}
 							}
-							logErrorToFile(fmt.Sprintf("[Round %d] [RE-FETCH NONCE ERROR] addr=%s err=%v", round, acc.Address, err))
+							if atomic.AddInt64(&loggedErrors, 1) <= maxLoggedErrors {
+								fmt.Printf("\n    ❌ [RE-FETCH NONCE ERROR] addr=%s err=%v | PrevTxHash: %s\n", acc.Address, err, prevTxHash)
+							}
+							logErrorToFile(fmt.Sprintf("[Round %d] [RE-FETCH NONCE ERROR] addr=%s err=%v | PrevTxHash: %s", round, acc.Address, err, prevTxHash))
 						}
 						done := atomic.LoadInt64(&refetchOk) + atomic.LoadInt64(&refetchErr)
 						if done%2000 == 0 || done == int64(len(toSend)) {
@@ -881,6 +892,17 @@ func main() {
 			close(refetchCh)
 			refetchWg.Wait()
 			fmt.Printf("\n  ✅ Nonces re-fetched: %d ok, %d errors\n", refetchOk, refetchErr)
+
+			if refetchErr > 0 {
+				var activeRPCEndpoints []string
+				for _, rc := range rpcPool {
+					activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
+				}
+				errMsg := fmt.Sprintf("Thất bại khi lấy lại nonce từ RPC (%s). Số lỗi: %d. Không thể tiếp tục Round %d!", strings.Join(activeRPCEndpoints, ", "), refetchErr, round)
+				fmt.Printf("\n❌ [ERROR] %s\n", errMsg)
+				logErrorToFile(errMsg)
+				os.Exit(1)
+			}
 
 			// Rebuild all TXs with new nonces
 			fmt.Printf("\n📦 Re-building %d %s TXs...\n", len(toSend), txTypeName)
@@ -1384,6 +1406,21 @@ func main() {
 		maxTxInBlock := 0
 		totalTxInBlocks := 0
 
+		var prevTimestamp uint64
+		if startBlock > 0 {
+			prevBlk, err := rpcClient.GetBlockByNumber(startBlock)
+			if err == nil && prevBlk != nil {
+				prevTimestamp = prevBlk.Timestamp
+			}
+		}
+
+		var blockDetails strings.Builder
+		if !trace {
+			blockDetails.WriteString(fmt.Sprintf("\n  📝 CHI TIẾT TỪNG BLOCK (Từ block %d đến %d)\n", startBlock+1, endBlock))
+			blockDetails.WriteString(fmt.Sprintf("  %-10s | %-15s | %-15s\n", "Block", "Số Giao Dịch", "Thời gian xử lý"))
+			blockDetails.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 48)))
+		}
+
 		for b := startBlock + 1; b <= endBlock; b++ {
 			blkInfo, err := rpcClient.GetBlockByNumber(b)
 			if err == nil && blkInfo != nil {
@@ -1393,6 +1430,18 @@ func main() {
 				if txCount > maxTxInBlock {
 					maxTxInBlock = txCount
 				}
+				
+				if !trace {
+					durationStr := "N/A"
+					if prevTimestamp > 0 && blkInfo.Timestamp > prevTimestamp {
+						duration := blkInfo.Timestamp - prevTimestamp
+						durationStr = fmt.Sprintf("%d ms", duration)
+					} else if prevTimestamp > 0 && blkInfo.Timestamp == prevTimestamp {
+						durationStr = "0 ms"
+					}
+					blockDetails.WriteString(fmt.Sprintf("  %-10d | %-15d | %-15s\n", b, txCount, durationStr))
+				}
+				prevTimestamp = blkInfo.Timestamp
 			}
 		}
 
@@ -1501,6 +1550,8 @@ func main() {
 							float64(t.GCPauseUs)/1000.0))
 					}
 				}
+			} else {
+				sb.WriteString(blockDetails.String())
 			}
 		}
 

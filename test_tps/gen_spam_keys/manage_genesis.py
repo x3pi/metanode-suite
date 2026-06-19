@@ -32,7 +32,7 @@ def add_keys(genesis_file, keys_file):
                 "pending_balance": "0",
                 "last_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "device_key": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "publicKeyBls": ""
+                "publicKeyBls": "0x86d5de6f7c9c13cc0d959a553cc0e4853ba5faae45a28da9bddc8ef8e104eb5d3dece8dfaa24f11b4243ec27537e3184"
             })
             existing_addresses.add(addr.lower())
             added += 1
