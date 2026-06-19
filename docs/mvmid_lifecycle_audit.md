@@ -81,7 +81,6 @@ func ClearMVMApi(mvmId common.Address) {
 
 | File | Hàm | Create | Protect | Clear | C++ Cancel | Verdict |
 |------|-----|--------|---------|-------|------------|---------|
-| `transaction_virtual_processor.go` | `ProcessSingleTransactionVirtual` (DELETED) | - | - | - | - | ✅ |
 | `transaction_virtual_processor.go:427/441` | batchSubmit dry-run | `GetOrCreateMVMApi` (via vmP) | KHÔNG | `ClearMVMApi` (L427/441) | Qua ClearMVMApi | ✅ |
 
 ### Off-chain Execution
