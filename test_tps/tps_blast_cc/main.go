@@ -1417,7 +1417,7 @@ func main() {
 		var blockDetails strings.Builder
 		if !trace {
 			blockDetails.WriteString(fmt.Sprintf("\n  📝 CHI TIẾT TỪNG BLOCK (Từ block %d đến %d)\n", startBlock+1, endBlock))
-			blockDetails.WriteString(fmt.Sprintf("  %-10s | %-15s | %-15s\n", "Block", "Số Giao Dịch", "Thời gian xử lý"))
+			blockDetails.WriteString(fmt.Sprintf("  %-10s | %-15s | %-15s\n", "Block", "Số Giao Dịch", "Khoảng cách Block"))
 			blockDetails.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 48)))
 		}
 

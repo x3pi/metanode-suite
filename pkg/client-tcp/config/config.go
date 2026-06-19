@@ -41,6 +41,7 @@ type ClientConfig struct {
 	ParentConnectionType    string `json:"parent_connection_type"`
 	ChainId                 uint64 `json:"chain_id"`
 	NationId                uint64 `json:"nation_id"`
+	HttpRpc                 string `json:"http_rpc"`
 
 	// Supervisor fields (merged from config-1.json)
 	LogPath string `json:"log_path"`

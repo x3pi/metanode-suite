@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"tool-test/register_bls/rpc"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	e_types "github.com/ethereum/go-ethereum/core/types"
@@ -49,7 +51,7 @@ func waitReceiptPoll(tcpClient *client_tcp.Client, txHash string) *pb.RpcReceipt
 	if txHash == "" {
 		return nil
 	}
-	timer := time.NewTimer(30 * time.Second)
+	timer := time.NewTimer(5 * time.Minute)
 	defer timer.Stop()
 	for {
 		receipt, err := tcpClient.RpcGetTransactionReceipt(txHash)
@@ -302,6 +304,37 @@ func testBlsRegistration(
 	}
 	var results []KeyGenResult
 
+	// === LẤY BLS PUBLIC KEY 1 LẦN DÙNG CHUNG CHO TẤT CẢ ===
+	getPubKeyInput, _ := accountABI.Pack("getPublickeyBls")
+	blsPubKeyResult, err := tcpClient.RpcEthCall(accountContract, getPubKeyInput)
+	if err != nil {
+		fmt.Printf("❌ Lỗi getPublickeyBls RpcEthCall: %v\n", err)
+		return
+	}
+
+	var blsPubKey []byte
+	strRes := string(blsPubKeyResult)
+	strRes = strings.Trim(strRes, "\"")
+	strRes = strings.TrimPrefix(strRes, "0x")
+	decoded, errHex := hex.DecodeString(strRes)
+	if errHex == nil && len(decoded) >= 48 {
+		blsPubKey = decoded
+	} else {
+		err = accountABI.UnpackIntoInterface(&blsPubKey, "getPublickeyBls", blsPubKeyResult)
+		if err != nil {
+			fmt.Printf("❌ Lỗi Decode getPublickeyBls: %v\n", err)
+			return
+		}
+	}
+
+	serverBlsPubKey := "0x" + hex.EncodeToString(blsPubKey)
+	fmt.Printf("✅ Fetched BLS PublicKey (once): %s (%d bytes)\n", serverBlsPubKey, len(blsPubKey))
+
+	if len(blsPubKey) == 0 {
+		fmt.Println("❌ BLS pubkey rỗng, không thể tiếp tục.")
+		return
+	}
+
 	for i := 0; i < count; i++ {
 		fmt.Printf("\n─── Generating Key %d of %d ───\n", i+1, count)
 		// Step 1: Tạo private key mới
@@ -322,7 +355,7 @@ func testBlsRegistration(
 			fmt.Printf("  ❌ getPublickeyBls RpcEthCall: %v\n", err)
 			continue
 		}
-		
+
 		var blsPubKey []byte
 		var hexStr string
 		if err := json.Unmarshal(blsPubKeyResult, &hexStr); err == nil {
@@ -372,9 +405,9 @@ func testBlsRegistration(
 		// Step 4: confirmAccountWithoutSign (admin confirm)
 		// Dùng RPC poll vì TX này bị intercepted bởi RPC proxy → receipt về qua kênh RPC,
 		// không push qua TCP direct (port 4200). sendTxAndWait sẽ timeout nếu dùng directClient.
-		fmt.Printf("  ℹ️  Admin %s confirming %s...\n", adminAddr.Hex(), newAddr.Hex())
+		fmt.Printf("  ℹ️  Account %s self-confirming...\n", adminAddr.Hex(), newAddr.Hex())
 		txHash2, receipt2 := sendTxAndWaitRPC(
-			tcpClient, adminPrivKey, adminAddr, accountContract,
+			tcpClient, newPrivKey, newAddr, accountContract,
 			accountABI, signer,
 			"confirmAccountWithoutSign", newAddr,
 		)
@@ -482,9 +515,9 @@ func registerBlsForExistingWallet(
 
 	// Step 3: (Optional) Admin confirm
 	if doConfirm && adminPrivKey != nil {
-		fmt.Printf("  ⏳ Admin %s confirming wallet %s...\n", adminAddr.Hex(), userAddr.Hex())
+		fmt.Printf("  ⏳ Account %s self-confirming...\n", adminAddr.Hex(), userAddr.Hex())
 		txHash2, receipt2 := sendTxAndWaitRPC(
-			tcpClient, adminPrivKey, adminAddr, accountContract,
+			tcpClient, userPrivKey, userAddr, accountContract,
 			accountABI, signer,
 			"confirmAccountWithoutSign", userAddr,
 		)
@@ -510,6 +543,7 @@ func main() {
 		Outputs: []*os.File{os.Stdout},
 	})
 
+	mode := flag.String("mode", "tcp", "Mode to run: tcp or http")
 	configPath := flag.String("config", "config-test.json", "Path to TCP RPC client config")
 	blsCount := flag.Int("count", 1, "Number of BLS keys to generate")
 	outJson := flag.String("out", "bls_keys.json", "Output JSON file for generated BLS keys")
@@ -526,14 +560,6 @@ func main() {
 	cfgRaw, _ := tcp_config.LoadConfig(*configPath)
 	cfg := cfgRaw.(*tcp_config.ClientConfig)
 
-	// Khởi tạo RPC client (dùng cho gửi transaction, eth_call, subscribe, ...)
-	tcpClient, err := client_tcp.NewClient(cfg)
-	if err != nil {
-		logger.Error("Failed to create TCP RPC client: %v", err)
-		os.Exit(1)
-	}
-	time.Sleep(1 * time.Second)
-
 	// Common setup (dùng private key trong config làm admin mặc định)
 	ethPrivKey, _ := crypto.HexToECDSA(cfg.EthPrivateKey)
 	fromAddr := crypto.PubkeyToAddress(ethPrivKey.PublicKey)
@@ -545,6 +571,55 @@ func main() {
 
 	accountABI, _ := abi.JSON(strings.NewReader(accountAbiJSON))
 	accountContract := common.HexToAddress("0x00000000000000000000000000000000D844bb55")
+
+	if *mode == "http" {
+		httpUrl := cfg.HttpRpc
+		if !strings.HasPrefix(httpUrl, "http") {
+			httpUrl = "http://" + httpUrl
+		}
+		rpcClient := rpc.NewRPCClient(httpUrl)
+		rpcClient.SetTimeout(5 * time.Minute)
+		if *walletPk != "" {
+			userPrivKey, err := crypto.HexToECDSA(strings.TrimPrefix(*walletPk, "0x"))
+			if err != nil {
+				logger.Error("Invalid -wallet-pk: %v", err)
+				os.Exit(1)
+			}
+			userAddr := crypto.PubkeyToAddress(userPrivKey.PublicKey)
+
+			var resolvedAdminPrivKey *ecdsa.PrivateKey
+			var resolvedAdminAddr common.Address
+			if *adminPk != "" {
+				resolvedAdminPrivKey, err = crypto.HexToECDSA(strings.TrimPrefix(*adminPk, "0x"))
+				if err != nil {
+					logger.Error("Invalid -admin-pk: %v", err)
+					os.Exit(1)
+				}
+				resolvedAdminAddr = crypto.PubkeyToAddress(resolvedAdminPrivKey.PublicKey)
+			} else {
+				resolvedAdminPrivKey = ethPrivKey
+				resolvedAdminAddr = fromAddr
+			}
+
+			registerExistingWalletBLSHTTP(
+				rpcClient, accountABI, accountContract,
+				resolvedAdminPrivKey, resolvedAdminAddr,
+				userPrivKey, userAddr,
+				signer, !*noConfirm,
+			)
+		} else {
+			testBlsRegistrationHTTP(rpcClient, accountABI, accountContract, ethPrivKey, fromAddr, signer, *blsCount, *outJson)
+		}
+		return
+	}
+
+	// Khởi tạo RPC client (dùng cho gửi transaction, eth_call, subscribe, ...)
+	tcpClient, err := client_tcp.NewClient(cfg)
+	if err != nil {
+		logger.Error("Failed to create TCP RPC client: %v", err)
+		os.Exit(1)
+	}
+	time.Sleep(1 * time.Second)
 
 	if *walletPk != "" {
 		// Chế độ đăng ký BLS cho ví có sẵn
