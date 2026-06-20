@@ -448,7 +448,7 @@ func main() {
 	// Fallback: nếu không có rpc_* trong config, dùng rpcAddr như cũ
 	if len(rpcPool) == 0 {
 		if rpcAddr == "" {
-			targetAddr := config.ParentConnectionAddress
+			targetAddr := config.GetParentConnectionAddress()
 			if nodeAddr != "" {
 				targetAddr = nodeAddr
 			}
@@ -692,9 +692,9 @@ func main() {
 	// 	log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Không có giao dịch nào được build thành công!")
 	// }
 
-	targetAddresses := []string{config.ParentConnectionAddress}
+	targetAddresses := []string{config.GetParentConnectionAddress()}
 	if !loadBalance {
-		fmt.Printf("\n  📡 Chế độ Single Node IP (TCP): %s\n", config.ParentConnectionAddress)
+		fmt.Printf("\n  📡 Chế độ Single Node IP (TCP): %s\n", config.GetParentConnectionAddress())
 	}
 
 	if nodeAddr != "" {

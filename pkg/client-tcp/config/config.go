@@ -73,7 +73,11 @@ func (c *ClientConfig) GetParentConnectionAddress() string {
 	case string:
 		return v
 	case []interface{}:
-		logger.Error("Invalid parent connection address, not string or array")
+		if len(v) > 0 {
+			if str, ok := v[0].(string); ok {
+				return str
+			}
+		}
 		return ""
 	default:
 		logger.Error("Invalid parent connection address, type is " + reflect.TypeOf(v).String())

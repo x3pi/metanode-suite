@@ -38,9 +38,9 @@ Từ phiên bản nâng cấp, công cụ hỗ trợ cơ chế định tuyến v
 go run main.go --count 5000 --target-node 2
 
 
-go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amount 1 --config=config-multi.json
+go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --amount 1 --config=config-multi.json
 
-go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amount 1
+go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --amount 1
 ```
 
 ### 2. Chạy tải song song với cơ chế Epoch Wait (Mặc định 10 phút / 600 giây):

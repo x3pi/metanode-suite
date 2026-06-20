@@ -10,13 +10,15 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
 	tx_models "tool-test/pkg/client-tcp/models"
-	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
+	"tool-test/pkg/client-tcp/utils/tx_helper"
 	"tool-test/pkg/logger"
 	pb "tool-test/pkg/proto"
+	"tool-test/test_tps/tps_blast_cc/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -29,6 +31,7 @@ type AppConfig struct {
 	ChainId                 string   `json:"chainId"`
 	WalletPool              []string `json:"wallet_pool"`
 	ParentConnectionAddress []string `json:"parent_connection_address"`
+	RpcEndpoints            []string `json:"rpc_endpoints"`
 }
 
 type GeneratedKey struct {
@@ -95,7 +98,7 @@ func main() {
 
 	// 2. Kết nối tới Chain qua TCP
 	fmt.Printf("🔌 Connecting to TCP pool (Load balancing across %d nodes)\n", len(appCfg.ParentConnectionAddress))
-	poolSize := 200
+	poolSize := 300
 	var clientPool []*client_tcp.Client
 	for i := 0; i < poolSize; i++ {
 		cfgClone := *cfg
@@ -145,15 +148,38 @@ func main() {
 
 	// Chuẩn bị payload setBlsPublicKey được xử lý bên trong RegisterBlsForAccount
 
+	var rpcHost string
+	if len(appCfg.RpcEndpoints) > 0 && appCfg.RpcEndpoints[0] != "" {
+		rpcHost = appCfg.RpcEndpoints[0]
+		rpcHost = strings.ReplaceAll(rpcHost, " ", "") // remove accidental spaces
+		if !strings.HasPrefix(rpcHost, "http://") && !strings.HasPrefix(rpcHost, "https://") {
+			rpcHost = "http://" + rpcHost
+		}
+	} else {
+		tcpHost := appCfg.ParentConnectionAddress[0]
+		rpcHost = "http://" + strings.Split(tcpHost, ":")[0] + ":8757"
+	}
+	rpcClient := rpc.NewRPCClient(rpcHost)
+
+	// Lấy block bắt đầu gửi để tí nữa chỉ check từ block này trở đi
+	startBlockNum, err := rpcClient.GetBlockNumber()
+	if err != nil {
+		fmt.Printf("⚠️ Không thể lấy block hiện tại từ RPC: %v\n", err)
+	} else {
+		fmt.Printf("📌 Block hiện tại trước khi gửi: %d\n", startBlockNum)
+	}
+
 	// =====================================================================
 	// BƯỚC 2: GỌI ĐĂNG KÝ BLS CHO TẤT CẢ VÍ TRƯỚC (Concurrently)
 	// =====================================================================
-	fmt.Printf("\n[2] Đang đăng ký BLS cho %d ví mới...\n", numWallets)
+	fmt.Printf("\n[2] Đang đăng ký BLS cho %d ví mới (Async)...\n", numWallets)
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 500) // Giới hạn 50 goroutines đồng thời
+	sem := make(chan struct{}, 500) // Giới hạn 500 goroutines đồng thời
 	successCount := 0
 	var mu sync.Mutex
+
+	expectedTxHashes := make(map[string]bool)
 
 	for i, key := range generatedKeys {
 		wg.Add(1)
@@ -163,29 +189,74 @@ func main() {
 			defer wg.Done()
 			defer func() { <-sem }()
 			client := clientPool[idx%len(clientPool)]
-			// Sử dụng hàm RegisterBlsForAccount để tạo EthTx với chữ ký SECP đúng chuẩn
+			// Sử dụng hàm RegisterBlsForAccountAsync để gửi tx đi không chờ receipt
 			chainIdStr := appCfg.ChainId
-			receipt, err := client.RegisterBlsForAccount(k.PrivateKey, appCfg.PublicKeyBLS, chainIdStr)
+			txHash, err := client.RegisterBlsForAccountAsync(k.PrivateKey, appCfg.PublicKeyBLS, chainIdStr)
 			if err != nil {
 				fmt.Printf("❌ Ví %d: Lỗi gửi tx setBlsPublicKey: %v\n", k.Index, err)
-			} else if receipt != nil && (receipt.Status() == pb.RECEIPT_STATUS_RETURNED || receipt.Status() == pb.RECEIPT_STATUS_HALTED) {
+			} else {
 				mu.Lock()
 				successCount++
-				if successCount%100 == 0 || successCount == numWallets {
-					fmt.Printf("   ✅ Đã đăng ký BLS thành công %d/%d ví (Last Tx: %s)\n", successCount, numWallets, receipt.TransactionHash().Hex())
+				expectedTxHashes[strings.ToLower(txHash.Hex())] = true
+				if successCount%1000 == 0 || successCount == numWallets {
+					fmt.Printf("   ✅ Đã gửi tx đăng ký BLS %d/%d ví (Last Tx: %s)\n", successCount, numWallets, txHash.Hex())
 				}
 				mu.Unlock()
-			} else {
-				var status string
-				if receipt != nil {
-					status = receipt.Status().String()
-				}
-				fmt.Printf("❌ Ví %d: Đăng ký BLS thất bại (Status: %s)\n", k.Index, status)
 			}
 		}(key, i)
 	}
 	wg.Wait()
-	fmt.Printf("✅ Đăng ký xong BLS (%d/%d thành công).\n", successCount, numWallets)
+	fmt.Printf("✅ Đã GỬI xong tx đăng ký BLS (%d/%d thành công). Bắt đầu chờ block...\n", successCount, numWallets)
+
+	if len(expectedTxHashes) > 0 {
+		fmt.Printf("📡 Đang kết nối RPC %s để kiểm tra %d giao dịch...\n", rpcHost, len(expectedTxHashes))
+		lastBlockNum := startBlockNum
+		totalConfirmed := 0
+		maxWait := 500 * time.Second
+		startTime := time.Now()
+
+		for len(expectedTxHashes) > 0 {
+			if time.Since(startTime) > maxWait {
+				fmt.Printf("\n❌ Hết thời gian chờ (%s)! Còn %d giao dịch chưa được confirm.\n", maxWait, len(expectedTxHashes))
+				break
+			}
+
+			time.Sleep(500 * time.Millisecond)
+			currentBlockNum, err := rpcClient.GetBlockNumber()
+			if err != nil {
+				fmt.Printf("\r❌ Lỗi kết nối RPC (%s): %v          ", rpcHost, err)
+				continue
+			}
+
+			if currentBlockNum <= lastBlockNum {
+				// fmt.Printf("\r   ⏳ Đang chờ block mới (hiện tại: %d, time: %v)...  ", lastBlockNum, time.Since(startTime).Round(time.Second))
+				continue
+			}
+
+			newConfirms := 0
+			for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
+				blk, err := rpcClient.GetBlockByNumber(bn)
+				if err == nil && blk != nil {
+					for _, hash := range blk.Transactions {
+						hashLower := strings.ToLower(hash)
+						if expectedTxHashes[hashLower] {
+							delete(expectedTxHashes, hashLower)
+							newConfirms++
+						}
+					}
+				}
+			}
+
+			if newConfirms > 0 {
+				totalConfirmed += newConfirms
+				fmt.Printf("\r   📡 Block %d: Đã confirm %d/%d giao dịch BLS...   \n", currentBlockNum, totalConfirmed, successCount)
+			} else {
+				fmt.Printf("\r   📡 Block %d: Đã check (chưa thấy tx BLS nào)...   ", currentBlockNum)
+			}
+			lastBlockNum = currentBlockNum
+		}
+		fmt.Printf("\n✅ Quá trình chờ kết thúc. Đã confirm %d giao dịch trong block.\n", totalConfirmed)
+	}
 
 	// =====================================================================
 	// BƯỚC 3: CHUYỂN TIỀN VÀO CÁC VÍ VỪA TẠO (Sequentially)

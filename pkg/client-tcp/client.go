@@ -130,7 +130,6 @@ func NewClient(
 		config.ParentConnectionType,
 		nil,
 	)
-	logger.Info("Connecting to parent node at %s", config.GetParentConnectionAddress())
 	parentConn.SetRealConnAddr(config.GetParentConnectionAddress())
 	clientContext.Handler = c_network.NewHandler(
 		client.accountStateChan,
@@ -1046,24 +1045,24 @@ func (client *Client) RegisterBlsForAccount(privateKey string, publickey string,
 	}
 	signer := e_types.NewEIP155Signer(bigIntChainId)
 
-	from, err := e_types.Sender(signer, ethTx)
+	_, err = e_types.Sender(signer, ethTx)
 
 	if err != nil {
 		return nil, fmt.Errorf("transaction not found Sender")
 	}
 	// Gửi yêu cầu lấy trạng thái tài khoản
-	client.clientContext.MessageSender.SendBytes(
-		parentConn,
-		command.GetAccountState,
-		from.Bytes(),
-	)
-	bRelatedAddresses := make([][]byte, 0)
+	// client.clientContext.MessageSender.SendBytes(
+	// 	parentConn,
+	// 	command.GetAccountState,
+	// 	from.Bytes(),
+	// )
+	// bRelatedAddresses := make([][]byte, 0)
 
 	transaction, err := mt_transaction.NewTransactionFromEth(ethTx)
 	if err != nil {
 		return nil, fmt.Errorf("error buidl  NewTransactionFromEth: %w", err)
 	}
-	transaction.UpdateRelatedAddresses(bRelatedAddresses)
+	// transaction.UpdateRelatedAddresses(bRelatedAddresses)
 	transaction.SetSign(client.clientContext.KeyPair.PrivateKey())
 
 	// logger.Info(transaction)
@@ -1080,37 +1079,49 @@ func (client *Client) RegisterBlsForAccount(privateKey string, publickey string,
 	return receipt, nil
 }
 
-func (client *Client) AddAccountForClient(privateKey string, chainId string) (types.Receipt, error) {
-	publickey := client.clientContext.KeyPair.PublicKey().String()
-	return client.RegisterBlsForAccount(privateKey, publickey, chainId)
-}
+func (client *Client) RegisterBlsForAccountAsync(privateKey string, publickey string, chainId string) (common.Hash, error) {
+	bigIntChainId, success := new(big.Int).SetString(chainId, 10)
+	if !success {
+		logger.Info("Chuyển đổi thất bại cho chuỗi: %s\n", chainId)
+		return common.Hash{}, fmt.Errorf("chuyển đổi thất bại cho chuỗi: %s", chainId)
+	}
+	ethTx, err := CreateSignedSetBLSPublicKeyTx(privateKey, publickey, bigIntChainId)
+	if err != nil {
+		return common.Hash{}, err
+	}
 
-func (client *Client) BuildTransactionTx0(
-	ethTx *e_types.Transaction,
-	as types.AccountState,
-) (types.Transaction, error) {
-	newDeviceKey := common.HexToHash(
-		"0000000000000000000000000000000000000000000000000000000000000000",
-	)
+	// Lấy kết nối tới Parent Node
+	parentConn := client.clientContext.ConnectionsManager.ParentConnection()
+	if parentConn == nil || !parentConn.IsConnect() {
+		err := client.ReconnectToParent()
+		if err != nil {
+			return common.Hash{}, err
+		}
+	}
+	signer := e_types.NewEIP155Signer(bigIntChainId)
 
-	rawNewDeviceKeyBytes := []byte(fmt.Sprintf("%s-%d", hex.EncodeToString(as.LastHash().Bytes()), time.Now().Unix()))
-
-	rawNewDeviceKey := crypto.Keccak256(rawNewDeviceKeyBytes)
-
-	deviceKey := crypto.Keccak256Hash(rawNewDeviceKey)
-
-	bRelatedAddresses := make([][]byte, 0)
+	_, err = e_types.Sender(signer, ethTx)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("transaction not found Sender")
+	}
 
 	transaction, err := mt_transaction.NewTransactionFromEth(ethTx)
 	if err != nil {
-		return nil, fmt.Errorf("error buidl  NewTransactionFromEth: %w", err)
+		return common.Hash{}, fmt.Errorf("error buidl  NewTransactionFromEth: %w", err)
 	}
-
-	transaction.UpdateRelatedAddresses(bRelatedAddresses)
-	transaction.UpdateDeriver(deviceKey, newDeviceKey)
 	transaction.SetSign(client.clientContext.KeyPair.PrivateKey())
 
-	return transaction, err
+	_, err = client.transactionController.SendNewTransaction(transaction)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	// User had temporarily added waitReceipt here to debug. We remove it to keep it async.
+	return ethTx.Hash(), nil
+}
+
+func (client *Client) AddAccountForClient(privateKey string, chainId string) (types.Receipt, error) {
+	publickey := client.clientContext.KeyPair.PublicKey().String()
+	return client.RegisterBlsForAccount(privateKey, publickey, chainId)
 }
 
 func CreateSignedSetBLSPublicKeyTx(

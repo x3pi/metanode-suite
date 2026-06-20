@@ -278,10 +278,8 @@ func (s *SocketServer) OnConnect(conn network.Connection) {
 	parentConn := s.connectionsManager.ParentConnection()
 	if parentConn != nil {
 		addressForInitMsgBytes = parentConn.Address().Bytes()
-		fmt.Printf("[ONCONNECT] Sử dụng parent address: %s\n", parentConn.Address().Hex())
 	} else {
 		addressForInitMsgBytes = s.keyPair.Address().Bytes()
-		fmt.Printf("[ONCONNECT] Không có parent, sử dụng keyPair address: %s\n", s.keyPair.Address().Hex())
 	}
 	initMsg := &pb.InitConnection{
 		Address: addressForInitMsgBytes,
