@@ -24,10 +24,11 @@ import (
 )
 
 type AppConfig struct {
-	PublicKeyBLS   string   `json:"public_key_bls"`
-	TransferAmount string   `json:"transfer_amount"`
-	ChainId        string   `json:"chainId"`
-	WalletPool     []string `json:"wallet_pool"`
+	PublicKeyBLS            string   `json:"public_key_bls"`
+	TransferAmount          string   `json:"transfer_amount"`
+	ChainId                 string   `json:"chainId"`
+	WalletPool              []string `json:"wallet_pool"`
+	ParentConnectionAddress []string `json:"parent_connection_address"`
 }
 
 type GeneratedKey struct {
@@ -93,11 +94,15 @@ func main() {
 	}
 
 	// 2. Kết nối tới Chain qua TCP
-	fmt.Printf("🔌 Connecting to TCP: %s\n", cfg.ConnectionAddress())
+	fmt.Printf("🔌 Connecting to TCP pool (Load balancing across %d nodes)\n", len(appCfg.ParentConnectionAddress))
 	poolSize := 200
 	var clientPool []*client_tcp.Client
 	for i := 0; i < poolSize; i++ {
-		tcpClient, err := client_tcp.NewClient(cfg)
+		cfgClone := *cfg
+		if len(appCfg.ParentConnectionAddress) > 0 {
+			cfgClone.ParentConnectionAddress = appCfg.ParentConnectionAddress[i%len(appCfg.ParentConnectionAddress)]
+		}
+		tcpClient, err := client_tcp.NewClient(&cfgClone)
 		if err != nil {
 			log.Fatalf("❌ Lỗi kết nối TCP: %v", err)
 		}

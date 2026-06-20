@@ -2,8 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"math/rand"
 	"os"
+	"reflect"
 	"strings"
+	"time"
 
 	"tool-test/pkg/bls"
 	p_common "tool-test/pkg/common"
@@ -14,6 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 )
+
+var r = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 type RemoteChain struct {
 	Name                    string `json:"name"`
@@ -36,12 +41,12 @@ type ClientConfig struct {
 	TransactionFeeHex string       `json:"transaction_fee"`
 	TransactionFee    *uint256.Int `json:"-"`
 
-	ParentAddress           string `json:"parent_address"`
-	ParentConnectionAddress string `json:"parent_connection_address"`
-	ParentConnectionType    string `json:"parent_connection_type"`
-	ChainId                 uint64 `json:"chain_id"`
-	NationId                uint64 `json:"nation_id"`
-	HttpRpc                 string `json:"http_rpc"`
+	ParentAddress           string      `json:"parent_address"`
+	ParentConnectionAddress interface{} `json:"parent_connection_address"`
+	ParentConnectionType    string      `json:"parent_connection_type"`
+	ChainId                 uint64      `json:"chain_id"`
+	NationId                uint64      `json:"nation_id"`
+	HttpRpc                 string      `json:"http_rpc"`
 
 	// Supervisor fields (merged from config-1.json)
 	LogPath string `json:"log_path"`
@@ -58,6 +63,22 @@ func (c *ClientConfig) ConnectionAddress() string {
 
 func (c *ClientConfig) PublicConnectionAddress() string {
 	return c.PublicConnectionAddress_
+}
+
+func (c *ClientConfig) GetParentConnectionAddress() string {
+	if c.ParentConnectionAddress == nil {
+		return ""
+	}
+	switch v := c.ParentConnectionAddress.(type) {
+	case string:
+		return v
+	case []interface{}:
+		logger.Error("Invalid parent connection address, not string or array")
+		return ""
+	default:
+		logger.Error("Invalid parent connection address, type is " + reflect.TypeOf(v).String())
+		return ""
+	}
 }
 
 func (c *ClientConfig) Version() string {

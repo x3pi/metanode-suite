@@ -130,8 +130,8 @@ func NewClient(
 		config.ParentConnectionType,
 		nil,
 	)
-	logger.Info("Connecting to parent node at %s", config.ParentConnectionAddress)
-	parentConn.SetRealConnAddr(config.ParentConnectionAddress)
+	logger.Info("Connecting to parent node at %s", config.GetParentConnectionAddress())
+	parentConn.SetRealConnAddr(config.GetParentConnectionAddress())
 	clientContext.Handler = c_network.NewHandler(
 		client.accountStateChan,
 		client.receiptChan,
@@ -170,7 +170,7 @@ func NewClient(
 				config.ParentConnectionType,
 				nil,
 			)
-			parentConn.SetRealConnAddr(config.ParentConnectionAddress)
+			parentConn.SetRealConnAddr(config.GetParentConnectionAddress())
 			continue
 		}
 		break
@@ -735,7 +735,7 @@ func (client *Client) ReconnectToParent() error {
 		client.clientContext.Config.ParentConnectionType,
 		nil,
 	)
-	parentConn.SetRealConnAddr(client.clientContext.Config.ParentConnectionAddress)
+	parentConn.SetRealConnAddr(client.clientContext.Config.GetParentConnectionAddress())
 	err := parentConn.Connect()
 	if err != nil {
 		return err

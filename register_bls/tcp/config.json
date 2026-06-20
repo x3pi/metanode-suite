@@ -1,6 +1,11 @@
 {
     "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
-    "parent_connection_address": "192.168.1.234:6200",
+    "parent_connection_address": [
+        "192.168.1.234:6200",
+        "192.168.1.234:6201",
+        "192.168.1.234:6202",
+        "192.168.1.234:6203"
+    ],
     "wallet_pool": [
         "0x8cF200967660DB21739CaC872e64Bb5cfFBA0049",
         "0x7174Ad7F17a5B57a7d1835ba1a942521407c0dC6",
