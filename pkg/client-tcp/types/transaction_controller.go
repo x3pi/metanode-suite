@@ -109,6 +109,10 @@ type TransactionController interface {
 	) error
 	SendTransactions(transactions []types.Transaction) error
 
+	SendNewTransaction(
+		tx types.Transaction,
+	) (types.Transaction, error)
+
 	SendNewTransactionWithDeviceKey(
 		tx types.Transaction,
 		deviceKey []byte,

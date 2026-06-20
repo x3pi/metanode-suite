@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
@@ -19,17 +18,16 @@ import (
 	"tool-test/pkg/logger"
 	pb "tool-test/pkg/proto"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	e_types "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type AppConfig struct {
-	WalletPool     []string `json:"wallet_pool"`
 	PublicKeyBLS   string   `json:"public_key_bls"`
 	TransferAmount string   `json:"transfer_amount"`
+	ChainId        string   `json:"chainId"`
+	WalletPool     []string `json:"wallet_pool"`
 }
 
 type GeneratedKey struct {
@@ -69,9 +67,13 @@ func main() {
 		log.Fatalf("❌ Lỗi parse AppConfig: %v", err)
 	}
 
-	if len(appCfg.WalletPool) == 0 {
-		log.Fatalf("❌ wallet_pool trống, không có địa chỉ nào để chuyển tiền")
+	// Cập nhật cfg.ChainId từ AppConfig (config.json dùng "chainId" dạng string)
+	if appCfg.ChainId != "" {
+		if chainIdUint, ok := new(big.Int).SetString(appCfg.ChainId, 10); ok {
+			cfg.ChainId = chainIdUint.Uint64()
+		}
 	}
+
 	if appCfg.PublicKeyBLS == "" {
 		log.Fatalf("❌ Không có public_key_bls nào để đăng ký")
 	}
@@ -92,19 +94,16 @@ func main() {
 
 	// 2. Kết nối tới Chain qua TCP
 	fmt.Printf("🔌 Connecting to TCP: %s\n", cfg.ConnectionAddress())
-	tcpClient, err := client_tcp.NewClient(cfg)
-	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối TCP: %v", err)
+	poolSize := 200
+	var clientPool []*client_tcp.Client
+	for i := 0; i < poolSize; i++ {
+		tcpClient, err := client_tcp.NewClient(cfg)
+		if err != nil {
+			log.Fatalf("❌ Lỗi kết nối TCP: %v", err)
+		}
+		clientPool = append(clientPool, tcpClient)
 	}
-	time.Sleep(1 * time.Second)
-
-	chainIDStr, err := tcpClient.RpcGetChainId()
-	if err != nil {
-		log.Fatalf("❌ Lỗi lấy ChainID: %v", err)
-	}
-	chainID := new(big.Int)
-	chainID.SetString(strings.TrimPrefix(chainIDStr, "0x"), 16)
-	fmt.Printf("✅ Connected to Chain ID: %s\n", chainID.String())
+	// Không cần ChainID vì gửi qua TCP không dùng e_types.SignTx
 
 	// =====================================================================
 	// BƯỚC 1: TẠO VÍ MỚI & LƯU FILE
@@ -127,9 +126,9 @@ func main() {
 		})
 	}
 
-	outputPath := "/home/nhat/Workspace/go-project/metanode-suite/test_tps/gen_spam_keys/generated_keys.json"
+	outputPath := "../../test_tps/gen_spam_keys/generated_keys.json"
 	os.MkdirAll(filepath.Dir(outputPath), 0755)
-	
+
 	fileBytes, err := json.MarshalIndent(generatedKeys, "", "  ")
 	if err != nil {
 		log.Fatalf("❌ Lỗi format JSON output: %v", err)
@@ -139,16 +138,7 @@ func main() {
 	}
 	fmt.Printf("✅ Đã lưu %d ví vào %s\n", numWallets, outputPath)
 
-	// Chuẩn bị payload setBlsPublicKey
-	contractAddr := common.HexToAddress("0x00000000000000000000000000000000D844bb55")
-	abiJSON := `[{"inputs":[{"internalType":"bytes","name":"publicKey","type":"bytes"}],"name":"setBlsPublicKey","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"}]`
-	parsedABI, _ := abi.JSON(strings.NewReader(abiJSON))
-
-	blsKeyBytes, err := hexutil.Decode("0x" + strings.TrimPrefix(appCfg.PublicKeyBLS, "0x"))
-	if err != nil {
-		log.Fatalf("❌ Lỗi decode BLS key: %v", err)
-	}
-	blsData, _ := parsedABI.Pack("setBlsPublicKey", blsKeyBytes)
+	// Chuẩn bị payload setBlsPublicKey được xử lý bên trong RegisterBlsForAccount
 
 	// =====================================================================
 	// BƯỚC 2: GỌI ĐĂNG KÝ BLS CHO TẤT CẢ VÍ TRƯỚC (Concurrently)
@@ -156,41 +146,38 @@ func main() {
 	fmt.Printf("\n[2] Đang đăng ký BLS cho %d ví mới...\n", numWallets)
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 50) // Giới hạn 50 goroutines đồng thời
+	sem := make(chan struct{}, 500) // Giới hạn 50 goroutines đồng thời
 	successCount := 0
 	var mu sync.Mutex
 
-	for _, key := range generatedKeys {
+	for i, key := range generatedKeys {
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(k GeneratedKey) {
+		go func(k GeneratedKey, idx int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-
-			privKey, _ := crypto.HexToECDSA(k.PrivateKey)
-			newNonce, _ := tcpClient.RpcGetPendingNonce(common.HexToAddress(k.Address))
-
-			blsTx := e_types.NewTransaction(newNonce, contractAddr, big.NewInt(0), 100000, big.NewInt(2000000000), blsData)
-			signedBlsTx, err := e_types.SignTx(blsTx, e_types.LatestSignerForChainID(chainID), privKey)
-			if err != nil {
-				fmt.Printf("❌ Ví %d: Lỗi ký tx setBlsPublicKey: %v\n", k.Index, err)
-				return
-			}
-
-			blsTxBytes, _ := signedBlsTx.MarshalBinary()
-			txHash, _, err := tcpClient.RpcSendRawTransactionWithReceipt(hexutil.Encode(blsTxBytes))
+			client := clientPool[idx%len(clientPool)]
+			// Sử dụng hàm RegisterBlsForAccount để tạo EthTx với chữ ký SECP đúng chuẩn
+			chainIdStr := appCfg.ChainId
+			receipt, err := client.RegisterBlsForAccount(k.PrivateKey, appCfg.PublicKeyBLS, chainIdStr)
 			if err != nil {
 				fmt.Printf("❌ Ví %d: Lỗi gửi tx setBlsPublicKey: %v\n", k.Index, err)
-			} else {
+			} else if receipt != nil && (receipt.Status() == pb.RECEIPT_STATUS_RETURNED || receipt.Status() == pb.RECEIPT_STATUS_HALTED) {
 				mu.Lock()
 				successCount++
 				if successCount%100 == 0 || successCount == numWallets {
-					fmt.Printf("   ✅ Đã đăng ký BLS thành công %d/%d ví (Last Tx: %s)\n", successCount, numWallets, txHash)
+					fmt.Printf("   ✅ Đã đăng ký BLS thành công %d/%d ví (Last Tx: %s)\n", successCount, numWallets, receipt.TransactionHash().Hex())
 				}
 				mu.Unlock()
+			} else {
+				var status string
+				if receipt != nil {
+					status = receipt.Status().String()
+				}
+				fmt.Printf("❌ Ví %d: Đăng ký BLS thất bại (Status: %s)\n", k.Index, status)
 			}
-		}(key)
+		}(key, i)
 	}
 	wg.Wait()
 	fmt.Printf("✅ Đăng ký xong BLS (%d/%d thành công).\n", successCount, numWallets)
@@ -199,42 +186,70 @@ func main() {
 	// BƯỚC 3: CHUYỂN TIỀN VÀO CÁC VÍ VỪA TẠO (Sequentially)
 	// =====================================================================
 	fmt.Printf("\n[3] Đang tiến hành chuyển tiền vào %d ví mới...\n", numWallets)
-	
-	funderIndex := 0
+
 	fundSuccess := 0
+	var fundMu sync.Mutex
+	var fundWg sync.WaitGroup
 
+	// Tạo channel chứa các ví cần nhận tiền
+	jobs := make(chan GeneratedKey, len(generatedKeys))
 	for _, key := range generatedKeys {
-		funderAddrHex := appCfg.WalletPool[funderIndex%len(appCfg.WalletPool)]
-		funderIndex++
+		jobs <- key
+	}
+	close(jobs)
 
-		fromAddress := common.HexToAddress(funderAddrHex)
-		toAddress := common.HexToAddress(key.Address)
-
-		receipt, err := tx_helper.SendTransaction(
-			"NativeTransfer",
-			tcpClient,
-			cfg,
-			toAddress,
-			fromAddress,
-			nil, // data
-			&tx_models.TxOptions{Amount: transferAmount},
-		)
-
-		if err != nil {
-			fmt.Printf("❌ Ví %d (%s): Lỗi chuyển tiền: %v\n", key.Index, toAddress.Hex(), err)
-			continue
-		}
-
-		if receipt != nil && (receipt.Status() == pb.RECEIPT_STATUS_RETURNED || receipt.Status() == pb.RECEIPT_STATUS_HALTED) {
-			fundSuccess++
-			if fundSuccess%100 == 0 || fundSuccess == numWallets {
-				fmt.Printf("   ✅ Đã chuyển tiền thành công %d/%d ví (Tx: %s)\n", fundSuccess, numWallets, receipt.TransactionHash().Hex())
-			}
-		} else {
-			fmt.Printf("❌ Ví %d: Chuyển tiền thất bại (Status: %s)\n", key.Index, receipt.Status().String())
-		}
+	// Danh sách các ví sẽ làm nhiệm vụ đi gửi tiền
+	fundingWallets := []string{cfg.Address().Hex()}
+	if len(appCfg.WalletPool) > 0 {
+		fundingWallets = appCfg.WalletPool
 	}
 
+	// Mở mỗi ví gửi tiền thành 1 worker (như vậy 1 ví không bao giờ bị dùng song song -> tránh lỗi nonce)
+	// Các worker sẽ tranh nhau lấy job (ví nhận) từ trong channel để xử lý
+	for workerID, walletAddrStr := range fundingWallets {
+		fundWg.Add(1)
+		go func(wID int, fromAddrStr string) {
+			defer fundWg.Done()
+
+			fromAddress := common.HexToAddress(fromAddrStr)
+			client := clientPool[wID%len(clientPool)]
+
+			for key := range jobs {
+				toAddress := common.HexToAddress(key.Address)
+				receipt, err := tx_helper.SendTransactionNoneKey(
+					"NativeTransfer",
+					client,
+					cfg,
+					toAddress,
+					fromAddress,
+					nil, // data
+					&tx_models.TxOptions{Amount: transferAmount},
+				)
+
+				if err != nil {
+					fmt.Printf("❌ Ví %d (%s): Lỗi chuyển tiền từ %s: %v\n", key.Index, toAddress.Hex(), fromAddress.Hex(), err)
+					continue
+				}
+
+				if receipt != nil && (receipt.Status() == pb.RECEIPT_STATUS_RETURNED || receipt.Status() == pb.RECEIPT_STATUS_HALTED) {
+					fundMu.Lock()
+					fundSuccess++
+					if fundSuccess%100 == 0 || fundSuccess == numWallets {
+						fmt.Printf("   ✅ Đã chuyển tiền thành công %d/%d ví (Tx: %s)\n", fundSuccess, numWallets, receipt.TransactionHash().Hex())
+					}
+					fundMu.Unlock()
+				} else {
+					var status string
+					if receipt != nil {
+						status = receipt.Status().String()
+					}
+					fmt.Printf("❌ Ví %d: Chuyển tiền thất bại (Status: %s)\n", key.Index, status)
+				}
+			}
+		}(workerID, walletAddrStr)
+	}
+
+	fundWg.Wait()
 	fmt.Printf("✅ Hoàn thành chuyển tiền (%d/%d thành công).\n", fundSuccess, numWallets)
 	fmt.Println("\n==================================================")
 	fmt.Println("🎉 TẤT CẢ QUÁ TRÌNH ĐÃ HOÀN TẤT!")

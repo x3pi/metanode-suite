@@ -206,12 +206,6 @@ func (cm *ConnectionsManager) AddParentConnection(conn network.Connection) {
 		return
 	}
 	cm.parentConnection = conn
-	fmt.Printf("[CONN_MANAGER] ✅ AddParentConnection: Đã thêm/cập nhật parent connection\n")
-	fmt.Printf("[CONN_MANAGER] Parent address: %s\n", conn.Address().Hex())
-	fmt.Printf("[CONN_MANAGER] Parent remote: %s\n", conn.RemoteAddrSafe())
-	fmt.Printf("[CONN_MANAGER] Parent type: %s\n", conn.Type())
-	fmt.Printf("[CONN_MANAGER] Parent connected: %v\n", conn.IsConnect())
-	logger.Info("AddParentConnection: Đã thêm/cập nhật kết nối cha: %s", conn.String())
 }
 
 func (cm *ConnectionsManager) RemoveConnection(conn network.Connection) {

@@ -546,6 +546,7 @@ func (client *Client) runReceiptRouter() {
 			if receipt == nil {
 				continue
 			}
+			// logger.Info("___________-receipt %v", receipt)
 			txHash := receipt.TransactionHash()
 			receiptHash := receipt.RHash()
 			// Kiểm tra waiters dựa trên TransactionHash
@@ -674,22 +675,38 @@ func (client *Client) waitReceipt(txHash common.Hash, matchType receiptMatchType
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
-	select {
-	case receipt := <-responseCh:
-		return receipt, nil
-	case <-timer.C:
-		client.receiptRequests <- receiptRequest{
-			action:     receiptRequestCancel,
-			txHash:     txHash,
-			matchType:  matchType,
-			responseCh: responseCh,
-		}
+	for {
 		select {
 		case receipt := <-responseCh:
 			return receipt, nil
-		default:
+		case txErr := <-client.transactionErrorChan:
+			errHash := common.BytesToHash(txErr.Proto().Hash)
+			if errHash != txHash {
+				logger.Warn("⚠️ [TCP-CLIENT] Received TransactionError for a different tx: %s (expected: %s). Ignoring and continuing to wait.", errHash.Hex(), txHash.Hex())
+				continue
+			}
+			client.receiptRequests <- receiptRequest{
+				action:     receiptRequestCancel,
+				txHash:     txHash,
+				matchType:  matchType,
+				responseCh: responseCh,
+			}
+			logger.Error("transaction error:txHash %v \n desc %s \n output %s", errHash, txErr.Proto().Description, common.Bytes2Hex(txErr.Proto().Output))
+			return nil, fmt.Errorf("transaction error: output %s", common.BytesToHash(txErr.Proto().Output))
+		case <-timer.C:
+			client.receiptRequests <- receiptRequest{
+				action:     receiptRequestCancel,
+				txHash:     txHash,
+				matchType:  matchType,
+				responseCh: responseCh,
+			}
+			select {
+			case receipt := <-responseCh:
+				return receipt, nil
+			default:
+			}
+			return nil, fmt.Errorf("timeout (%s) waiting for receipt with txHash %s", timeout, txHash.Hex())
 		}
-		return nil, fmt.Errorf("timeout (%s) waiting for receipt with txHash %s", timeout, txHash.Hex())
 	}
 }
 
@@ -758,11 +775,24 @@ func (client *Client) SendTransaction(
 	newDeviceKey := common.HexToHash("0000000000000000000000000000000000000000000000000000000000000000")
 
 	var as types.AccountState
-	select {
-	case as = <-client.accountStateChan:
-	case <-time.After(10 * time.Second):
-		logger.DebugP("Timeout waiting for account state")
-		return nil, fmt.Errorf("timeout waiting for account state")
+	timeout := time.After(10 * time.Second)
+loop:
+	for {
+		select {
+		case state := <-client.accountStateChan:
+			if state.Address() == fromAddress {
+				as = state
+				break loop
+			}
+			// Đẩy lại vào channel nếu không đúng ví đang cần
+			go func(s types.AccountState) {
+				client.accountStateChan <- s
+			}(state)
+			time.Sleep(10 * time.Millisecond)
+		case <-timeout:
+			logger.DebugP("Timeout waiting for account state")
+			return nil, fmt.Errorf("timeout waiting for account state")
+		}
 	}
 
 	pendingBalance := as.PendingBalance()
@@ -995,13 +1025,12 @@ func (client *Client) EstimateGas(
 	return receipt, nil
 }
 
-func (client *Client) AddAccountForClient(privateKey string, chainId string) (types.Receipt, error) {
+func (client *Client) RegisterBlsForAccount(privateKey string, publickey string, chainId string) (types.Receipt, error) {
 	bigIntChainId, success := new(big.Int).SetString(chainId, 10)
 	if !success {
 		logger.Info("Chuyển đổi thất bại cho chuỗi: %s\n", chainId)
 		return nil, fmt.Errorf("chuyển đổi thất bại cho chuỗi: %s", chainId)
 	}
-	publickey := client.clientContext.KeyPair.PublicKey().String()
 	ethTx, err := CreateSignedSetBLSPublicKeyTx(privateKey, publickey, bigIntChainId)
 	if err != nil {
 		return nil, err
@@ -1028,42 +1057,32 @@ func (client *Client) AddAccountForClient(privateKey string, chainId string) (ty
 		command.GetAccountState,
 		from.Bytes(),
 	)
-	as := <-client.accountStateChan
-	logger.Info("as", as)
-
-	newDeviceKey := common.HexToHash(
-		"0000000000000000000000000000000000000000000000000000000000000000",
-	)
-	rawNewDeviceKeyBytes := []byte(fmt.Sprintf("%s-%d", hex.EncodeToString(as.LastHash().Bytes()), time.Now().Unix()))
-
-	rawNewDeviceKey := crypto.Keccak256(rawNewDeviceKeyBytes)
-
-	deviceKey := crypto.Keccak256Hash(rawNewDeviceKey)
-
 	bRelatedAddresses := make([][]byte, 0)
 
 	transaction, err := mt_transaction.NewTransactionFromEth(ethTx)
 	if err != nil {
 		return nil, fmt.Errorf("error buidl  NewTransactionFromEth: %w", err)
 	}
-	txByte, _ := ethTx.MarshalJSON()
-	fmt.Println(string(txByte))
-	logger.Info(transaction)
-
 	transaction.UpdateRelatedAddresses(bRelatedAddresses)
-	transaction.UpdateDeriver(deviceKey, newDeviceKey)
 	transaction.SetSign(client.clientContext.KeyPair.PrivateKey())
 
-	tx, err := client.transactionController.SendNewTransactionWithDeviceKey(transaction, newDeviceKey.Bytes())
+	// logger.Info(transaction)
+
+	tx, err := client.transactionController.SendNewTransaction(transaction)
 	if err != nil {
 		return nil, err
 	}
 
-	receipt, err := client.FindReceiptByHash(tx.Hash())
+	receipt, err := client.waitReceipt(tx.Hash(), matchByTxHash, 60*time.Second)
 	if err != nil {
 		return nil, err
 	}
 	return receipt, nil
+}
+
+func (client *Client) AddAccountForClient(privateKey string, chainId string) (types.Receipt, error) {
+	publickey := client.clientContext.KeyPair.PublicKey().String()
+	return client.RegisterBlsForAccount(privateKey, publickey, chainId)
 }
 
 func (client *Client) BuildTransactionTx0(
@@ -1233,53 +1252,12 @@ func (client *Client) SendTransactionWithDeviceKey(
 			return nil, err
 		}
 
-		// Chờ biên lai giao dịch (receipt) hoặc lỗi từ transactionErrorChan
-		responseCh := make(chan types.Receipt, 1)
-		client.receiptRequests <- receiptRequest{
-			action:     receiptRequestRegister,
-			txHash:     tx.Hash(),
-			matchType:  matchByTxHash,
-			responseCh: responseCh,
+		receipt, err := client.waitReceipt(tx.Hash(), matchByTxHash, 300*time.Second)
+		if err != nil {
+			return nil, err
 		}
-
-		timeout := time.NewTimer(300 * time.Second)
-		defer timeout.Stop()
-
-		for {
-			select {
-			case receipt := <-responseCh:
-				logger.Info("Receipt Data: %v", receipt)
-				return receipt, nil
-			case txErr := <-client.transactionErrorChan:
-				errHash := common.BytesToHash(txErr.Proto().Hash)
-				if errHash != tx.Hash() {
-					logger.Warn("⚠️ [TCP-CLIENT] Received TransactionError for a different tx: %s (expected: %s). Ignoring and continuing to wait.", errHash.Hex(), tx.Hash().Hex())
-					continue
-				}
-				client.receiptRequests <- receiptRequest{
-					action:     receiptRequestCancel,
-					txHash:     tx.Hash(),
-					matchType:  matchByTxHash,
-					responseCh: responseCh,
-				}
-				logger.Error("transaction error:txHash %v \n desc %s \n output %s", errHash, txErr.Proto().Description, common.Bytes2Hex(txErr.Proto().Output))
-				return nil, fmt.Errorf("transaction error: output %s", common.BytesToHash(txErr.Proto().Output))
-			case <-timeout.C:
-				client.receiptRequests <- receiptRequest{
-					action:     receiptRequestCancel,
-					txHash:     tx.Hash(),
-					matchType:  matchByTxHash,
-					responseCh: responseCh,
-				}
-				// Kiểm tra lần cuối nếu có receipt
-				select {
-				case receipt := <-responseCh:
-					return receipt, nil
-				default:
-				}
-				return nil, fmt.Errorf("timeout (20s) waiting for receipt with txHash %s", tx.Hash().Hex())
-			}
-		}
+		logger.Info("Receipt Data: %v", receipt)
+		return receipt, nil
 	}
 
 	// Nếu kênh accountStateChan bị đóng, trả lỗi
@@ -1419,92 +1397,6 @@ func (client *Client) AccountState(address common.Address) (types.AccountState, 
 	)
 	as := <-client.accountStateChan
 	return as, nil
-}
-
-func (client *Client) Get(address common.Address) (types.AccountState, error) {
-	// client.mu.Lock()
-	// defer client.mu.Unlock()
-	// get account state
-	parentConn := client.clientContext.ConnectionsManager.ParentConnection()
-	client.clientContext.MessageSender.SendBytes(
-		parentConn,
-		command.GetAccountState,
-		address.Bytes(),
-	)
-	as := <-client.accountStateChan
-	return as, nil
-}
-
-func NewStorageClient(
-	config *c_config.ClientConfig,
-	listSCAddress []common.Address,
-) (*Client, error) {
-	clientContext := &client_context.ClientContext{
-		Config: config,
-	}
-
-	client := Client{
-		clientContext:        clientContext,
-		accountStateChan:     make(chan types.AccountState, 1),
-		receiptChan:          make(chan types.Receipt, 1),
-		receiptRequests:      make(chan receiptRequest),
-		transactionErrorChan: make(chan *mt_transaction.TransactionHashWithError, 1),
-		subscribeSCAddresses: listSCAddress,
-	}
-
-	go client.runReceiptRouter()
-
-	clientContext.KeyPair = bls.NewKeyPair(config.PrivateKey())
-	clientContext.MessageSender = p_network.NewMessageSender(
-		config.Version(),
-	)
-	clientContext.ConnectionsManager = p_network.NewConnectionsManager()
-	parentConn := p_network.NewConnection(
-		common.HexToAddress(config.ParentAddress),
-		config.ParentConnectionType,
-		nil,
-	)
-	clientContext.Handler = c_network.NewHandler(
-		client.accountStateChan,
-		client.receiptChan,
-		client.deviceKeyChan,
-		client.transactionErrorChan,
-		client.nonce,
-	)
-	clientContext.SocketServer, _ = p_network.NewSocketServer(
-		nil,
-		clientContext.KeyPair,
-		clientContext.ConnectionsManager,
-		clientContext.Handler,
-		config.NodeType(),
-		config.Version(),
-	)
-	err := parentConn.Connect()
-	if err != nil {
-		return nil, err
-	} else {
-		// init connection
-		clientContext.ConnectionsManager.AddParentConnection(parentConn)
-		clientContext.SocketServer.OnConnect(parentConn)
-		go clientContext.SocketServer.HandleConnection(parentConn)
-	}
-
-	for _, address := range listSCAddress {
-		err = client.clientContext.MessageSender.SendBytes(parentConn, command.SubscribeToAddress, address.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("unable to send subscribe")
-		}
-	}
-
-	client.transactionController = controllers.NewTransactionController(
-		clientContext,
-	)
-
-	evenLogsChan := make(chan types.EventLogs)
-	client.clientContext.Handler.(*c_network.Handler).SetEventLogsChan(evenLogsChan)
-	client.clientContext.SocketServer.AddOnDisconnectedCallBack(client.RetryConnectToStorage)
-
-	return &client, nil
 }
 
 func (client *Client) Subcribe(
@@ -1705,7 +1597,6 @@ func (client *Client) NewEventLogsChan() chan types.EventLogs {
 
 func (client *Client) SendTransactionWithFullInfo(
 	fromAddress common.Address,
-
 	toAddress common.Address,
 	amount *big.Int,
 	maxGas uint64,

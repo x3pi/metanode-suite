@@ -530,6 +530,25 @@ type RunResult struct {
 
 //-----------------------//
 
+func (tc *TransactionController) SendNewTransaction(
+	transaction types.Transaction,
+) (types.Transaction, error) {
+
+	transaction.SetSign(tc.clientContext.KeyPair.PrivateKey())
+
+	bTransaction, err := transaction.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal transaction: %w", err)
+	}
+	parentConnection := tc.clientContext.ConnectionsManager.ParentConnection()
+	err = tc.clientContext.MessageSender.SendBytes(
+		parentConnection,
+		command.SendTransaction,
+		bTransaction,
+	)
+	return transaction, err
+}
+
 func (tc *TransactionController) SendNewTransactionWithDeviceKey(
 	transaction types.Transaction,
 	deviceKey []byte,

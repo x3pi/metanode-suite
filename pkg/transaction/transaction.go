@@ -680,6 +680,7 @@ func (t *Transaction) BRelatedAddresses() [][]byte {
 
 func (t *Transaction) UpdateRelatedAddresses(relatedAddresses [][]byte) {
 	t.proto.RelatedAddresses = relatedAddresses
+	t.ClearCacheHash()
 }
 
 func (t *Transaction) AddRelatedAddress(address common.Address) {
@@ -692,11 +693,13 @@ func (t *Transaction) AddRelatedAddress(address common.Address) {
 
 	// Thêm địa chỉ mới vào mảng
 	t.proto.RelatedAddresses = append(t.proto.RelatedAddresses, address.Bytes())
+	t.ClearCacheHash()
 }
 
 func (t *Transaction) UpdateDeriver(LastDeviceKey, NewDeviceKey common.Hash) {
 	t.proto.LastDeviceKey = LastDeviceKey.Bytes()
 	t.proto.NewDeviceKey = NewDeviceKey.Bytes()
+	t.ClearCacheHash()
 }
 
 func (t *Transaction) SetReadOnly(readOnly bool) {

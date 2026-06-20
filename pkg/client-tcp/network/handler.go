@@ -160,6 +160,19 @@ func (h *Handler) handleAccountState(request network.Request) (err error) {
 }
 func (h *Handler) handleTransactionError(request network.Request) (err error) {
 	msg := request.Message()
+
+	// Parse and log for debugging
+	transactionError := &transaction.TransactionHashWithError{}
+	if err = transactionError.Unmarshal(msg.Body()); err == nil {
+		// errHash := common.BytesToHash(transactionError.Proto().Hash).Hex()
+		// desc := transactionError.Proto().Description
+		// outputStr := string(transactionError.Proto().Output)
+		// logger.Error("🚨 [TCP-CLIENT HANDLER] Received TransactionError! txHash: %s, desc: %s, output: %s", errHash, desc, outputStr)
+	} else {
+		logger.Error("🚨 [TCP-CLIENT HANDLER] Failed to unmarshal TransactionError: %v", err)
+		return err
+	}
+
 	id := msg.ID()
 	// Nếu có header ID → dispatch vào pendingChainRequests (match với sendChainRequest caller)
 	// Để SendTransactionFromWallet nhận error qua ID, không lẫn với channel cũ
@@ -173,11 +186,6 @@ func (h *Handler) handleTransactionError(request network.Request) (err error) {
 
 	// Fallback: không có ID hoặc không match → đẩy vào transactionErrorChan cũ
 	// (dùng bởi SendTransactionWithDeviceKey)
-	transactionError := &transaction.TransactionHashWithError{}
-	err = transactionError.Unmarshal(msg.Body())
-	if err != nil {
-		return err
-	}
 	h.transactionErrorChan <- transactionError
 	return nil
 }
@@ -383,7 +391,9 @@ func (h *Handler) handleChainResponse(request network.Request) error {
 		ch := val.(chan network.Message)
 		ch <- msg
 	} else {
-		logger.Warn("handleChainResponse: no pending request for id=%s cmd=%s", id, msg.Command())
+		if msg.Command() != "TransactionSuccess" {
+			logger.Warn("handleChainResponse: no pending request for id=%s cmd=%s", id, msg.Command())
+		}
 	}
 	return nil
 }

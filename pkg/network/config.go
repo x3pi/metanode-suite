@@ -36,7 +36,7 @@ func DefaultConfig() *Config {
 	} else if numCPU < 16 {
 		numWorkers = 32 // Tối thiểu 32 workers
 	} else {
-		numWorkers = 64 // Tối thiểu 64 workers cho hệ thống lớn
+		numWorkers = 124 // Tối thiểu 64 workers cho hệ thống lớn
 		// Max workers vẫn giữ ở 256 để có thể scale up khi cần
 		if numWorkers > 256 {
 			numWorkers = 256

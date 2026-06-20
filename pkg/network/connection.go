@@ -813,8 +813,6 @@ func (c *Connection) readLoop(tcpConn net.Conn, requestChan chan<- network.Reque
 	reader := bufio.NewReader(tcpConn)
 	remoteAddr := tcpConn.RemoteAddr().String()
 
-	logger.Info("readLoop %s: started", remoteAddr)
-
 	// Hàm này xử lý việc gửi các lỗi nghiêm trọng (khiến kết nối phải đóng)
 	// một cách an toàn để không bị panic.
 	handleTerminalError := func(err error, context string) {
@@ -869,7 +867,7 @@ func (c *Connection) readLoop(tcpConn net.Conn, requestChan chan<- network.Reque
 			return
 		}
 		rcmd := msgProto.GetHeader().GetCommand()
-		if rcmd != "block_data_topic" && rcmd != "Ping" && rcmd != "Pong" && rcmd != "KeepAlive" && rcmd != "GetTransactionReceipt" && rcmd != "TransactionReceipt" {
+		if rcmd != "block_data_topic" && rcmd != "Ping" && rcmd != "Pong" && rcmd != "KeepAlive" && rcmd != "GetTransactionReceipt" && rcmd != "TransactionReceipt" && rcmd != "Receipt" && rcmd != "InitConnection" && rcmd != "AccountState" && rcmd != "TransactionSuccess" && rcmd != "TransactionSuccess" {
 			logger.Info(
 				"readLoop %s: received command %s (%d bytes body)",
 				remoteAddr,
