@@ -114,8 +114,10 @@ func loadConfig(path string) (*tcp_config.ClientConfig, ToolConfig, error) {
 		return nil, ToolConfig{}, err
 	}
 
-	if len(toolCfg.ConnectionAddresses) == 0 && strings.TrimSpace(baseCfg.ParentConnectionAddress) != "" {
-		toolCfg.ConnectionAddresses = []string{baseCfg.ParentConnectionAddress}
+	if len(toolCfg.ConnectionAddresses) == 0 {
+		if parentAddr, ok := baseCfg.ParentConnectionAddress.(string); ok && strings.TrimSpace(parentAddr) != "" {
+			toolCfg.ConnectionAddresses = []string{parentAddr}
+		}
 	}
 
 	return baseCfg, toolCfg, nil
