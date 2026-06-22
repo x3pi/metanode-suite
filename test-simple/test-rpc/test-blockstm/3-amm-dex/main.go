@@ -30,7 +30,7 @@ type Config struct {
 }
 
 func main() {
-	configPath := "../../update-same-contract/config.json"
+	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
