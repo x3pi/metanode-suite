@@ -315,23 +315,23 @@ func main() {
 	reportFilename := fmt.Sprintf("reports/tps_report_%s.md", time.Now().Format("20060102_150405"))
 	cleanupReports()
 	var (
-		configPath     string
-		keysFile       string
-		count          int
-		batchSize      int
-		sleepMs        int
-		nodeAddr       string
-		rpcAddr        string
-		waitSecs       int
-		recipient      string
-		destId         int
-		amountWei      string
-		numRounds      int
-		loadBalance    bool
-		verify         bool
-		epochWait      int
-		targetNode     int
-		trace          bool
+		configPath  string
+		keysFile    string
+		count       int
+		batchSize   int
+		sleepMs     int
+		nodeAddr    string
+		rpcAddr     string
+		waitSecs    int
+		recipient   string
+		destId      int
+		amountWei   string
+		numRounds   int
+		loadBalance bool
+		verify      bool
+		epochWait   int
+		targetNode  int
+		trace       bool
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -1406,13 +1406,7 @@ func main() {
 		maxTxInBlock := 0
 		totalTxInBlocks := 0
 
-		var prevTimestamp uint64
-		if startBlock > 0 {
-			prevBlk, err := rpcClient.GetBlockByNumber(startBlock)
-			if err == nil && prevBlk != nil {
-				prevTimestamp = prevBlk.Timestamp
-			}
-		}
+		var prevTimestamp uint64 = uint64(blastStart.UnixMilli())
 
 		var blockDetails strings.Builder
 		if !trace {
@@ -1430,7 +1424,7 @@ func main() {
 				if txCount > maxTxInBlock {
 					maxTxInBlock = txCount
 				}
-				
+
 				if !trace {
 					durationStr := "N/A"
 					if prevTimestamp > 0 && blkInfo.Timestamp > prevTimestamp {
@@ -1494,6 +1488,8 @@ func main() {
 		sb.WriteString(fmt.Sprintf("\n\n═══════════════════════════════════════════════════\n"))
 		sb.WriteString(fmt.Sprintf("  📊 ROUND %d RESULTS\n", round))
 		sb.WriteString(fmt.Sprintf("═══════════════════════════════════════════════════\n"))
+		sb.WriteString(fmt.Sprintf("  🧱 Start Block:          %d\n", startBlock+1))
+		sb.WriteString(fmt.Sprintf("  🧱 End Block:            %d\n", endBlock))
 		sb.WriteString(fmt.Sprintf("  📤 Total TXs sent:       %d\n", len(allTxs)))
 		sb.WriteString(fmt.Sprintf("  🚀 Injection TPS:        %.0f tx/s\n", injectionTPS))
 		sb.WriteString(fmt.Sprintf("  ⏱️  Injection time:       %s\n", blastDuration.Round(time.Millisecond)))
@@ -1527,8 +1523,10 @@ func main() {
 					sb.WriteString(fmt.Sprintf("  ❌ Could not fetch block traces: %v\n", err))
 				} else {
 					for _, t := range traces {
-						// Calculate real total including all phases
-						realTotalUs := float64(t.ConsensusDurationUs) +
+						// Calculate real total including all phases + wait times (End-to-End Node Latency)
+						realTotalUs := float64(t.WaitGoUs) +
+							float64(t.WaitRustUs) +
+							float64(t.ConsensusDurationUs) +
 							float64(t.ClientBatchProcessingUs) +
 							float64(t.ProcessTxsDurationUs) +
 							float64(t.TotalBlockDurationUs)
@@ -1573,106 +1571,106 @@ func main() {
 			time.Sleep(2 * time.Second)
 
 			fmt.Printf("  🔎 Verifying %d transactions (Balance & Receipt)...\n", len(allTxs))
-				var verifiedCount int64
-				var failedCount int64
+			var verifiedCount int64
+			var failedCount int64
 
-				// BƯỚC 1: Quét nhanh Balance cho toàn bộ TX (Pass 1)
-				var pass1Wg sync.WaitGroup
-				pass1Ch := make(chan int, len(allTxs))
+			// BƯỚC 1: Quét nhanh Balance cho toàn bộ TX (Pass 1)
+			var pass1Wg sync.WaitGroup
+			pass1Ch := make(chan int, len(allTxs))
 
-				// Hàng đợi cho những TX trượt bước 1
-				var pass2Txs []int
-				var pass2Mu sync.Mutex
+			// Hàng đợi cho những TX trượt bước 1
+			var pass2Txs []int
+			var pass2Mu sync.Mutex
+
+			for w := 0; w < 100; w++ {
+				pass1Wg.Add(1)
+				go func() {
+					defer pass1Wg.Done()
+					for idx := range pass1Ch {
+						tx := allTxs[idx]
+						rc := rpcPool[idx%len(rpcPool)]
+
+						as, err := rc.GetAccountState(tx.target.Hex())
+						if err == nil && as != nil && as.Balance.Cmp(tx.amount) >= 0 {
+							atomic.AddInt64(&verifiedCount, 1)
+						} else {
+							pass2Mu.Lock()
+							pass2Txs = append(pass2Txs, idx)
+							pass2Mu.Unlock()
+						}
+
+						done := atomic.LoadInt64(&verifiedCount) + int64(len(pass2Txs))
+						if done%1000 == 0 || done == int64(len(allTxs)) {
+							fmt.Printf("\r    [Pass 1] Checked Balance: %d/%d (Need Receipts: %d)   ", done, len(allTxs), len(pass2Txs))
+						}
+					}
+				}()
+			}
+
+			for i := range allTxs {
+				pass1Ch <- i
+			}
+			close(pass1Ch)
+			pass1Wg.Wait()
+
+			// BƯỚC 2: Nếu có TX chưa check được Balance, chờ 1 cục 5s rồi gặt mạng hỏi Receipt (Pass 2)
+			if len(pass2Txs) > 0 {
+				fmt.Printf("\n  ⏳ Mạng lag/Balance chưa lên, rớt lại %d TXs. Ngủ 5s trước khi quét Receipt...\n", len(pass2Txs))
+				time.Sleep(5 * time.Second)
+
+				var pass2Wg sync.WaitGroup
+				pass2Ch := make(chan int, len(pass2Txs))
 
 				for w := 0; w < 100; w++ {
-					pass1Wg.Add(1)
+					pass2Wg.Add(1)
 					go func() {
-						defer pass1Wg.Done()
-						for idx := range pass1Ch {
+						defer pass2Wg.Done()
+						for idx := range pass2Ch {
 							tx := allTxs[idx]
 							rc := rpcPool[idx%len(rpcPool)]
 
-							as, err := rc.GetAccountState(tx.target.Hex())
-							if err == nil && as != nil && as.Balance.Cmp(tx.amount) >= 0 {
+							// Kiểm tra Balance lại một lần nữa sau khi đã ngủ 5s (chắc cú 100%)
+							as, _ := rc.GetAccountState(tx.target.Hex())
+							if as != nil && as.Balance.Cmp(tx.amount) >= 0 {
+								// Tiền đã nổi sau 5s chờ
 								atomic.AddInt64(&verifiedCount, 1)
 							} else {
-								pass2Mu.Lock()
-								pass2Txs = append(pass2Txs, idx)
-								pass2Mu.Unlock()
+								// Nếu vẫn chưa up Balance (do RPC node bị delay cache), đành tin chuẩn xác vào Receipt
+								receipt, rErr := rc.GetReceipt(tx.txHash.Hex())
+								if rErr == nil && receipt != nil {
+									status := ""
+									if s, ok := receipt["status"].(string); ok {
+										status = s
+									} else if st, ok := receipt["Status"].(string); ok {
+										status = st
+									}
+
+									if status != "" && status != "0x0" && status != "FAILED" { // Lọc bớt status thất bại nếu có
+										atomic.AddInt64(&verifiedCount, 1)
+									} else {
+										atomic.AddInt64(&failedCount, 1)
+									}
+								} else {
+									atomic.AddInt64(&failedCount, 1)
+								}
 							}
 
-							done := atomic.LoadInt64(&verifiedCount) + int64(len(pass2Txs))
-							if done%1000 == 0 || done == int64(len(allTxs)) {
-								fmt.Printf("\r    [Pass 1] Checked Balance: %d/%d (Need Receipts: %d)   ", done, len(allTxs), len(pass2Txs))
+							done2 := atomic.LoadInt64(&verifiedCount) + atomic.LoadInt64(&failedCount)
+							if done2%1000 == 0 || done2 == int64(len(allTxs)) {
+								fmt.Printf("\r    [Pass 2] Fetching Receipts: %d/%d completed            ", done2, len(allTxs))
 							}
 						}
 					}()
 				}
 
-				for i := range allTxs {
-					pass1Ch <- i
+				for _, idx := range pass2Txs {
+					pass2Ch <- idx
 				}
-				close(pass1Ch)
-				pass1Wg.Wait()
+				close(pass2Ch)
+				pass2Wg.Wait()
+			}
 
-				// BƯỚC 2: Nếu có TX chưa check được Balance, chờ 1 cục 5s rồi gặt mạng hỏi Receipt (Pass 2)
-				if len(pass2Txs) > 0 {
-					fmt.Printf("\n  ⏳ Mạng lag/Balance chưa lên, rớt lại %d TXs. Ngủ 5s trước khi quét Receipt...\n", len(pass2Txs))
-					time.Sleep(5 * time.Second)
-
-					var pass2Wg sync.WaitGroup
-					pass2Ch := make(chan int, len(pass2Txs))
-
-					for w := 0; w < 100; w++ {
-						pass2Wg.Add(1)
-						go func() {
-							defer pass2Wg.Done()
-							for idx := range pass2Ch {
-								tx := allTxs[idx]
-								rc := rpcPool[idx%len(rpcPool)]
-
-								// Kiểm tra Balance lại một lần nữa sau khi đã ngủ 5s (chắc cú 100%)
-								as, _ := rc.GetAccountState(tx.target.Hex())
-								if as != nil && as.Balance.Cmp(tx.amount) >= 0 {
-									// Tiền đã nổi sau 5s chờ
-									atomic.AddInt64(&verifiedCount, 1)
-								} else {
-									// Nếu vẫn chưa up Balance (do RPC node bị delay cache), đành tin chuẩn xác vào Receipt
-									receipt, rErr := rc.GetReceipt(tx.txHash.Hex())
-									if rErr == nil && receipt != nil {
-										status := ""
-										if s, ok := receipt["status"].(string); ok {
-											status = s
-										} else if st, ok := receipt["Status"].(string); ok {
-											status = st
-										}
-
-										if status != "" && status != "0x0" && status != "FAILED" { // Lọc bớt status thất bại nếu có
-											atomic.AddInt64(&verifiedCount, 1)
-										} else {
-											atomic.AddInt64(&failedCount, 1)
-										}
-									} else {
-										atomic.AddInt64(&failedCount, 1)
-									}
-								}
-
-								done2 := atomic.LoadInt64(&verifiedCount) + atomic.LoadInt64(&failedCount)
-								if done2%1000 == 0 || done2 == int64(len(allTxs)) {
-									fmt.Printf("\r    [Pass 2] Fetching Receipts: %d/%d completed            ", done2, len(allTxs))
-								}
-							}
-						}()
-					}
-
-					for _, idx := range pass2Txs {
-						pass2Ch <- idx
-					}
-					close(pass2Ch)
-					pass2Wg.Wait()
-				}
-
-				fmt.Printf("\n  ✅ Kết quả: %d TXs xác nhận OK, %d TXs Lỗi\n", verifiedCount, failedCount)
+			fmt.Printf("\n  ✅ Kết quả: %d TXs xác nhận OK, %d TXs Lỗi\n", verifiedCount, failedCount)
 		}
 	} // end round loop
 

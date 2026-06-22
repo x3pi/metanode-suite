@@ -20,6 +20,7 @@
 | `--verify` | `false` | Xác minh số dư tài khoản nhận tiền sau khi hoàn thành mỗi vòng để đảm bảo giao dịch thực tế đã thành công. |
 | `--epoch-wait` | `600` | Thời gian tối đa (giây) chờ cho hệ thống chuyển dịch sang Epoch mới trước khi bắt đầu tính timeout giao dịch. Gán `0` để tắt chức năng này. |
 | `--target-node` | `0` | Chỉ định ID của node đích (từ `0` đến `3`) để gửi giao dịch. Công cụ tự động cấu hình TCP & RPC tương ứng từ `config.json`. |
+| `--trace` | `false` | Nếu bật `true`, công cụ sẽ tự động gọi RPC để lấy block traces (thông tin thời gian thực thi nội bộ) sau khi kết thúc mỗi vòng và in ra báo cáo. |
 
 ## ⚙️ Cơ chế định tuyến tự động & xử lý lỗi nghiêm ngặt (Strict Error Handling)
 
@@ -38,7 +39,7 @@ Từ phiên bản nâng cấp, công cụ hỗ trợ cơ chế định tuyến v
 go run main.go --count 5000 --target-node 2
 
 
-go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --amount 1 --config=config-multi.json
+go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amount 1 --config=config-multi.json --trace
 
 go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --amount 1
 ```
