@@ -4,6 +4,9 @@ set -e
 # Path to the source of node IPs
 RPC_NODES_FILE="/tmp/rpc_nodes.json"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 if [ ! -f "$RPC_NODES_FILE" ]; then
     echo "Error: $RPC_NODES_FILE not found." >&2
     exit 1
@@ -11,9 +14,9 @@ fi
 
 echo "Reading IPs and Proxy Ports from $RPC_NODES_FILE..."
 
-# 1. Update /home/abc/nhat/con-chain-v2/metanode-suite/test_tps/tps_blast_cc/config-multi.json
+# 1. Update $SUITE_DIR/test_tps/tps_blast_cc/config-multi.json
 # Note: For config-multi.json, we exclude node 4 as requested.
-FILE1="/home/abc/nhat/con-chain-v2/metanode-suite/test_tps/tps_blast_cc/config-multi.json"
+FILE1="$SUITE_DIR/test_tps/tps_blast_cc/config-multi.json"
 if [ -f "$FILE1" ]; then
     echo "Updating $FILE1 using RPC Proxies (excluding node 4)..."
     
@@ -40,9 +43,9 @@ else
     echo "Warning: $FILE1 not found." >&2
 fi
 
-# 2. Update /home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/test-history/config-mutil.json
+# 2. Update $SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json
 # Note: For test-history, we include node 4.
-FILE2="/home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/test-history/config-mutil.json"
+FILE2="$SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json"
 if [ -f "$FILE2" ]; then
     echo "Updating $FILE2 using RPC Proxies (including node 4)..."
     
@@ -65,9 +68,9 @@ else
     echo "Warning: $FILE2 not found." >&2
 fi
 
-# 3. Update /home/abc/nhat/con-chain-v2/metanode-suite/block/block_hash_checker/config-m-nodes.json
+# 3. Update $SUITE_DIR/block/block_hash_checker/config-m-nodes.json
 # Note: For checkhash, we include node 4 (m4).
-FILE3="/home/abc/nhat/con-chain-v2/metanode-suite/block/block_hash_checker/config-m-nodes.json"
+FILE3="$SUITE_DIR/block/block_hash_checker/config-m-nodes.json"
 if [ -f "$FILE3" ]; then
     echo "Updating $FILE3 using Nodes (including node 4)..."
     
@@ -90,8 +93,8 @@ fi
 
 echo "Done updating configs to use RPC proxies."
 
-# 4. Update /home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/spam_xapian/config-m-node.json
-FILE4="/home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/spam_xapian/config-m-node.json"
+# 4. Update $SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json
+FILE4="$SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json"
 if [ -f "$FILE4" ]; then
     echo "Updating $FILE4 using RPC Proxies (including node 4)..."
     

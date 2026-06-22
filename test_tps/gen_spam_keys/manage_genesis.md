@@ -20,6 +20,8 @@ Script cần truyền vào 3 tham số: lệnh cần chạy (`add` hoặc `remov
 **Ví dụ:**
 ```bash
 ./manage_genesis.py add ../../../metanode/deploy/systemd/genesis-main.json generated_keys.json.test
+./manage_genesis.py add ../../../metanode/deploy/systemd/genesis.json generated_keys.json.test
+
 ```
 
 ### 2. Lệnh `remove` (Xóa Accounts)
