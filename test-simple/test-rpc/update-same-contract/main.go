@@ -1,0 +1,270 @@
+package main
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"encoding/json"
+	"fmt"
+	"log"
+	"math/big"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+)
+
+// ABI definitions
+const counterABIJSON = `[
+  {"inputs":[],"name":"increment","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[],"name":"getCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"anonymous":false,"inputs":[{"indexed":false,"internalType":"uint256","name":"newCount","type":"uint256"}],"name":"Incremented","type":"event"}
+]`
+
+const bytecodeHex = "608060405234801561001057600080fd5b5061018d806100206000396000f3fe608060405234801561001057600080fd5b50600436106100365760003560e01c8063a87d942c1461003b578063d09de08a14610059575b600080fd5b610043610063565b60405161005091906100d9565b60405180910390f35b61006161006c565b005b60008054905090565b600160008082825461007e9190610123565b925050819055507f20d8a6f5a693f9d1d627a598e8820f7a55ee74c183aa8f1a30e8d4e8dd9a8d846000546040516100b691906100d9565b60405180910390a1565b6000819050919050565b6100d3816100c0565b82525050565b60006020820190506100ee60008301846100ca565b92915050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052601160045260246000fd5b600061012e826100c0565b9150610139836100c0565b9250828201905080821115610151576101506100f4565b5b9291505056fea2646970667358221220487e14772ceb7460e89e7109df397b92144493e6da6bbac032207cf630c7301064736f6c63430008140033"
+
+type Config struct {
+	RPCUrl      string   `json:"rpc_url"`
+	PrivateKeys []string `json:"private_keys"`
+	ChainID     int64    `json:"chain_id"`
+}
+
+func main() {
+	configPath := "config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		log.Fatalf("❌ Lỗi đọc config %s: %v", configPath, err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		log.Fatalf("❌ Lỗi parse config: %v", err)
+	}
+
+	client, err := ethclient.Dial(cfg.RPCUrl)
+	if err != nil {
+		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+	}
+
+	parsedABI, err := abi.JSON(strings.NewReader(counterABIJSON))
+	if err != nil {
+		log.Fatalf("❌ Lỗi parse ABI: %v", err)
+	}
+
+	bytecode, err := hexutil.Decode("0x" + bytecodeHex)
+	if err != nil {
+		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
+	}
+
+	if len(cfg.PrivateKeys) == 0 {
+		log.Fatalf("❌ Không có private key nào trong config")
+	}
+
+	// Use the first key to deploy
+	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		log.Fatalf("❌ Lỗi parse private key 0: %v", err)
+	}
+	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
+
+	fmt.Println("🚀 Deploying contract with Account 0...")
+	contractAddr, err := deployContract(client, pk0, cfg.ChainID, from0, bytecode)
+	if err != nil {
+		log.Fatalf("❌ Deploy thất bại: %v", err)
+	}
+	fmt.Printf("📌 Contract deployed at: %s\n\n", contractAddr.Hex())
+
+	var wg sync.WaitGroup
+	var errs []error
+	var errsMu sync.Mutex
+
+	fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update contract...\n", len(cfg.PrivateKeys))
+	start := time.Now()
+
+	// WaitGroup and channels to track tx hashes
+	txHashes := make([]common.Hash, len(cfg.PrivateKeys))
+
+	for i, pkStr := range cfg.PrivateKeys {
+		wg.Add(1)
+		go func(idx int, pKeyHex string) {
+			defer wg.Done()
+
+			pk, err := crypto.HexToECDSA(pKeyHex)
+			if err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Errorf("lỗi key %d: %v", idx, err))
+				errsMu.Unlock()
+				return
+			}
+			from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
+
+			hash, err := sendIncrement(client, pk, cfg.ChainID, from, contractAddr, parsedABI)
+			if err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Errorf("lỗi send tx từ wallet %d: %v", idx, err))
+				errsMu.Unlock()
+				return
+			}
+
+			fmt.Printf("✅ Wallet %d gửi tx thành công: %s\n", idx, hash.Hex())
+			txHashes[idx] = hash
+		}(i, pkStr)
+	}
+
+	wg.Wait()
+
+	if len(errs) > 0 {
+		fmt.Println("❌ Một số giao dịch gửi thất bại:")
+		for _, e := range errs {
+			fmt.Println("  -", e)
+		}
+	}
+
+	fmt.Println("⏳ Chờ các giao dịch được confirm...")
+	for i, hash := range txHashes {
+		if hash == (common.Hash{}) {
+			continue
+		}
+		receipt, err := waitReceipt(client, hash)
+		if err != nil {
+			fmt.Printf("❌ Wallet %d chờ receipt thất bại: %v\n", i, err)
+		} else if receipt.Status != 1 {
+			fmt.Printf("❌ Wallet %d Tx bị revert!\n", i)
+		} else {
+			fmt.Printf("✅ Wallet %d Tx %s confirmed trong block %d\n", i, hash.Hex()[:10]+"...", receipt.BlockNumber.Uint64())
+		}
+	}
+
+	actual, err := getCount(client, contractAddr, parsedABI)
+	if err != nil {
+		log.Fatalf("❌ Lỗi getCount(): %v", err)
+	}
+
+	elapsed := time.Since(start)
+	fmt.Println("\n📊 KẾT QUẢ:")
+	fmt.Printf("Thời gian gửi & chờ: %v\n", elapsed)
+	fmt.Printf("Giá trị count cuối cùng: %d\n", actual)
+	fmt.Printf("Số lượng ví tham gia: %d\n", len(cfg.PrivateKeys))
+
+	if actual == uint64(len(cfg.PrivateKeys)) {
+		fmt.Println("🎉 TEST PASSED: BlockSTM xử lý đúng!")
+	} else {
+		fmt.Printf("⚠️ TEST FAILED: Kỳ vọng %d nhưng nhận %d\n", len(cfg.PrivateKeys), actual)
+	}
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, bytecode []byte) (*common.Address, error) {
+	nonce, err := client.PendingNonceAt(context.Background(), from)
+	if err != nil {
+		return nil, err
+	}
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		gasPrice = big.NewInt(1000000000)
+	}
+
+	gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{From: from, Data: bytecode})
+	if err != nil {
+		gasLimit = 5_000_000
+	} else {
+		gasLimit += 50_000
+	}
+
+	tx := types.NewContractCreation(nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+		return nil, err
+	}
+
+	receipt, err := waitReceipt(client, signedTx.Hash())
+	if err != nil {
+		return nil, err
+	}
+	if receipt.Status != 1 {
+		return nil, fmt.Errorf("deploy reverted")
+	}
+	return &receipt.ContractAddress, nil
+}
+
+func sendIncrement(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, to *common.Address, parsedABI abi.ABI) (common.Hash, error) {
+	data, err := parsedABI.Pack("increment")
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	nonce, err := client.PendingNonceAt(context.Background(), from)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		gasPrice = big.NewInt(1000000000)
+	}
+
+	gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{From: from, To: to, GasPrice: gasPrice, Data: data})
+	if err != nil {
+		gasLimit = 100_000
+	} else {
+		gasLimit += 10_000
+	}
+
+	tx := types.NewTransaction(nonce, *to, big.NewInt(0), gasLimit, gasPrice, data)
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+		return common.Hash{}, err
+	}
+	return signedTx.Hash(), nil
+}
+
+func getCount(client *ethclient.Client, addr *common.Address, parsedABI abi.ABI) (uint64, error) {
+	data, _ := parsedABI.Pack("getCount")
+	result, err := client.CallContract(context.Background(), ethereum.CallMsg{To: addr, Data: data}, nil)
+	if err != nil {
+		return 0, err
+	}
+	outputs, err := parsedABI.Unpack("getCount", result)
+	if err != nil {
+		return 0, err
+	}
+	if len(outputs) == 0 {
+		return 0, fmt.Errorf("output rỗng")
+	}
+	val, ok := outputs[0].(*big.Int)
+	if !ok {
+		return 0, fmt.Errorf("kiểu trả về không phải *big.Int")
+	}
+	return val.Uint64(), nil
+}
+
+func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	for {
+		receipt, err := client.TransactionReceipt(context.Background(), txHash)
+		if err == nil {
+			return receipt, nil
+		}
+		if err != ethereum.NotFound {
+			return nil, err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+}
