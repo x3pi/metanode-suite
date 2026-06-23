@@ -42,6 +42,7 @@ type GeneratedKey struct {
 
 func main() {
 	countFlag := flag.Int("count", 1, "Số lượng ví cần tạo")
+	skipFundFlag := flag.Bool("skip_fund", false, "Bỏ qua bước chuyển native coin vào ví mới")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{
@@ -181,6 +182,8 @@ func main() {
 
 	expectedTxHashes := make(map[string]bool)
 
+	sendStartTime := time.Now()
+
 	for i, key := range generatedKeys {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -206,7 +209,10 @@ func main() {
 		}(key, i)
 	}
 	wg.Wait()
-	fmt.Printf("✅ Đã GỬI xong tx đăng ký BLS (%d/%d thành công). Bắt đầu chờ block...\n", successCount, numWallets)
+	
+	sendDuration := time.Since(sendStartTime)
+	injectionTps := float64(successCount) / sendDuration.Seconds()
+	fmt.Printf("✅ Đã GỬI xong tx đăng ký BLS (%d/%d thành công). Thời gian: %v (%.2f tx/s). Bắt đầu chờ block...\n", successCount, numWallets, sendDuration, injectionTps)
 
 	if len(expectedTxHashes) > 0 {
 		fmt.Printf("📡 Đang kết nối RPC %s để kiểm tra %d giao dịch...\n", rpcHost, len(expectedTxHashes))
@@ -214,6 +220,11 @@ func main() {
 		totalConfirmed := 0
 		maxWait := 500 * time.Second
 		startTime := time.Now()
+		
+		var firstTxBlockTime time.Time
+		var lastTxBlockTime time.Time
+		firstBlockNum := uint64(0)
+		lastConfirmedBlockNum := uint64(0)
 
 		for len(expectedTxHashes) > 0 {
 			if time.Since(startTime) > maxWait {
@@ -237,12 +248,22 @@ func main() {
 			for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
 				blk, err := rpcClient.GetBlockByNumber(bn)
 				if err == nil && blk != nil {
+					blockHasOurTx := false
 					for _, hash := range blk.Transactions {
 						hashLower := strings.ToLower(hash)
 						if expectedTxHashes[hashLower] {
 							delete(expectedTxHashes, hashLower)
 							newConfirms++
+							blockHasOurTx = true
 						}
+					}
+					if blockHasOurTx {
+						if firstTxBlockTime.IsZero() {
+							firstTxBlockTime = time.UnixMilli(int64(blk.Timestamp))
+							firstBlockNum = bn
+						}
+						lastTxBlockTime = time.UnixMilli(int64(blk.Timestamp))
+						lastConfirmedBlockNum = bn
 					}
 				}
 			}
@@ -255,14 +276,52 @@ func main() {
 			}
 			lastBlockNum = currentBlockNum
 		}
-		fmt.Printf("\n✅ Quá trình chờ kết thúc. Đã confirm %d giao dịch trong block.\n", totalConfirmed)
+		
+		e2eDuration := time.Since(startTime)
+		e2eTps := float64(totalConfirmed) / e2eDuration.Seconds()
+		
+		var onChainTps float64
+		var onChainDuration time.Duration
+		if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
+			onChainDuration = lastTxBlockTime.Sub(firstTxBlockTime)
+			if onChainDuration > 0 {
+				onChainTps = float64(totalConfirmed) / onChainDuration.Seconds()
+			}
+		}
+
+		fmt.Printf("\n═══════════════════════════════════════════════════\n")
+		fmt.Printf("  📊 KẾT QUẢ ĐO TPS (BLS REGISTRATION)\n")
+		fmt.Printf("═══════════════════════════════════════════════════\n")
+		fmt.Printf("  🧱 Start Block:          %d\n", firstBlockNum)
+		fmt.Printf("  🧱 End Block:            %d\n", lastConfirmedBlockNum)
+		fmt.Printf("  📤 Total TXs sent:       %d\n", successCount)
+		fmt.Printf("  🚀 Injection TPS:        %.0f tx/s\n", injectionTps)
+		fmt.Printf("  ⏱️  Injection time:       %s\n", sendDuration.Round(time.Millisecond))
+		fmt.Printf("  ─────────────────────────────────────────────────\n")
+		fmt.Printf("  📥 TX in blocks:         %d\n", totalConfirmed)
+		fmt.Printf("  📊 End-to-End TPS:       ~%.0f tx/s\n", e2eTps)
+		fmt.Printf("  ⏱️  End-to-End time:      %s\n", e2eDuration.Round(time.Millisecond))
+		if onChainDuration > 0 {
+			fmt.Printf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTps)
+			fmt.Printf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond))
+		} else {
+			fmt.Printf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n")
+		}
+		fmt.Printf("═══════════════════════════════════════════════════\n")
 	}
 
 	// =====================================================================
 	// BƯỚC 3: CHUYỂN TIỀN VÀO CÁC VÍ VỪA TẠO (Sequentially)
 	// =====================================================================
-	fmt.Printf("\n[3] Đang tiến hành chuyển tiền vào %d ví mới...\n", numWallets)
+	if *skipFundFlag {
+		fmt.Println("\n==================================================")
+		fmt.Println("⏭️  BỎ QUA BƯỚC CHUYỂN TIỀN (skip_fund=true)")
+		fmt.Println("==================================================")
+		fmt.Println("🎉 TẤT CẢ QUÁ TRÌNH ĐÃ HOÀN TẤT!")
+		return
+	}
 
+	fmt.Printf("\n[3] Đang tiến hành chuyển tiền vào %d ví mới...\n", numWallets)
 	fundSuccess := 0
 	var fundMu sync.Mutex
 	var fundWg sync.WaitGroup
