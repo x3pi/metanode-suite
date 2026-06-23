@@ -284,6 +284,7 @@ func (s *SocketServer) OnConnect(conn network.Connection) {
 	initMsg := &pb.InitConnection{
 		Address: addressForInitMsgBytes,
 		Type:    s.nodeType,
+		Replace: true,
 	}
 	fmt.Printf("[ONCONNECT] Đang gửi InitConnection message (type: %s, address: %x)...\n", s.nodeType, addressForInitMsgBytes)
 	err := SendMessage(conn, p_common.InitConnection, initMsg, s.version)

@@ -12,7 +12,9 @@ import (
 var (
 	RpcUrl             string
 	HttpUrl            string
+	TcpUrl             string
 	PrivateKeyHex      string
+	PrivateKeyBLS      string
 	ContractAddressHex string
 	FilePath           string
 	ChainId            int64
@@ -31,9 +33,11 @@ func Load(envFile string) {
 	// Tải các giá trị
 	RpcUrl = getEnv("RPC_URL", "ws://192.168.1.234:8545")
 	HttpUrl = getEnv("HTTP_URL", "http://192.168.1.234:8545")
+	TcpUrl = getEnv("TCP_URL", "192.168.1.234:7001")
 	ContractAddressHex = getEnv("CONTRACT_ADDRESS_HEX", "0x087cdab97d38a3bfFcDee170739E8C11Af651569")
 	FilePath = getEnv("FILE_PATH", "./file_to_upload/output.txt")
 	PrivateKeyHex = getEnvOrFatal("PRIVATE_KEY_HEX")
+	PrivateKeyBLS = getEnv("PRIVATE_KEY_BLS", "")
 	OutputFile = getEnv("OUTPUT_FILE", "downloaded_file.txt")
 	Address = getEnvOrFatal("ADDRESS")
 	// Chuyển đổi các giá trị số

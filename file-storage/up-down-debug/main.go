@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/tls"
+	"net/http"
+	"github.com/gorilla/websocket"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -17,16 +20,23 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/meta-node-blockchain/meta-node/pkg/loggerfile"
+	"github.com/quic-go/quic-go"
+	client_tcp "tool-test/pkg/client-tcp"
+	tcp_config "tool-test/pkg/client-tcp/config"
+	tx_models "tool-test/pkg/client-tcp/models"
+	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
+	pb "tool-test/pkg/proto"
 	"tool-test/file-storage/up-down-debug/config"
 	"tool-test/file-storage/up-down-debug/contract"
 	"tool-test/file-storage/up-down-debug/listener"
 	processor "tool-test/file-storage/up-down-debug/proccessor"
-	"github.com/meta-node-blockchain/meta-node/pkg/loggerfile"
-	"github.com/quic-go/quic-go"
 )
 
 func calculateNextPowerOfTwo(n int) int {
@@ -134,10 +144,16 @@ func startKeepAlive(ctx context.Context, client *ethclient.Client) {
 		}
 	}
 }
+func init() {
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	websocket.DefaultDialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+}
+
 func main() {
 	// --- 1. Kết nối đến client Ethereum ---
 	envFile := flag.String("envfile", ".env.1", "Path to .env file")
 	downloadKeyHex := flag.String("download", "", "FileKey (hex string) to download directly")
+	useTCP := flag.Bool("tcp", false, "Use TCP instead of RPC for UploadChunk")
 	flag.Parse()
 	config.Load(*envFile)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -207,8 +223,8 @@ func main() {
 		// for {
 		time.Sleep(1 * time.Second)
 		startChunk := time.Now()
-		log.Printf("🚀  Bắt đầu UploadChunk lúc: %v", startChunk.Format("15:04:05.000"))
-		fileKey, _ := uploadFile(client, privateKey, instanceHttp, fromAddress)
+		log.Printf("🚀  Bắt đầu UploadChunk lúc: %v (TCP: %v)", startChunk.Format("15:04:05.000"), *useTCP)
+		fileKey, _ := uploadFile(client, privateKey, instanceHttp, fromAddress, *useTCP)
 		// uploadFileGetInputData(client, privateKey, instanceHttp, fromAddress)
 		sentTime := time.Now()
 		upLogger, _ := loggerfile.NewFileLogger("UploadFile.log")
@@ -348,7 +364,7 @@ func uploadFileGetInputData(client *ethclient.Client, privateKey *ecdsa.PrivateK
 	return fileKey, fileName
 }
 
-func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fromAddress common.Address) ([32]byte, string) {
+func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fromAddress common.Address, useTCP bool) ([32]byte, string) {
 	fileData, err := os.ReadFile(config.FilePath)
 	if err != nil {
 		log.Fatalf("Failed to read file: %v", err)
@@ -431,13 +447,37 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 	if fileKey == [32]byte{} {
 		log.Fatal("FileKey not found in logs")
 	}
-	// return fileKey, ""
+
 	var countErr int
 	sem := make(chan struct{}, 1000)
 	var wg sync.WaitGroup
 	auth.Value = big.NewInt(0) // Chỉ cần thanh toán một lần ban đầu
 	fileTimeLogger, _ := loggerfile.NewFileLogger("fileClientLogger.log")
 	fileTimeError, _ := loggerfile.NewFileLogger("fileClientLoggerErr.log")
+
+	var tcpClient *client_tcp.Client
+	var tcpCfg *tcp_config.ClientConfig
+	var contractABI *abi.ABI
+	if useTCP {
+		tcpCfg = &tcp_config.ClientConfig{
+			ParentConnectionAddress: config.TcpUrl,
+			PrivateKey_:             config.PrivateKeyBLS,
+			EthPrivateKey:           config.PrivateKeyHex,
+			ChainId:                 uint64(config.ChainId),
+			ParentAddress:           fromAddress.Hex(),
+		}
+		log.Printf("DEBUG: tcpCfg.PrivateKey_ = %s (len: %d)", tcpCfg.PrivateKey_, len(tcpCfg.PrivateKey_))
+		log.Printf("DEBUG: decoded bytes len = %d", len(common.FromHex(tcpCfg.PrivateKey_)))
+		var err error
+		tcpClient, err = client_tcp.NewClient(tcpCfg)
+		if err != nil {
+			log.Fatalf("Lỗi kết nối TCP: %v", err)
+		}
+		contractABI, err = contract.FileContractMetaData.GetAbi()
+		if err != nil {
+			log.Fatalf("Failed to get contract ABI: %v", err)
+		}
+	}
 
 	for i := uint64(0); i < totalChunks; i++ {
 		wg.Add(1)
@@ -455,25 +495,67 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 
 			// Tạo Merkle Proof
 			proofBytes := getMerkleProofPadded(paddedLeaves, int(i))
+			
+			var inputData []byte
+			if useTCP {
+				var err error
+				inputData, err = contractABI.Pack("uploadChunk", fileKey, chunk, big.NewInt(int64(i)), proofBytes)
+				if err != nil {
+					log.Printf("❌ Failed to encode chunk %d: %v", i, err)
+					countErr++
+					return
+				}
+			}
+
 			// --- Bước 2: Logic Thử lại (Retry) ---
 			const maxRetries = 3               // Thử lại tối đa 3 lần
 			const retryDelay = 1 * time.Second // Chờ 3 giây giữa các lần thử
 			var err error
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				startChunk := time.Now()
-				// Tạm thời tôi vẫn dùng code gốc của bạn:
-				fileTimeLogger.Info("🚀 [Chunk %d -k %s] up...", i, maxRetries, hex.EncodeToString(fileKey[:]))
-				tx, err = instance.UploadChunk(auth, fileKey, chunk, big.NewInt(int64(i)), proofBytes)
-				if err == nil {
-					// THÀNH CÔNG
-					sentTime := time.Now()
-					if tx == nil {
-						fileTimeError.Info("📤 [Chunk %d -k %s -v %v] ", i, hex.EncodeToString(fileKey[:]), tx)
+				
+				if useTCP {
+					fileTimeLogger.Info("🚀 [Chunk %d -k %s] up (TCP)...", i, hex.EncodeToString(fileKey[:]))
+					tcpReceipt, errTCP := tx_helper.SendTransaction(
+						"uploadChunk",
+						tcpClient,
+						tcpCfg,
+						common.HexToAddress(config.ContractAddressHex),
+						fromAddress,
+						inputData,
+						&tx_models.TxOptions{
+							MaxGas:      5_000_000,
+							MaxGasPrice: 20_000_000_000,
+						},
+					)
+					err = errTCP
+					if err == nil && tcpReceipt != nil {
+						status := tcpReceipt.Status()
+						if status == pb.RECEIPT_STATUS_RETURNED || status == pb.RECEIPT_STATUS_HALTED {
+							sentTime := time.Now()
+							fileTimeLogger.Info("📤 [Chunk %d -k %s] up xong TCP: (mất %s để gửi)",
+								i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+							return
+						} else {
+							err = fmt.Errorf("TCP Tx Failed with status: %s", status.String())
+						}
 					}
-					fileTimeLogger.Info("📤 [Chunk %d -k %s] up xong: (mất %s để gửi)",
-						i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
-					return // Thoát khỏi goroutine (thành công)
+				} else {
+					fileTimeLogger.Info("🚀 [Chunk %d -k %s] up...", i, hex.EncodeToString(fileKey[:]))
+					var txRPC *types.Transaction
+					txRPC, err = instance.UploadChunk(auth, fileKey, chunk, big.NewInt(int64(i)), proofBytes)
+					if err == nil {
+						// THÀNH CÔNG
+						sentTime := time.Now()
+						if txRPC == nil {
+							fileTimeError.Info("📤 [Chunk %d -k %s -v %v] ", i, hex.EncodeToString(fileKey[:]), txRPC)
+						}
+						fileTimeLogger.Info("📤 [Chunk %d -k %s] up xong: (mất %s để gửi)",
+							i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+						return // Thoát khỏi goroutine (thành công)
+					}
 				}
+
 				// THẤT BẠI
 				if err != nil && strings.Contains(err.Error(), "to store chunk on disk") {
 					return
@@ -486,7 +568,7 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 			}
 
 			log.Printf("❌ [Chunk %d] TỪ BỎ sau %d lần thử. Lỗi cuối: %v", i, maxRetries, err)
-
+			countErr++
 		}(i)
 	}
 	wg.Wait()
