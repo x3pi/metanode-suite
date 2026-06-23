@@ -1526,8 +1526,6 @@ func main() {
 						// Calculate real total including all phases + wait times (End-to-End Node Latency)
 						realTotalUs := float64(t.WaitGoUs) +
 							float64(t.WaitRustUs) +
-							float64(t.ConsensusDurationUs) +
-							float64(t.ClientBatchProcessingUs) +
 							float64(t.ProcessTxsDurationUs) +
 							float64(t.TotalBlockDurationUs)
 
