@@ -43,6 +43,8 @@ type GeneratedKey struct {
 func main() {
 	countFlag := flag.Int("count", 1, "Số lượng ví cần tạo")
 	skipFundFlag := flag.Bool("skip_fund", false, "Bỏ qua bước chuyển native coin vào ví mới")
+	singleNodeFlag := flag.Bool("single", false, "Chỉ gửi đến node đầu tiên (m0) thay vì tất cả các node")
+	traceFlag := flag.Bool("trace", false, "Hiển thị chi tiết trace performance của block")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{
@@ -70,6 +72,16 @@ func main() {
 	var appCfg AppConfig
 	if err := json.Unmarshal(appCfgBytes, &appCfg); err != nil {
 		log.Fatalf("❌ Lỗi parse AppConfig: %v", err)
+	}
+
+	if *singleNodeFlag {
+		if len(appCfg.ParentConnectionAddress) > 0 {
+			appCfg.ParentConnectionAddress = appCfg.ParentConnectionAddress[:1]
+		}
+		if len(appCfg.RpcEndpoints) > 0 {
+			appCfg.RpcEndpoints = appCfg.RpcEndpoints[:1]
+		}
+		fmt.Println("⚠️ Chế độ SINGLE NODE: Chỉ kết nối đến node đầu tiên (m0).")
 	}
 
 	// Cập nhật cfg.ChainId từ AppConfig (config.json dùng "chainId" dạng string)
@@ -232,7 +244,7 @@ func main() {
 				break
 			}
 
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			currentBlockNum, err := rpcClient.GetBlockNumber()
 			if err != nil {
 				fmt.Printf("\r❌ Lỗi kết nối RPC (%s): %v          ", rpcHost, err)
@@ -308,6 +320,47 @@ func main() {
 			fmt.Printf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n")
 		}
 		fmt.Printf("═══════════════════════════════════════════════════\n")
+
+		if *traceFlag {
+			traceStart := firstBlockNum
+			if lastConfirmedBlockNum >= traceStart && traceStart > 0 {
+				fmt.Printf("\n  📝 BLOCK PERFORMANCE TRACES (Blocks %d to %d)\n", traceStart, lastConfirmedBlockNum)
+				fmt.Printf("  %-8s | %-6s | %-10s | %-10s | %-10s | %-8s | %-11s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s\n",
+					"Block", "TXs", "WaitGo", "WaitRust", "Consensus", "RustFFI", "ClientBatch", "ProcessTX", "CalcRoots", "BlockData", "Mapping", "CommitMem", "SaveDB", "Total", "GCPause")
+				fmt.Printf("  %s\n", strings.Repeat("-", 190))
+
+				traces, err := rpcClient.GetBlockTraces(traceStart, lastConfirmedBlockNum)
+				if err != nil {
+					fmt.Printf("  ❌ Could not fetch block traces: %v\n", err)
+				} else {
+					for _, t := range traces {
+						realTotalUs := float64(t.WaitGoUs) +
+							float64(t.WaitRustUs) +
+							float64(t.ConsensusDurationUs) +
+							float64(t.ClientBatchProcessingUs) +
+							float64(t.ProcessTxsDurationUs) +
+							float64(t.TotalBlockDurationUs)
+
+						fmt.Printf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
+							t.BlockNumber, t.TxCount,
+							float64(t.WaitGoUs)/1000.0,
+							float64(t.WaitRustUs)/1000.0,
+							float64(t.ConsensusDurationUs)/1000.0,
+							float64(t.RustDeliveryFFIDurationUs)/1000.0,
+							float64(t.ClientBatchProcessingUs)/1000.0,
+							float64(t.ProcessTxsDurationUs)/1000.0,
+							float64(t.Phase1TotalDurationUs)/1000.0,
+							float64(t.BlockDataDurationUs)/1000.0,
+							float64(t.MappingDurationUs)/1000.0,
+							float64(t.CommitMemoryDurationUs)/1000.0,
+							float64(t.SaveDBDurationUs)/1000.0,
+							realTotalUs/1000.0,
+							float64(t.GCPauseUs)/1000.0)
+					}
+				}
+				fmt.Printf("═══════════════════════════════════════════════════\n")
+			}
+		}
 	}
 
 	// =====================================================================

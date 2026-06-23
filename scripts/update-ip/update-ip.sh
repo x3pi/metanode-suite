@@ -7,6 +7,8 @@ RPC_NODES_FILE="/tmp/rpc_nodes.json"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUITE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+
+
 if [ ! -f "$RPC_NODES_FILE" ]; then
     echo "Error: $RPC_NODES_FILE not found." >&2
     exit 1
@@ -113,6 +115,32 @@ if [ -f "$FILE4" ]; then
        --arg u4 "$new_url_4" \
        '.rpc_url = $r | .rpc_urls = [$u0, $u1, $u2, $u3, $u4]' \
        "$FILE4" > "${FILE4}.tmp" && mv "${FILE4}.tmp" "$FILE4"
-else
+	else
     echo "Warning: $FILE4 not found." >&2
 fi
+
+# 5. Update $SUITE_DIR/register_bls/tcp/config.json
+FILE5="$SUITE_DIR/register_bls/tcp/config.json"
+if [ -f "$FILE5" ]; then
+    echo "Updating $FILE5 using TCP nodes and RPC Endpoints..."
+
+    new_parent_0=$(jq -r '.tcp_nodes.m0' "$RPC_NODES_FILE")
+    new_parent_1=$(jq -r '.tcp_nodes.m1' "$RPC_NODES_FILE")
+    new_parent_2=$(jq -r '.tcp_nodes.m2' "$RPC_NODES_FILE")
+    new_parent_3=$(jq -r '.tcp_nodes.m3' "$RPC_NODES_FILE")
+    new_parent_4=$(jq -r '.tcp_nodes.m4' "$RPC_NODES_FILE")
+
+    new_rpc_0=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
+    new_rpc_1=$(jq -r '.rpc_proxies.m1' "$RPC_NODES_FILE")
+    new_rpc_2=$(jq -r '.rpc_proxies.m2' "$RPC_NODES_FILE")
+    new_rpc_3=$(jq -r '.rpc_proxies.m3' "$RPC_NODES_FILE")
+    new_rpc_4=$(jq -r '.rpc_proxies.m4' "$RPC_NODES_FILE")
+
+    jq --arg p0 "$new_parent_0" --arg p1 "$new_parent_1" --arg p2 "$new_parent_2" --arg p3 "$new_parent_3" --arg p4 "$new_parent_4" \
+       --arg r0 "$new_rpc_0" --arg r1 "$new_rpc_1" --arg r2 "$new_rpc_2" --arg r3 "$new_rpc_3" --arg r4 "$new_rpc_4" \
+       '.parent_connection_address = [$p0, $p1, $p2, $p3, $p4] | .rpc_endpoints = [$r0, $r1, $r2, $r3, $r4]' \
+       "$FILE5" > "${FILE5}.tmp" && mv "${FILE5}.tmp" "$FILE5"
+else
+    echo "Warning: $FILE5 not found." >&2
+fi
+

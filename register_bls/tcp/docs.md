@@ -14,13 +14,25 @@ Công cụ này giúp bạn tự động tạo ví mới, đăng ký BLS public 
 
 Sử dụng cờ `-count` để chỉ định số lượng ví bạn muốn tạo. (Mặc định là `1`).
 
+### Cập nhật cấu hình IP tự động:
+Trước khi chạy, bạn nên cập nhật IP các node vào `config.json` để tool biết nơi kết nối:
+```bash
+cd ../../scripts/update-ip
+bash update-ip.sh
+cd ../../register_bls/tcp
+```
+Lệnh này sẽ lấy cấu hình 5 node hiện tại và cập nhật tự động vào `config.json`.
+
 ### Chạy trực tiếp qua mã nguồn (Go Run):
 ```bash
-# Tạo và xử lý cho 1 ví
+# Tạo và xử lý cho 1 ví (Gửi đều lên 5 node)
 go run main.go
 
-# Tạo và xử lý cho N ví (ví dụ: 100 ví)
+# Tạo và xử lý cho N ví (ví dụ: 100 ví, gửi đều lên 5 node)
 go run main.go -count 100
+
+# Tạo và xử lý cho 100 ví NHƯNG chỉ gửi lên 1 node duy nhất (node m0)
+go run main.go -count 100 -single -skip_fund -trace
 ```
 
 ### Build ra file thực thi (Tùy chọn):
