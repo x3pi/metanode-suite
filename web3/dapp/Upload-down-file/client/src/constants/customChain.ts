@@ -12,8 +12,8 @@ export const GO_BACKEND_RPC_URL = "http://192.168.1.234:8545";
 // export const WSS_RPC = "wss://rpc-proxy-sequoia.iqnb.com:8446";
 
 // Cấu hình các server tải file
-export const DOWNLOAD_SERVER_1 = "https://192.168.1.246:8081";
-export const DOWNLOAD_SERVER_2 = "https://192.168.1.246:8082";
+export const DOWNLOAD_SERVER_1 = "https://192.168.1.234:8081";
+export const DOWNLOAD_SERVER_2 = "https://192.168.1.234:8082";
 // export const DOWNLOAD_SERVER_1 = "https://file-keeper-2.iqnb.com:8081";
 // export const DOWNLOAD_SERVER_2 = "https://file-keeper-1.iqnb.com:8082";
 

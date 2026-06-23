@@ -12,14 +12,15 @@ import (
 	"sync"
 	"time"
 
+	"tool-test/file-storage/up-down-debug/config"
+	"tool-test/file-storage/up-down-debug/contract"
+	processor "tool-test/file-storage/up-down-debug/proccessor"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/event"
-	"tool-test/file-storage/up-down-debug/config"
-	"tool-test/file-storage/up-down-debug/contract"
-	processor "tool-test/file-storage/up-down-debug/proccessor"
 	"github.com/meta-node-blockchain/meta-node/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
 )
