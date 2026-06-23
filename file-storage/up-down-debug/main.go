@@ -1,17 +1,16 @@
 package main
 
 import (
-	"crypto/tls"
-	"net/http"
-	"github.com/gorilla/websocket"
 	"context"
 	"crypto/ecdsa"
+	"crypto/tls"
 	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"math"
 	"math/big"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +18,19 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/gorilla/websocket"
+
+	"tool-test/file-storage/up-down-debug/config"
+	"tool-test/file-storage/up-down-debug/contract"
+	"tool-test/file-storage/up-down-debug/listener"
+	processor "tool-test/file-storage/up-down-debug/proccessor"
+	client_tcp "tool-test/pkg/client-tcp"
+	tcp_config "tool-test/pkg/client-tcp/config"
+	tx_models "tool-test/pkg/client-tcp/models"
+	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
+	"tool-test/pkg/logger"
+	pb "tool-test/pkg/proto"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -28,15 +40,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/meta-node-blockchain/meta-node/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
-	client_tcp "tool-test/pkg/client-tcp"
-	tcp_config "tool-test/pkg/client-tcp/config"
-	tx_models "tool-test/pkg/client-tcp/models"
-	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
-	pb "tool-test/pkg/proto"
-	"tool-test/file-storage/up-down-debug/config"
-	"tool-test/file-storage/up-down-debug/contract"
-	"tool-test/file-storage/up-down-debug/listener"
-	processor "tool-test/file-storage/up-down-debug/proccessor"
 )
 
 func calculateNextPowerOfTwo(n int) int {
@@ -452,8 +455,8 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 	sem := make(chan struct{}, 1000)
 	var wg sync.WaitGroup
 	auth.Value = big.NewInt(0) // Chỉ cần thanh toán một lần ban đầu
-	fileTimeLogger, _ := loggerfile.NewFileLogger("fileClientLogger.log")
-	fileTimeError, _ := loggerfile.NewFileLogger("fileClientLoggerErr.log")
+	// fileTimeLogger, _ := loggerfile.NewFileLogger("fileClientLogger.log")
+	// fileTimeError, _ := loggerfile.NewFileLogger("fileClientLoggerErr.log")
 
 	var tcpClient *client_tcp.Client
 	var tcpCfg *tcp_config.ClientConfig
@@ -495,7 +498,7 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 
 			// Tạo Merkle Proof
 			proofBytes := getMerkleProofPadded(paddedLeaves, int(i))
-			
+
 			var inputData []byte
 			if useTCP {
 				var err error
@@ -513,9 +516,9 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 			var err error
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				startChunk := time.Now()
-				
+
 				if useTCP {
-					fileTimeLogger.Info("🚀 [Chunk %d -k %s] up (TCP)...", i, hex.EncodeToString(fileKey[:]))
+					logger.Info("🚀 [Chunk %d -k %s] up (TCP)...", i, hex.EncodeToString(fileKey[:]))
 					tcpReceipt, errTCP := tx_helper.SendTransaction(
 						"uploadChunk",
 						tcpClient,
@@ -533,7 +536,7 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 						status := tcpReceipt.Status()
 						if status == pb.RECEIPT_STATUS_RETURNED || status == pb.RECEIPT_STATUS_HALTED {
 							sentTime := time.Now()
-							fileTimeLogger.Info("📤 [Chunk %d -k %s] up xong TCP: (mất %s để gửi)",
+							logger.Info("📤 [Chunk %d -k %s] up xong TCP: (mất %s để gửi)",
 								i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
 							return
 						} else {
@@ -541,16 +544,16 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 						}
 					}
 				} else {
-					fileTimeLogger.Info("🚀 [Chunk %d -k %s] up...", i, hex.EncodeToString(fileKey[:]))
+					logger.Info("🚀 [Chunk %d -k %s] up...", i, hex.EncodeToString(fileKey[:]))
 					var txRPC *types.Transaction
 					txRPC, err = instance.UploadChunk(auth, fileKey, chunk, big.NewInt(int64(i)), proofBytes)
 					if err == nil {
 						// THÀNH CÔNG
 						sentTime := time.Now()
 						if txRPC == nil {
-							fileTimeError.Info("📤 [Chunk %d -k %s -v %v] ", i, hex.EncodeToString(fileKey[:]), txRPC)
+							logger.Info("📤 [Chunk %d -k %s -v %v] ", i, hex.EncodeToString(fileKey[:]), txRPC)
 						}
-						fileTimeLogger.Info("📤 [Chunk %d -k %s] up xong: (mất %s để gửi)",
+						logger.Info("📤 [Chunk %d -k %s] up xong: (mất %s để gửi)",
 							i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
 						return // Thoát khỏi goroutine (thành công)
 					}
