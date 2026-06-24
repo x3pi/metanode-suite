@@ -26,3 +26,9 @@ block/block_hash_checker/block_hash_checker_ci
 register_bls/bls_keys.json
 scripts/.ci_monitor.pid
 .env
+test-simple/test-rpc/test-blockstm/2-read-write/main
+test-simple/test-rpc/test-blockstm/1-update-same-contract/main
+test-simple/test-rpc/test-blockstm/3-amm-dex/main
+test-simple/test-rpc/test-blockstm/4-abort/main
+test-simple/test-rpc/test-blockstm/5-gas/main
+test-simple/test-rpc/test-blockstm/8-native-mixed-evm/main

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"crypto/rand"
 
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
@@ -91,9 +92,9 @@ func main() {
 		}
 	}
 
-	if appCfg.PublicKeyBLS == "" {
-		log.Fatalf("❌ Không có public_key_bls nào để đăng ký")
-	}
+	// if appCfg.PublicKeyBLS == "" {
+	// 	log.Fatalf("❌ Không có public_key_bls nào để đăng ký")
+	// }
 
 	numWallets := *countFlag
 	if numWallets <= 0 {
@@ -115,6 +116,14 @@ func main() {
 	var clientPool []*client_tcp.Client
 	for i := 0; i < poolSize; i++ {
 		cfgClone := *cfg
+
+		// Generate a random 20-byte wallet address for this connection's identifier
+		var randomAddrBytes [20]byte
+		if _, err := rand.Read(randomAddrBytes[:]); err != nil {
+			log.Fatalf("❌ Lỗi tạo random address cho connection %d: %v", i, err)
+		}
+		cfgClone.ParentAddress = common.BytesToAddress(randomAddrBytes[:]).Hex()
+
 		if len(appCfg.ParentConnectionAddress) > 0 {
 			cfgClone.ParentConnectionAddress = appCfg.ParentConnectionAddress[i%len(appCfg.ParentConnectionAddress)]
 		}
@@ -206,6 +215,7 @@ func main() {
 			client := clientPool[idx%len(clientPool)]
 			// Sử dụng hàm RegisterBlsForAccountAsync để gửi tx đi không chờ receipt
 			chainIdStr := appCfg.ChainId
+
 			txHash, err := client.RegisterBlsForAccountAsync(k.PrivateKey, appCfg.PublicKeyBLS, chainIdStr)
 			if err != nil {
 				fmt.Printf("❌ Ví %d: Lỗi gửi tx setBlsPublicKey: %v\n", k.Index, err)

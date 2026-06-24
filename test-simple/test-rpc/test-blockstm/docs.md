@@ -31,9 +31,25 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
 - **Cách hoạt động:** Tái sử dụng contract `AbortRollback` và kịch bản gửi giao dịch giống hệt test `4-abort`. Tuy nhiên, thay vì chỉ xem xét trạng thái thành công/thất bại, test này trích xuất `GasUsed` từ Transaction Receipt.
 - **Kết quả kỳ vọng:** Chứng minh rằng dù Block-STM có âm thầm chạy đi chạy lại một giao dịch (re-execute) nhiều lần dưới background để giải quyết xung đột, **người dùng chỉ bị trừ Gas đúng 1 lần duy nhất** cho kết quả thực thi cuối cùng. Giao dịch revert vẫn sẽ tốn một lượng gas cơ bản (base gas + phí thực thi đến điểm bị revert), và không bao giờ vượt quá logic máy ảo EVM thông thường.
 
-### 6. `contracts/BlockSTMTests.sol` (Smart Contracts cho Test Suite)
-- **Mục đích:** Chứa toàn bộ logic On-chain (Mã nguồn Solidity) cho các bài test từ 2 đến 5.
+### 6. `6-native-many-to-one/main.go` (Kiểm tra Chuyển tiền Native Đồng thời - Many to One)
+- **Mục đích:** Kiểm tra xử lý đồng thời khi nhiều ví cùng chuyển tiền Native (đồng coin cơ sở) vào một ví nhận duy nhất.
+- **Cách hoạt động:** Lấy ví 0 làm ví nhận. Tất cả các ví còn lại (từ 1 đến 9) đồng loạt tạo giao dịch chuyển một lượng wei (Native Transfer) tới ví nhận này cùng một lúc.
+- **Kết quả kỳ vọng:** Do giao dịch Native được xử lý trong Fast-Path (không chạy qua Block-STM nếu không có EVM Tx) hoặc Block-STM (nếu có EVM Tx đi kèm), hệ thống phải khoá và cộng dồn số dư của ví nhận một cách chính xác. Kết quả số dư cuối cùng của ví nhận phải tăng đúng bằng tổng số tiền mà các ví đã gửi mà không bị mất mát do Race Condition.
+
+### 7. `7-native-one-to-many/main.go` (Kiểm tra Mempool với Nonce tự tăng - One to Many)
+- **Mục đích:** Kiểm tra khả năng xử lý của Mempool và mạng lưới khi một ví gửi ồ ạt nhiều giao dịch liên tiếp.
+- **Cách hoạt động:** Lấy ví 0 làm ví gửi. Ví 0 tự tính toán nonce tăng dần và liên tục tạo nhiều giao dịch (mỗi giao dịch gửi tới một ví nhận khác nhau từ 1 đến 9). Tất cả các giao dịch này được đẩy (push) vào Mempool gần như cùng một tích tắc.
+- **Kết quả kỳ vọng:** Mempool phải có khả năng tiếp nhận, sắp xếp đúng thứ tự các giao dịch theo Nonce từ thấp đến cao của cùng một sender. Sau đó, chuỗi khối phải gắp và thực thi thành công toàn bộ các giao dịch này vào block mà không từ chối (reject) nhầm do Nonce out-of-order.
+
+### 8. `8-native-mixed-evm/main.go` (Kiểm tra xen kẽ Native Transfer và Smart Contract Call)
+- **Mục đích:** Kiểm tra đường biên (boundary) và cơ chế chuyển đổi luồng xử lý của hệ thống Execution giữa Fast-Path và Block-STM.
+- **Cách hoạt động:** Gửi đồng thời hai loại giao dịch: Một giao dịch gọi hàm của Smart Contract (EVM Call) và hàng loạt giao dịch chuyển tiền Native thông thường.
+- **Kết quả kỳ vọng:** Theo thiết kế của Metanode, khi có bất kỳ một giao dịch EVM nào xuất hiện trong block, toàn bộ các giao dịch (bao gồm cả Native Transfer) sẽ bị buộc phải đưa vào cỗ máy Block-STM để phân tích xung đột và thực thi song song. Test này đảm bảo Block-STM xử lý mượt mà và chuẩn xác các giao dịch Native thông thường bên cạnh các giao dịch hợp đồng thông minh phức tạp.
+
+### 9. `contracts/BlockSTMTests.sol` (Smart Contracts cho Test Suite)
+- **Mục đích:** Chứa toàn bộ logic On-chain (Mã nguồn Solidity) cho các bài test từ 2 đến 8.
 - **Thành phần:**
-  - `Contract ReadWriteConflict`: Phục vụ bài test 2, chứa hàm `writeData` và `readDataAndSave`.
+  - `Contract ReadWriteConflict`: Phục vụ bài test 2 và test 8, chứa hàm `writeData` và `readDataAndSave`.
   - `Contract AMMSimulator`: Phục vụ bài test 3, mô phỏng cơ chế Swap của DEX với hàm `swapAToB`.
   - `Contract AbortRollback`: Phục vụ bài test 4 & 5, chứa logic đổi trạng thái bằng `setPhase` và logic điều kiện bằng `updateIfPhase1`.
+

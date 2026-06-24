@@ -22,18 +22,18 @@ import (
 )
 
 // ABI definitions
-const counterABIJSON = `[
-  {"inputs":[],"name":"increment","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"getCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"anonymous":false,"inputs":[{"indexed":false,"internalType":"uint256","name":"newCount","type":"uint256"}],"name":"Incremented","type":"event"}
-]`
-
 const bytecodeHex = "6080604052348015600e575f5ffd5b506101818061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610034575f3560e01c8063a87d942c14610038578063d09de08a14610056575b5f5ffd5b610040610060565b60405161004d91906100d2565b60405180910390f35b61005e610068565b005b5f5f54905090565b60015f5f8282546100799190610118565b925050819055507f20d8a6f5a693f9d1d627a598e8820f7a55ee74c183aa8f1a30e8d4e8dd9a8d845f546040516100b091906100d2565b60405180910390a1565b5f819050919050565b6100cc816100ba565b82525050565b5f6020820190506100e55f8301846100c3565b92915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f610122826100ba565b915061012d836100ba565b9250828201905080821115610145576101446100eb565b5b9291505056fea264697066735822122039d409b6689485dd66eca57d0dcf22759cc7ed07190b1be8653d9dbfaf9f518464736f6c63430008220033"
 
+type ContractData struct {
+	ABI      string `json:"abi"`
+	Bytecode string `json:"bytecode"`
+}
+
 type Config struct {
-	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
-	ChainID     int64    `json:"chain_id"`
+	RPCUrl      string                  `json:"rpc_url"`
+	PrivateKeys []string                `json:"private_keys"`
+	ChainID     int64                   `json:"chain_id"`
+	Contracts   map[string]ContractData `json:"contracts"`
 }
 
 func main() {
@@ -56,12 +56,14 @@ func main() {
 		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
-	parsedABI, err := abi.JSON(strings.NewReader(counterABIJSON))
+	parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["TestCounter"].ABI))
+	if err != nil { log.Fatalf("ABI parse err: %v", err) }
 	if err != nil {
 		log.Fatalf("❌ Lỗi parse ABI: %v", err)
 	}
 
-	bytecode, err := hexutil.Decode("0x" + bytecodeHex)
+	bytecode, err := hexutil.Decode("0x" + cfg.Contracts["TestCounter"].Bytecode)
+	if err != nil { log.Fatalf("Bytecode err: %v", err) }
 	if err != nil {
 		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
 	}

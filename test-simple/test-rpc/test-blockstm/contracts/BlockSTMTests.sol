@@ -58,3 +58,40 @@ contract AbortRollback {
         userData[msg.sender] = val;
     }
 }
+
+// ---------------------------------------------------------
+// Test 1: Update Same Contract
+// ---------------------------------------------------------
+contract TestCounter {
+    uint256 private count;
+
+    // Emitted on each successful increment
+    event Incremented(uint256 newCount);
+
+    /// @notice Increment the counter by 1 and emit the new value
+    function increment() external {
+        count += 1;
+        emit Incremented(count);
+    }
+
+    /// @notice Read the current counter value (view, no gas)
+    /// @notice Read the current counter value (view, no gas)
+    function getCount() external view returns (uint256) {
+        return count;
+    }
+}
+
+// ---------------------------------------------------------
+// Test 8: Mixed EVM and Native
+// ---------------------------------------------------------
+contract DepositContract {
+    uint256 public totalDeposits;
+
+    function deposit() external payable {
+        totalDeposits += msg.value;
+    }
+
+    function getTotalDeposits() external view returns (uint256) {
+        return totalDeposits;
+    }
+}

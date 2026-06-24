@@ -21,10 +21,16 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+type ContractData struct {
+	ABI      string `json:"abi"`
+	Bytecode string `json:"bytecode"`
+}
+
 type Config struct {
-	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
-	ChainID     int64    `json:"chain_id"`
+	RPCUrl      string                  `json:"rpc_url"`
+	PrivateKeys []string                `json:"private_keys"`
+	ChainID     int64                   `json:"chain_id"`
+	Contracts   map[string]ContractData `json:"contracts"`
 }
 
 func main() {
@@ -37,12 +43,11 @@ func main() {
 
 	client, _ := ethclient.Dial(cfg.RPCUrl)
 
-	abiBytes, err := os.ReadFile("../contracts/BlockSTMTests_sol_ReadWriteConflict.abi")
-	if err != nil { log.Fatalf("❌ Thiếu file ABI") }
-	parsedABI, _ := abi.JSON(strings.NewReader(string(abiBytes)))
+		parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["ReadWriteConflict"].ABI))
+	if err != nil { log.Fatalf("ABI parse err: %v", err) }
 
-	binBytes, _ := os.ReadFile("../contracts/BlockSTMTests_sol_ReadWriteConflict.bin")
-	bytecode, _ := hexutil.Decode("0x" + strings.TrimSpace(string(binBytes)))
+		bytecode, err := hexutil.Decode("0x" + cfg.Contracts["ReadWriteConflict"].Bytecode)
+	if err != nil { log.Fatalf("Bytecode err: %v", err) }
 
 	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
@@ -57,6 +62,7 @@ func main() {
 	// Ví 0 sẽ gọi writeData(9999)
 	// Các ví khác sẽ gọi readDataAndSave()
 	
+	txHashes := make([]common.Hash, len(cfg.PrivateKeys))
 	for i, pkStr := range cfg.PrivateKeys {
 		wg.Add(1)
 		go func(idx int, pKeyHex string) {
@@ -73,18 +79,39 @@ func main() {
 
 			hash, err := sendTx(client, pk, cfg.ChainID, from, contractAddr, data)
 			if err == nil {
-				fmt.Printf("✅ Wallet %d gửi tx thành công: %s\n", idx, hash.Hex())
-				waitReceipt(client, hash)
+				txHashes[idx] = hash
 			}
 		}(i, pkStr)
 	}
 
 	wg.Wait()
+	fmt.Println("\n⏳ Đang chờ xác nhận giao dịch và lấy TxIndex...")
+	
+	var writeTxIndex uint
+	var writeBlockNum uint64
+	var readTxIndexes = make(map[int]uint)
+	var readBlockNums = make(map[int]uint64)
+
+	for i, hash := range txHashes {
+		if hash == (common.Hash{}) { continue }
+		receipt, _ := waitReceipt(client, hash)
+		if i == 0 {
+			writeTxIndex = receipt.TransactionIndex
+			writeBlockNum = receipt.BlockNumber.Uint64()
+			fmt.Printf("✅ Wallet 0 (GHI) thành công tại Block: %d | TxIndex: %d\n", writeBlockNum, writeTxIndex)
+		} else {
+			readTxIndexes[i] = receipt.TransactionIndex
+			readBlockNums[i] = receipt.BlockNumber.Uint64()
+		}
+	}
+
 	fmt.Println("\n📊 KẾT QUẢ READ-WRITE CONFLICT:")
 	
 	// Đọc sharedData
 	shared, _ := getUint256(client, contractAddr, parsedABI, "sharedData")
-	fmt.Printf("Giá trị sharedData cuối cùng: %s\n", shared.String())
+	fmt.Printf("Giá trị sharedData cuối cùng trên State: %s\n", shared.String())
+
+	testFailed := false
 
 	// Đọc kết quả lưu của các ví khác xem đã đọc được giá trị cũ hay mới
 	for i := 1; i < len(cfg.PrivateKeys); i++ {
@@ -96,10 +123,43 @@ func main() {
 		out, _ := parsedABI.Unpack("userReads", res)
 		val := out[0].(*big.Int)
 		
-		fmt.Printf("Wallet %d đọc được giá trị: %s\n", i, val.String())
+		readIdx := readTxIndexes[i]
+		readBlk := readBlockNums[i]
+		fmt.Printf("Wallet %d (ĐỌC) - Block: %d | TxIndex: %d | Đọc được giá trị: %s\n", i, readBlk, readIdx, val.String())
+		
+		isAfter := false
+		isBefore := false
+
+		if readBlk > writeBlockNum {
+			isAfter = true
+		} else if readBlk < writeBlockNum {
+			isBefore = true
+		} else {
+			// Cùng block
+			if readIdx > writeTxIndex {
+				isAfter = true
+			} else if readIdx < writeTxIndex {
+				isBefore = true
+			}
+		}
+
+		if isAfter && val.Cmp(big.NewInt(9999)) != 0 {
+			fmt.Printf("   ❌ LỖI: Wallet %d chạy SAU Wallet 0 (Block %d > %d hoặc Index lớn hơn) nhưng lại đọc ra %s thay vì 9999!\n", i, readBlk, writeBlockNum, val.String())
+			testFailed = true
+		} else if isBefore && val.Cmp(big.NewInt(0)) != 0 {
+			fmt.Printf("   ❌ LỖI: Wallet %d chạy TRƯỚC Wallet 0 (Block %d < %d hoặc Index nhỏ hơn) nhưng lại đọc ra %s thay vì 0!\n", i, readBlk, writeBlockNum, val.String())
+			testFailed = true
+		}
 	}
-	fmt.Println("👉 Phân tích: Nếu Wallet đọc được 0 (giá trị cũ) -> Tx READ chạy trước WRITE.")
-	fmt.Println("👉 Nếu đọc được 9999 -> Block-STM đã xếp WRITE trước hoặc đã Re-Execute READ sau khi WRITE thành công.")
+
+	fmt.Println("\n👉 Phân tích: Các giao dịch có TxIndex lớn hơn TxIndex của giao dịch GHI thì bắt buộc phải đọc được 9999. Nếu nhỏ hơn thì đọc ra 0.")
+	
+	if testFailed {
+		fmt.Println("❌ TEST FAILED: Block-STM bị lỗi Stale Read, không quản lý đúng trạng thái Read-Write trong cùng một block!")
+		os.Exit(1)
+	} else {
+		fmt.Println("🎉 KẾT QUẢ ĐÚNG: Block-STM đã xử lý chính xác sự phụ thuộc dữ liệu (Read-Write dependency).")
+	}
 }
 
 func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, bytecode []byte) (*common.Address, error) {

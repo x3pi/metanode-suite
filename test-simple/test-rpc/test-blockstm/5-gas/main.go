@@ -20,10 +20,16 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+type ContractData struct {
+	ABI      string `json:"abi"`
+	Bytecode string `json:"bytecode"`
+}
+
 type Config struct {
-	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
-	ChainID     int64    `json:"chain_id"`
+	RPCUrl      string                  `json:"rpc_url"`
+	PrivateKeys []string                `json:"private_keys"`
+	ChainID     int64                   `json:"chain_id"`
+	Contracts   map[string]ContractData `json:"contracts"`
 }
 
 func main() {
@@ -38,14 +44,11 @@ func main() {
 
 	client, _ := ethclient.Dial(cfg.RPCUrl)
 
-	abiBytes, err := os.ReadFile("../contracts/BlockSTMTests_sol_AbortRollback.abi")
-	if err != nil {
-		log.Fatalf("❌ Thiếu file ABI")
-	}
-	parsedABI, _ := abi.JSON(strings.NewReader(string(abiBytes)))
+		parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["AbortRollback"].ABI))
+	if err != nil { log.Fatalf("ABI parse err: %v", err) }
 
-	binBytes, _ := os.ReadFile("../contracts/BlockSTMTests_sol_AbortRollback.bin")
-	bytecode, _ := hexutil.Decode("0x" + strings.TrimSpace(string(binBytes)))
+		bytecode, err := hexutil.Decode("0x" + cfg.Contracts["AbortRollback"].Bytecode)
+	if err != nil { log.Fatalf("Bytecode err: %v", err) }
 
 	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
@@ -84,6 +87,7 @@ func main() {
 	wg.Wait()
 	fmt.Println("\n📊 KẾT QUẢ TEST 5 (GAS & ROLLBACK):")
 
+	var revertCount int
 	for i, hash := range txHashes {
 		if hash == (common.Hash{}) {
 			continue
@@ -93,9 +97,17 @@ func main() {
 		status := "SUCCESS"
 		if receipt.Status != 1 {
 			status = "REVERTED"
+			revertCount++
 		}
 
 		fmt.Printf("Wallet %d | Trạng thái: %-8s | Gas sử dụng (GasUsed): %d\n", i, status, receipt.GasUsed)
+	}
+
+	if revertCount == 0 {
+		fmt.Println("❌ TEST FAILED: Lỗi Block-STM, đáng lẽ phải có giao dịch bị Revert để test Gas, nhưng tất cả lại SUCCESS!")
+		os.Exit(1)
+	} else {
+		fmt.Printf("🎉 Thành công! Có %d giao dịch bị Revert và tiêu thụ gas hợp lý.\n", revertCount)
 	}
 
 	fmt.Println("\n👉 Phân tích: Những Tx bị REVERT do Block-STM chạy lại phải trả một lượng Gas nhất định (thường là base gas + gas chạy đến lúc revert).")

@@ -164,10 +164,10 @@ func (h *Handler) handleTransactionError(request network.Request) (err error) {
 	// Parse and log for debugging
 	transactionError := &transaction.TransactionHashWithError{}
 	if err = transactionError.Unmarshal(msg.Body()); err == nil {
-		// errHash := common.BytesToHash(transactionError.Proto().Hash).Hex()
-		// desc := transactionError.Proto().Description
-		// outputStr := string(transactionError.Proto().Output)
-		// logger.Error("🚨 [TCP-CLIENT HANDLER] Received TransactionError! txHash: %s, desc: %s, output: %s", errHash, desc, outputStr)
+		errHash := common.BytesToHash(transactionError.Proto().Hash).Hex()
+		desc := transactionError.Proto().Description
+		outputStr := string(transactionError.Proto().Output)
+		logger.Error("🚨 [TCP-CLIENT HANDLER] Received TransactionError! txHash: %s, desc: %s, output: %s", errHash, desc, outputStr)
 	} else {
 		logger.Error("🚨 [TCP-CLIENT HANDLER] Failed to unmarshal TransactionError: %v", err)
 		return err

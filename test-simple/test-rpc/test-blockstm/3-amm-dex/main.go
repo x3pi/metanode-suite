@@ -23,10 +23,16 @@ import (
 
 // ─── CONFIG & SETUP ─────────────────────────────────────────────────────────
 
+type ContractData struct {
+	ABI      string `json:"abi"`
+	Bytecode string `json:"bytecode"`
+}
+
 type Config struct {
-	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
-	ChainID     int64    `json:"chain_id"`
+	RPCUrl      string                  `json:"rpc_url"`
+	PrivateKeys []string                `json:"private_keys"`
+	ChainID     int64                   `json:"chain_id"`
+	Contracts   map[string]ContractData `json:"contracts"`
 }
 
 func main() {
@@ -50,20 +56,15 @@ func main() {
 	}
 
 	// Đọc ABI và BIN
-	abiBytes, err := os.ReadFile("../contracts/BlockSTMTests_sol_AMMSimulator.abi")
-	if err != nil {
-		log.Fatalf("❌ Không tìm thấy BlockSTMTests_sol_AMMSimulator.abi. Hãy compile BlockSTMTests.sol bằng solc.")
-	}
-	parsedABI, err := abi.JSON(strings.NewReader(string(abiBytes)))
+		parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["AMMSimulator"].ABI))
+	if err != nil { log.Fatalf("ABI parse err: %v", err) }
+	if err != nil { log.Fatalf("ABI error: %v", err) }
 	if err != nil {
 		log.Fatalf("❌ Lỗi parse ABI: %v", err)
 	}
 
-	binBytes, err := os.ReadFile("../contracts/BlockSTMTests_sol_AMMSimulator.bin")
-	if err != nil {
-		log.Fatalf("❌ Không tìm thấy BlockSTMTests_sol_AMMSimulator.bin. Hãy compile BlockSTMTests.sol bằng solc.")
-	}
-	bytecode, err := hexutil.Decode("0x" + strings.TrimSpace(string(binBytes)))
+		bytecode, err := hexutil.Decode("0x" + cfg.Contracts["AMMSimulator"].Bytecode)
+	if err != nil { log.Fatalf("Bytecode err: %v", err) }
 	if err != nil {
 		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
 	}
@@ -138,10 +139,24 @@ func main() {
 	fmt.Printf("Reserve A cuối: %s\n", resA.String())
 	fmt.Printf("Reserve B cuối: %s\n", resB.String())
 	
-	// Tính k = reserveA * reserveB ban đầu (1M * 1M)
-	// Lúc đầu: A = 1,000,000 ; B = 1,000,000
-	// Sau n lệnh swap, nếu Block-STM tính đúng, công thức k của AMM phải được bảo toàn gần nhất có thể
-	fmt.Println("🎉 TEST FINISHED! Nếu Reserve thay đổi chính xác, Block-STM đã sắp xếp lệnh song song thành công.")
+	// Xác minh độ chính xác của Reserve A
+	// Reserve A ban đầu = 1,000,000 ether (10^24 wei)
+	// Có len(cfg.PrivateKeys) ví tham gia, mỗi ví nạp vào 1000 wei
+	// Nếu chạy chuẩn tuần tự (Sequential) hoặc Block-STM xử lý chuẩn, 
+	// Reserve A cuối cùng BẮT BUỘC phải bằng: 10^24 + (1000 * số ví)
+	
+	initialResA, _ := new(big.Int).SetString("1000000000000000000000000", 10)
+	totalInput := big.NewInt(int64(1000 * len(cfg.PrivateKeys)))
+	expectedResA := new(big.Int).Add(initialResA, totalInput)
+
+	fmt.Printf("👉 Reserve A kỳ vọng: %s\n", expectedResA.String())
+
+	if resA.Cmp(expectedResA) != 0 {
+		fmt.Println("❌ TEST FAILED: Block-STM bị lỗi! Các lệnh Swap đã đọc chung một dữ liệu cũ (Stale Read) và lưu đè lên nhau, làm thất thoát tiền trong Pool!")
+		os.Exit(1)
+	} else {
+		fmt.Println("🎉 KẾT QUẢ ĐÚNG: Nếu Reserve thay đổi chính xác, Block-STM đã sắp xếp lệnh song song thành công và tránh được xung đột dữ liệu.")
+	}
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
