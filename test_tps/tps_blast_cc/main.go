@@ -1272,6 +1272,14 @@ func main() {
 							}
 						}
 					}
+					if newTxsCount > 0 {
+						blkTime := time.UnixMilli(int64(blk.Timestamp))
+						if !seenAnyTx {
+							firstTxBlockTime = blkTime
+							seenAnyTx = true
+						}
+						lastTxBlockTime = blkTime
+					}
 					newTxs += newTxsCount
 					nextLastBlockNum = bn
 				} else {
@@ -1284,13 +1292,6 @@ func main() {
 			}
 			totalTxsInBlocks += newTxs
 			lastBlockNum = nextLastBlockNum
-
-			if newTxs > 0 {
-				if !seenAnyTx {
-					firstTxBlockTime = time.Now()
-					seenAnyTx = true
-				}
-			}
 
 			pct := float64(totalTxsInBlocks) / float64(len(allTxs)) * 100
 			if pct > 100 {
@@ -1311,7 +1312,6 @@ func main() {
 
 			// Stop immediately when all TXs confirmed
 			if totalTxsInBlocks >= uint64(len(allTxs)) {
-				lastTxBlockTime = time.Now()
 				if !processStart.IsZero() {
 					processingDuration = time.Since(processStart)
 				} else {
@@ -1444,10 +1444,27 @@ func main() {
 
 		var onChainDuration time.Duration
 		var onChainTPS float64
+		isSingleBlock := false
 		if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
-			onChainDuration = lastTxBlockTime.Sub(firstTxBlockTime)
-			if onChainDuration > 0 {
-				onChainTPS = float64(totalTxsInBlocks) / onChainDuration.Seconds()
+			if firstTxBlockTime.Equal(lastTxBlockTime) {
+				isSingleBlock = true
+				traces, err := rpcClient.GetBlockTraces(endBlock, endBlock)
+				if err == nil && len(traces) > 0 {
+					t := traces[0]
+					if t.TotalBlockDurationUs > 0 {
+						onChainDuration = time.Duration(t.TotalBlockDurationUs) * time.Microsecond
+						txCountForTps := t.TxCount
+						if txCountForTps <= 0 {
+							txCountForTps = int(totalTxsInBlocks)
+						}
+						onChainTPS = float64(txCountForTps) / onChainDuration.Seconds()
+					}
+				}
+			} else {
+				onChainDuration = lastTxBlockTime.Sub(firstTxBlockTime)
+				if onChainDuration > 0 {
+					onChainTPS = float64(totalTxsInBlocks) / onChainDuration.Seconds()
+				}
 			}
 		}
 		allRoundTPS = append(allRoundTPS, processingTPS)
@@ -1497,11 +1514,14 @@ func main() {
 		sb.WriteString(fmt.Sprintf("  📥 TX in blocks:         %d\n", totalTxsInBlocks))
 		sb.WriteString(fmt.Sprintf("  📊 End-to-End TPS:       ~%.0f tx/s\n", processingTPS))
 		sb.WriteString(fmt.Sprintf("  ⏱️  End-to-End time:      %s\n", totalDuration.Round(time.Millisecond)))
-		if onChainDuration > 0 {
+		if isSingleBlock && onChainDuration > 0 {
+			sb.WriteString(fmt.Sprintf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (Single Block Trace Execution)\n", onChainTPS))
+			sb.WriteString(fmt.Sprintf("  ⏱️  On-Chain Commit time: %s (Block Execution Trace)\n", onChainDuration.Round(time.Millisecond)))
+		} else if onChainDuration > 0 {
 			sb.WriteString(fmt.Sprintf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTPS))
 			sb.WriteString(fmt.Sprintf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond)))
 		} else {
-			sb.WriteString(fmt.Sprintf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n"))
+			sb.WriteString(fmt.Sprintf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block, no trace available)\n"))
 		}
 		sb.WriteString(fmt.Sprintf("  ─────────────────────────────────────────────────\n"))
 		sb.WriteString(fmt.Sprintf("  📦 BLOCK STATISTICS (Blocks %d to %d)\n", startBlock+1, endBlock))
