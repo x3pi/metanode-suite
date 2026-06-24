@@ -1,5 +1,5 @@
 {
-    "rpc_url": "http://127.0.0.1:8650",
-    "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
-    "chain_id": 991
+  "rpc_url": "http://127.0.0.1:8650",
+  "private_key": "28f0ad246c39b9b5a32692e4f9364e29c3df3cdd6ca6d88fcb40e9dc6bc6c511",
+  "chain_id": 991
 }

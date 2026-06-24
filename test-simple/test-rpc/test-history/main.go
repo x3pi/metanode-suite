@@ -369,7 +369,7 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 // Block B = block của giao dịch cuối cùng (mốc "hiện tại" để so sánh).
 // Mỗi tx đều chờ receipt → checker tự kiểm soát block tăng,
 // không bị ảnh hưởng bởi spam giao dịch từ bên ngoài.
-func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, waitTxCount uint64) bool {
+func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, waitTxCount uint64, stopOnError bool) bool {
 	var blockA, blockB uint64
 	var savedBalanceA *big.Int
 	var savedNonceA uint64
@@ -570,7 +570,7 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		for _, det := range errDetails {
 			sb.WriteString(fmt.Sprintf("- %s\n", det))
 		}
-		sb.WriteString(queryAllRPCsAndGenerateReport(fc.urls, fromAddress, blockA))
+		sb.WriteString(queryAllRPCsAndGenerateReport(fc.urls, fromAddress, blockA, blockB))
 		sb.WriteString(generateManualCurlCommands(fc.urls, fromAddress, blockAHex, blockBHex, blockA, blockB))
 		sb.WriteString("==================================================\n")
 		reason := sb.String()
@@ -730,10 +730,15 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 		tempClient.Close()
 	}
 
+	if hasError {
+		if stopOnError {
+			return false
+		}
+	}
 	return true
 }
 
-func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, blockA uint64) string {
+func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, blockA uint64, blockB uint64) string {
 	var sb strings.Builder
 	blockAHex := hexutil.EncodeUint64(blockA)
 	sb.WriteString("    🌐 Đối chiếu dữ liệu thực tế trên toàn bộ RPC Nodes:\n")
@@ -744,6 +749,22 @@ func queryAllRPCsAndGenerateReport(urls []string, fromAddr common.Address, block
 		if errDial != nil {
 			sb.WriteString(fmt.Sprintf("       %-30s | Lỗi kết nối: %v\n", u, errDial))
 			continue
+		}
+
+		// Đợi node đồng bộ tới blockB (tối đa 30s) trước khi query
+		waitStart := time.Now()
+		for time.Since(waitStart) < 30*time.Second {
+			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 5*time.Second)
+			var latestBlockHex string
+			errBlock := tempClient.CallContext(ctxTemp, &latestBlockHex, "eth_blockNumber")
+			cancelTemp()
+			if errBlock == nil {
+				latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
+				if latestBlock >= blockB {
+					break
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
 
 		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 15*time.Second)
@@ -853,6 +874,7 @@ func main() {
 	actionFlag := flag.String("action", "loop", "Hành động thực hiện: loop, save, verify")
 	fileFlag := flag.String("file", "pending_check.json", "Đường dẫn file JSON lưu trạng thái check")
 	targetNodeFlag := flag.String("target-node", "", "Node ID hoặc cổng RPC cần kiểm tra (chỉ dùng cho hành động verify)")
+	stopOnErrorFlag := flag.Bool("stop-on-error", false, "Nếu true, chương trình sẽ thoát ngay lập tức khi phát hiện lỗi lệch lịch sử")
 	flag.Parse()
 
 	cfg, err := loadConfig(*configFlag)
@@ -1075,7 +1097,7 @@ func main() {
 							if ready {
 								break
 							} else {
-								report := queryAllRPCsAndGenerateReport(urls, common.HexToAddress(checkpoints[0].FromAddress), maxBlockA)
+								report := queryAllRPCsAndGenerateReport(urls, common.HexToAddress(checkpoints[0].FromAddress), maxBlockA, maxBlockA)
 								reason := fmt.Sprintf("🛑 LỖI: Dữ liệu mốc Block A (%d) không sẵn sàng trên RPC %s sau 20 giây thăm dò mặc dù chiều cao node đã đạt %d!\n%s", maxBlockA, targetURL, latestBlock, report)
 								os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
 								appendLocalErrorLog(reason)
@@ -1267,7 +1289,7 @@ func main() {
 					for _, det := range errDetails {
 						errStr.WriteString(fmt.Sprintf("    * %s\n", det))
 					}
-					errStr.WriteString(queryAllRPCsAndGenerateReport(urls, fromAddr, cp.BlockA))
+					errStr.WriteString(queryAllRPCsAndGenerateReport(urls, fromAddr, cp.BlockA, latestBlock))
 					blockAHexTmp := hexutil.EncodeUint64(cp.BlockA)
 					errStr.WriteString(generateManualCurlCommands(urls, fromAddr, blockAHexTmp, latestBlockHex, cp.BlockA, latestBlock))
 					allErrDetails = append(allErrDetails, errStr.String())
@@ -1323,7 +1345,7 @@ func main() {
 				os.Exit(0)
 			}
 			fmt.Printf("\n▶️  BẮT ĐẦU VÒNG LẶP KIỂM TRA THỨ %d\n", count)
-			ok := runHistoryCheck(fc, fromAddress, toAddress, *waitBlocksFlag)
+			ok := runHistoryCheck(fc, fromAddress, toAddress, *waitBlocksFlag, *stopOnErrorFlag)
 			if !ok {
 				fmt.Println("❌ Phát hiện lỗi trong lịch sử state! Dừng chương trình lập tức.")
 				os.Exit(1)
@@ -1336,7 +1358,7 @@ func main() {
 		}
 	} else {
 		fmt.Println("▶️  CHẾ ĐỘ CHẠY 1 LẦN")
-		ok := runHistoryCheck(fc, fromAddress, toAddress, *waitBlocksFlag)
+		ok := runHistoryCheck(fc, fromAddress, toAddress, *waitBlocksFlag, *stopOnErrorFlag)
 		if !ok {
 			fmt.Println("\n❌ THẤT BẠI: Phát hiện có lỗi nghiêm trọng trong lịch sử state!")
 			os.Exit(1)

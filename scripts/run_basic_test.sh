@@ -46,7 +46,7 @@ if should_run 2; then
     echo ""
     echo "📌 BƯỚC 2: Test History"
     cd "$TOOL_TEST_DIR/test-simple/test-rpc/test-history"
-    run_and_capture "Test History" go run main.go -config config-mutil.json
+    run_and_capture "Test History" go run main.go -config config-mutil.json -stop-on-error
 fi
 
 # ----------------------------------------------------
