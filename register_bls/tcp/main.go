@@ -513,6 +513,11 @@ func main() {
 
 		totalConfirmed := 0
 
+		var firstTxBlockTime time.Time
+		var lastTxBlockTime time.Time
+		firstBlockNum := uint64(0)
+		lastConfirmedBlockNum := uint64(0)
+
 		for {
 			if time.Since(startTime) > maxWait {
 				fmt.Printf("\n❌ Hết thời gian chờ (%s)! Có thể chưa trừ đủ tiền.\n", maxWait)
@@ -530,14 +535,24 @@ func main() {
 				for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
 					blk, err := rpcClient.GetBlockByNumber(bn)
 					if err == nil && blk != nil {
+						blockHasOurTx := false
 						for _, hash := range blk.Transactions {
 							hashLower := strings.ToLower(hash)
 							statsMu.Lock()
 							if expectedFundTxHashes[hashLower] {
 								delete(expectedFundTxHashes, hashLower)
 								newConfirms++
+								blockHasOurTx = true
 							}
 							statsMu.Unlock()
+						}
+						if blockHasOurTx {
+							if firstTxBlockTime.IsZero() {
+								firstTxBlockTime = time.UnixMilli(int64(blk.Timestamp))
+								firstBlockNum = bn
+							}
+							lastTxBlockTime = time.UnixMilli(int64(blk.Timestamp))
+							lastConfirmedBlockNum = bn
 						}
 					}
 				}
@@ -582,6 +597,81 @@ func main() {
 						fmt.Printf("   ✅ Số dư các ví funding đã được trừ đúng như mong đợi!\n")
 					} else {
 						fmt.Printf("   ⚠️ Số dư các ví funding CHƯA trừ đủ như dự kiến.\n")
+					}
+
+					e2eDuration := time.Since(startTime)
+					e2eTps := float64(totalConfirmed) / e2eDuration.Seconds()
+					
+					var onChainTps float64
+					var onChainDuration time.Duration
+					if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
+						onChainDuration = lastTxBlockTime.Sub(firstTxBlockTime)
+						if onChainDuration > 0 {
+							onChainTps = float64(totalConfirmed) / onChainDuration.Seconds()
+						}
+					}
+					
+					injectionTps := float64(totalFundTxsSent) / fundSendDuration.Seconds()
+
+					fmt.Printf("\n═══════════════════════════════════════════════════\n")
+					fmt.Printf("  📊 KẾT QUẢ ĐO TPS (NATIVE TRANSFER)\n")
+					fmt.Printf("═══════════════════════════════════════════════════\n")
+					fmt.Printf("  🧱 Start Block:          %d\n", firstBlockNum)
+					fmt.Printf("  🧱 End Block:            %d\n", lastConfirmedBlockNum)
+					fmt.Printf("  📤 Total TXs sent:       %d\n", totalFundTxsSent)
+					fmt.Printf("  🚀 Injection TPS:        %.0f tx/s\n", injectionTps)
+					fmt.Printf("  ⏱️  Injection time:       %s\n", fundSendDuration.Round(time.Millisecond))
+					fmt.Printf("  ─────────────────────────────────────────────────\n")
+					fmt.Printf("  📥 TX in blocks:         %d\n", totalConfirmed)
+					fmt.Printf("  📊 End-to-End TPS:       ~%.0f tx/s\n", e2eTps)
+					fmt.Printf("  ⏱️  End-to-End time:      %s\n", e2eDuration.Round(time.Millisecond))
+					if onChainDuration > 0 {
+						fmt.Printf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (First ➡️ Last block commit)\n", onChainTps)
+						fmt.Printf("  ⏱️  On-Chain Commit time: %s\n", onChainDuration.Round(time.Millisecond))
+					} else {
+						fmt.Printf("  📊 On-Chain Engine TPS:  N/A (All TXs confirmed in a single block)\n")
+					}
+					fmt.Printf("═══════════════════════════════════════════════════\n")
+
+					if *traceFlag {
+						traceStart := firstBlockNum
+						if lastConfirmedBlockNum >= traceStart && traceStart > 0 {
+							fmt.Printf("\n  📝 BLOCK PERFORMANCE TRACES (Blocks %d to %d)\n", traceStart, lastConfirmedBlockNum)
+							fmt.Printf("  %-8s | %-6s | %-10s | %-10s | %-10s | %-8s | %-11s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s\n",
+								"Block", "TXs", "WaitGo", "WaitRust", "Consensus", "RustFFI", "ClientBatch", "ProcessTX", "CalcRoots", "BlockData", "Mapping", "CommitMem", "SaveDB", "Total", "GCPause")
+							fmt.Printf("  %s\n", strings.Repeat("-", 190))
+
+							traces, err := rpcClient.GetBlockTraces(traceStart, lastConfirmedBlockNum)
+							if err != nil {
+								fmt.Printf("  ❌ Could not fetch block traces: %v\n", err)
+							} else {
+								for _, t := range traces {
+									realTotalUs := float64(t.WaitGoUs) +
+										float64(t.WaitRustUs) +
+										float64(t.ConsensusDurationUs) +
+										float64(t.ClientBatchProcessingUs) +
+										float64(t.ProcessTxsDurationUs) +
+										float64(t.TotalBlockDurationUs)
+
+									fmt.Printf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
+										t.BlockNumber, t.TxCount,
+										float64(t.WaitGoUs)/1000.0,
+										float64(t.WaitRustUs)/1000.0,
+										float64(t.ConsensusDurationUs)/1000.0,
+										float64(t.RustDeliveryFFIDurationUs)/1000.0,
+										float64(t.ClientBatchProcessingUs)/1000.0,
+										float64(t.ProcessTxsDurationUs)/1000.0,
+										float64(t.Phase1TotalDurationUs)/1000.0,
+										float64(t.BlockDataDurationUs)/1000.0,
+										float64(t.MappingDurationUs)/1000.0,
+										float64(t.CommitMemoryDurationUs)/1000.0,
+										float64(t.SaveDBDurationUs)/1000.0,
+										realTotalUs/1000.0,
+										float64(t.GCPauseUs)/1000.0)
+								}
+							}
+							fmt.Printf("═══════════════════════════════════════════════════\n")
+						}
 					}
 					break
 				}

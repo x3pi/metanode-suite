@@ -34,3 +34,4 @@ test-simple/test-rpc/test-blockstm/5-gas/main
 test-simple/test-rpc/test-blockstm/8-native-mixed-evm/main
 test-simple/test-rpc/test-blockstm/9-cross-contract-call/main
 test-simple/test-rpc/test-blockstm/10-cross-contract-payable/main
+register_bls/tcp/register_bls
