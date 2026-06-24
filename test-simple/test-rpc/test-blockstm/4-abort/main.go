@@ -35,7 +35,9 @@ type Config struct {
 
 func main() {
 	configPath := "../config.json"
-	if len(os.Args) > 1 { configPath = os.Args[1] }
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
 
 	raw, _ := os.ReadFile(configPath)
 	var cfg Config
@@ -43,11 +45,15 @@ func main() {
 
 	client, _ := ethclient.Dial(cfg.RPCUrl)
 
-		parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["AbortRollback"].ABI))
-	if err != nil { log.Fatalf("ABI parse err: %v", err) }
+	parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["AbortRollback"].ABI))
+	if err != nil {
+		log.Fatalf("ABI parse err: %v", err)
+	}
 
-		bytecode, err := hexutil.Decode("0x" + cfg.Contracts["AbortRollback"].Bytecode)
-	if err != nil { log.Fatalf("Bytecode err: %v", err) }
+	bytecode, err := hexutil.Decode("0x" + cfg.Contracts["AbortRollback"].Bytecode)
+	if err != nil {
+		log.Fatalf("Bytecode err: %v", err)
+	}
 
 	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
@@ -60,7 +66,7 @@ func main() {
 	var revertCount int
 	var mu sync.Mutex
 	fmt.Println("🔥 Gửi tx SET PHASE=2 (ví 0) và UPDATE IF PHASE=1 (các ví khác) đồng thời...")
-	
+
 	for i, pkStr := range cfg.PrivateKeys {
 		wg.Add(1)
 		go func(idx int, pKeyHex string) {
@@ -75,7 +81,7 @@ func main() {
 				data, _ = parsedABI.Pack("setPhase", big.NewInt(2))
 			} else {
 				actionName = "UPDATE IF PHASE = 1 (val: 888)"
-				data, _ = parsedABI.Pack("updateIfPhase1", big.NewInt(888))oc
+				data, _ = parsedABI.Pack("updateIfPhase1", big.NewInt(888))
 			}
 
 			fmt.Printf("⏳ Wallet %d đang gửi tx: %s\n", idx, actionName)
@@ -98,7 +104,7 @@ func main() {
 
 	wg.Wait()
 	fmt.Println("\n📊 KẾT QUẢ ABORT / ROLLBACK:")
-	
+
 	phase, _ := getUint256(client, contractAddr, parsedABI, "phase")
 	fmt.Printf("Phase hiện tại: %s\n", phase.String())
 
@@ -132,7 +138,9 @@ func sendTx(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
-		if err == nil { return receipt, nil }
+		if err == nil {
+			return receipt, nil
+		}
 		time.Sleep(300 * time.Millisecond)
 	}
 }

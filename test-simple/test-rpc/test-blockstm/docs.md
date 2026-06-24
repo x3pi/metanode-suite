@@ -46,10 +46,25 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
 - **Cách hoạt động:** Gửi đồng thời hai loại giao dịch: Một giao dịch gọi hàm của Smart Contract (EVM Call) và hàng loạt giao dịch chuyển tiền Native thông thường.
 - **Kết quả kỳ vọng:** Theo thiết kế của Metanode, khi có bất kỳ một giao dịch EVM nào xuất hiện trong block, toàn bộ các giao dịch (bao gồm cả Native Transfer) sẽ bị buộc phải đưa vào cỗ máy Block-STM để phân tích xung đột và thực thi song song. Test này đảm bảo Block-STM xử lý mượt mà và chuẩn xác các giao dịch Native thông thường bên cạnh các giao dịch hợp đồng thông minh phức tạp.
 
-### 9. `contracts/BlockSTMTests.sol` (Smart Contracts cho Test Suite)
-- **Mục đích:** Chứa toàn bộ logic On-chain (Mã nguồn Solidity) cho các bài test từ 2 đến 8.
-- **Thành phần:**
-  - `Contract ReadWriteConflict`: Phục vụ bài test 2 và test 8, chứa hàm `writeData` và `readDataAndSave`.
-  - `Contract AMMSimulator`: Phục vụ bài test 3, mô phỏng cơ chế Swap của DEX với hàm `swapAToB`.
-  - `Contract AbortRollback`: Phục vụ bài test 4 & 5, chứa logic đổi trạng thái bằng `setPhase` và logic điều kiện bằng `updateIfPhase1`.
+### 9. `9-cross-contract-call/main.go` (Kiểm tra Gọi hợp đồng lồng nhau - Internal Calls)
+- **Mục đích:** Kiểm tra tính chính xác của Block-STM khi xử lý các cuộc gọi lồng nhau giữa các Smart Contract.
+- **Cách hoạt động:** Deploy `TargetContract` và `CallerContract`. Hàng loạt ví sẽ gửi đồng thời giao dịch gọi `CallerContract.callTarget(value)`. Bên trong `CallerContract`, nó sẽ tiếp tục thực hiện một cuộc gọi EVM (internal call) sang `TargetContract.addValue(value)`.
+- **Kết quả kỳ vọng:** Block-STM phải có khả năng bóc tách, tracking (theo dõi) được các truy cập Storage sâu bên trong `TargetContract` dù giao dịch gốc chỉ gọi `CallerContract`. Do tất cả các giao dịch đều cố gắng thay đổi cùng một biến `value` của `TargetContract`, hệ thống phải bắt được lỗi xung đột, gom nhóm và xử lý tuần tự một cách chuẩn xác, đảm bảo kết quả cuối cùng phải bằng đúng tổng của tất cả các `value` được gửi tới (cộng dồn).
 
+### 10. `10-cross-contract-payable/main.go` (Kiểm tra Chuyển tiền lồng nhau - Internal Payable Calls)
+- **Mục đích:** Là bài test toàn diện nhất, kiểm tra đồng thời khả năng xử lý xung đột Storage và thay đổi Số dư (Balance/ETH) trong các luồng gọi nội bộ của EVM.
+- **Cách hoạt động:** Tương tự Test 9 nhưng sử dụng `PayableTargetContract` và `PayableCallerContract`. Mỗi giao dịch không chỉ mang theo data mà còn đính kèm tiền (Native ETH/wei). `CallerContract` sẽ nhận tiền và forward toàn bộ số tiền đó sang `TargetContract` thông qua internal call.
+- **Kết quả kỳ vọng:** Block-STM phải xử lý hoàn hảo cả 3 lớp:
+  1. **Storage 1 (`value += 1`)**: Tổng số lượt gọi phải khớp với số lượng giao dịch.
+  2. **Storage 2 (`totalEthReceived += msg.value`)**: Biến lưu trữ tổng số tiền nội bộ phải khớp với tổng số ETH đã gửi.
+  3. **Global Balance**: Số dư Native thực tế của `TargetContract` trên sổ cái blockchain phải khớp hoàn toàn với số ETH đã nhận, không được thất thoát cũng không được nhân đôi (Double Minting).
+
+### 11. `contracts/BlockSTMTests.sol` (Smart Contracts cho Test Suite)
+- **Mục đích:** Chứa toàn bộ logic On-chain (Mã nguồn Solidity) cho các bài test từ 2 đến 10.
+- **Thành phần:**
+  - `Contract ReadWriteConflict`: Phục vụ bài test 2 và test 8.
+  - `Contract AMMSimulator`: Phục vụ bài test 3.
+  - `Contract AbortRollback`: Phục vụ bài test 4 & 5.
+  - `Contract DepositContract`: Phục vụ lưu trữ tiền cơ bản.
+  - `Contract TargetContract` & `CallerContract`: Phục vụ bài test 9 (Cross-Contract Calls).
+  - `Contract PayableTargetContract` & `PayableCallerContract`: Phục vụ bài test 10 (Cross-Contract Payable).

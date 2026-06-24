@@ -10,6 +10,8 @@ TESTS=(
     "6-native-many-to-one"
     "7-native-one-to-many"
     "8-native-mixed-evm"
+    "9-cross-contract-call"
+    "10-cross-contract-payable"
 )
 
 TOTAL_TESTS=${#TESTS[@]}

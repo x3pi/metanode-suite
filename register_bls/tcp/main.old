@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,12 +11,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"crypto/rand"
 
 	client_tcp "tool-test/pkg/client-tcp"
-	com_pkg "tool-test/pkg/client-tcp/common"
 	tcp_config "tool-test/pkg/client-tcp/config"
+	tx_models "tool-test/pkg/client-tcp/models"
+	"tool-test/pkg/client-tcp/utils/tx_helper"
 	"tool-test/pkg/logger"
-	mt_transaction "tool-test/pkg/transaction"
+	pb "tool-test/pkg/proto"
 	"tool-test/test_tps/tps_blast_cc/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -230,7 +231,7 @@ func main() {
 		}(key, i)
 	}
 	wg.Wait()
-
+	
 	sendDuration := time.Since(sendStartTime)
 	injectionTps := float64(successCount) / sendDuration.Seconds()
 	fmt.Printf("✅ Đã GỬI xong tx đăng ký BLS (%d/%d thành công). Thời gian: %v (%.2f tx/s). Bắt đầu chờ block...\n", successCount, numWallets, sendDuration, injectionTps)
@@ -241,7 +242,7 @@ func main() {
 		totalConfirmed := 0
 		maxWait := 500 * time.Second
 		startTime := time.Now()
-
+		
 		var firstTxBlockTime time.Time
 		var lastTxBlockTime time.Time
 		firstBlockNum := uint64(0)
@@ -297,10 +298,10 @@ func main() {
 			}
 			lastBlockNum = currentBlockNum
 		}
-
+		
 		e2eDuration := time.Since(startTime)
 		e2eTps := float64(totalConfirmed) / e2eDuration.Seconds()
-
+		
 		var onChainTps float64
 		var onChainDuration time.Duration
 		if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
@@ -373,7 +374,7 @@ func main() {
 	}
 
 	// =====================================================================
-	// BƯỚC 3: CHUYỂN TIỀN VÀO CÁC VÍ VỪA TẠO (Async)
+	// BƯỚC 3: CHUYỂN TIỀN VÀO CÁC VÍ VỪA TẠO (Sequentially)
 	// =====================================================================
 	if *skipFundFlag {
 		fmt.Println("\n==================================================")
@@ -383,44 +384,26 @@ func main() {
 		return
 	}
 
-	fmt.Printf("\n[3] Đang tiến hành chuyển tiền vào %d ví mới (Async)...\n", numWallets)
+	fmt.Printf("\n[3] Đang tiến hành chuyển tiền vào %d ví mới...\n", numWallets)
+	fundSuccess := 0
+	var fundMu sync.Mutex
 	var fundWg sync.WaitGroup
 
+	// Tạo channel chứa các ví cần nhận tiền
 	jobs := make(chan GeneratedKey, len(generatedKeys))
 	for _, key := range generatedKeys {
 		jobs <- key
 	}
 	close(jobs)
 
+	// Danh sách các ví sẽ làm nhiệm vụ đi gửi tiền
 	fundingWallets := []string{cfg.Address().Hex()}
 	if len(appCfg.WalletPool) > 0 {
 		fundingWallets = appCfg.WalletPool
 	}
 
-	type FundingStat struct {
-		InitialBalance *big.Int
-		ExpectedDeduct *big.Int
-	}
-
-	statsMu := sync.Mutex{}
-	fundingStats := make(map[string]*FundingStat)
-	expectedFundTxHashes := make(map[string]bool)
-
-	fundStartTime := time.Now()
-
-	// Khởi tạo stats cho các ví funding
-	for _, walletAddrStr := range fundingWallets {
-		fromAddress := common.HexToAddress(walletAddrStr)
-		as, err := clientPool[0].AccountState(fromAddress)
-		if err != nil {
-			log.Fatalf("❌ Lỗi lấy state ví funding %s: %v", walletAddrStr, err)
-		}
-		fundingStats[walletAddrStr] = &FundingStat{
-			InitialBalance: new(big.Int).Set(as.Balance()),
-			ExpectedDeduct: big.NewInt(0),
-		}
-	}
-
+	// Mở mỗi ví gửi tiền thành 1 worker (như vậy 1 ví không bao giờ bị dùng song song -> tránh lỗi nonce)
+	// Các worker sẽ tranh nhau lấy job (ví nhận) từ trong channel để xử lý
 	for workerID, walletAddrStr := range fundingWallets {
 		fundWg.Add(1)
 		go func(wID int, fromAddrStr string) {
@@ -429,167 +412,43 @@ func main() {
 			fromAddress := common.HexToAddress(fromAddrStr)
 			client := clientPool[wID%len(clientPool)]
 
-			as, err := client.AccountState(fromAddress)
-			if err != nil {
-				fmt.Printf("❌ Lỗi lấy state ví worker %s: %v\n", fromAddrStr, err)
-				return
-			}
-			currentNonce := as.Nonce()
-			currentPendingBalance := as.PendingBalance()
-
-			lastDeviceKey := common.HexToHash("0000000000000000000000000000000000000000000000000000000000000000")
-			newDeviceKey := common.HexToHash("0000000000000000000000000000000000000000000000000000000000000000")
-
-			workerSuccess := 0
-
 			for key := range jobs {
 				toAddress := common.HexToAddress(key.Address)
-
-				relatedAddress := []common.Address{cfg.Address()}
-				bRelatedAddresses := make([][]byte, len(relatedAddress))
-				for i, v := range relatedAddress {
-					bRelatedAddresses[i] = v.Bytes()
-				}
-
-				callData := mt_transaction.NewCallData(nil)
-				payload, _ := callData.Marshal()
-
-				tx, err := client.GetTransactionController().SendTransaction(
-					fromAddress,
+				receipt, err := tx_helper.SendTransactionNoneKey(
+					"NativeTransfer",
+					client,
+					cfg,
 					toAddress,
-					currentPendingBalance,
-					transferAmount,
-					com_pkg.DefaultMaxGas,
-					com_pkg.DefaultMaxGasPrice,
-					com_pkg.DefaultMaxExecution,
-					payload,
-					bRelatedAddresses,
-					lastDeviceKey,
-					newDeviceKey,
-					currentNonce,
-					cfg.ChainId,
+					fromAddress,
+					nil, // data
+					&tx_models.TxOptions{Amount: transferAmount},
 				)
 
 				if err != nil {
-					fmt.Printf("❌ Ví %d (%s): Lỗi gửi chuyển tiền từ %s: %v\n", key.Index, toAddress.Hex(), fromAddress.Hex(), err)
+					fmt.Printf("❌ Ví %d (%s): Lỗi chuyển tiền từ %s: %v\n", key.Index, toAddress.Hex(), fromAddress.Hex(), err)
 					continue
 				}
 
-				// Tự cộng nonce và trừ balance tạm thời
-				currentNonce++
-				currentPendingBalance = new(big.Int).Sub(currentPendingBalance, transferAmount)
-				workerSuccess++
-
-				statsMu.Lock()
-				fundingStats[fromAddrStr].ExpectedDeduct.Add(fundingStats[fromAddrStr].ExpectedDeduct, transferAmount)
-
-				ethTx := tx.ToEthTransaction()
-				var trackHash string
-				if ethTx != nil {
-					trackHash = ethTx.Hash().Hex()
+				if receipt != nil && (receipt.Status() == pb.RECEIPT_STATUS_RETURNED || receipt.Status() == pb.RECEIPT_STATUS_HALTED) {
+					fundMu.Lock()
+					fundSuccess++
+					if fundSuccess%100 == 0 || fundSuccess == numWallets {
+						fmt.Printf("   ✅ Đã chuyển tiền thành công %d/%d ví (Tx: %s)\n", fundSuccess, numWallets, receipt.TransactionHash().Hex())
+					}
+					fundMu.Unlock()
 				} else {
-					logger.Error("Faild to convert eth tx %s", tx.Hash())
+					var status string
+					if receipt != nil {
+						status = receipt.Status().String()
+					}
+					fmt.Printf("❌ Ví %d: Chuyển tiền thất bại (Status: %s)\n", key.Index, status)
 				}
-				expectedFundTxHashes[strings.ToLower(trackHash)] = true
-
-				if workerSuccess%1000 == 0 || len(expectedFundTxHashes) == numWallets {
-					fmt.Printf("   ✅ Đã gửi tx chuyển tiền %d/%d (Last Tx: %s)\n", len(expectedFundTxHashes), numWallets, trackHash)
-				}
-				statsMu.Unlock()
 			}
 		}(workerID, walletAddrStr)
 	}
 
 	fundWg.Wait()
-	totalFundTxsSent := len(expectedFundTxHashes)
-	fundSendDuration := time.Since(fundStartTime)
-	fmt.Printf("✅ Đã GỬI xong tx chuyển tiền (%d/%d thành công). Thời gian: %v. Bắt đầu chờ block và check số dư...\n", totalFundTxsSent, numWallets, fundSendDuration)
-
-	if totalFundTxsSent > 0 {
-		fmt.Printf("📡 Đang chờ block mới để kiểm tra số dư %d ví funding...\n", len(fundingWallets))
-		lastBlockNum, _ := rpcClient.GetBlockNumber()
-		maxWait := 100 * time.Second
-		startTime := time.Now()
-
-		totalConfirmed := 0
-
-		for {
-			if time.Since(startTime) > maxWait {
-				fmt.Printf("\n❌ Hết thời gian chờ (%s)! Có thể chưa trừ đủ tiền.\n", maxWait)
-				break
-			}
-
-			time.Sleep(100 * time.Millisecond)
-			currentBlockNum, err := rpcClient.GetBlockNumber()
-			if err != nil {
-				continue
-			}
-
-			if currentBlockNum > lastBlockNum {
-				newConfirms := 0
-				for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
-					blk, err := rpcClient.GetBlockByNumber(bn)
-					if err == nil && blk != nil {
-						for _, hash := range blk.Transactions {
-							hashLower := strings.ToLower(hash)
-							statsMu.Lock()
-							if expectedFundTxHashes[hashLower] {
-								delete(expectedFundTxHashes, hashLower)
-								newConfirms++
-							}
-							statsMu.Unlock()
-						}
-					}
-				}
-
-				statsMu.Lock()
-				remaining := len(expectedFundTxHashes)
-				statsMu.Unlock()
-
-				if newConfirms > 0 {
-					totalConfirmed += newConfirms
-					fmt.Printf("\r   📡 Block %d: Confirm thêm %d tx chuyển tiền (Tổng: %d/%d)... Đang chờ %d tx còn lại   \n", currentBlockNum, newConfirms, totalConfirmed, totalFundTxsSent, remaining)
-				} else {
-					fmt.Printf("\r   📡 Block %d: Đã check (chưa thấy tx chuyển tiền nào)...   ", currentBlockNum)
-				}
-
-				if remaining == 0 {
-					// Khi đã confirm hết tất cả TX, kiểm tra số dư
-					fmt.Printf("\n   ✅ Đã confirm toàn bộ %d tx trong block! Bắt đầu kiểm tra số dư các ví...\n", totalConfirmed)
-					allDeducted := true
-					statsMu.Lock()
-					for wAddr, stat := range fundingStats {
-						if stat.ExpectedDeduct.Cmp(big.NewInt(0)) == 0 {
-							continue
-						}
-						fromAddress := common.HexToAddress(wAddr)
-						as, err := clientPool[0].AccountState(fromAddress)
-						if err != nil {
-							allDeducted = false
-							continue
-						}
-						currentBalance := as.Balance()
-						expectedBalance := new(big.Int).Sub(stat.InitialBalance, stat.ExpectedDeduct)
-
-						if currentBalance.Cmp(expectedBalance) > 0 {
-							allDeducted = false
-							fmt.Printf("   ⚠️ Ví %s chưa trừ đủ: Hiện tại %s, Mong đợi <= %s\n", wAddr, currentBalance.String(), expectedBalance.String())
-						}
-					}
-					statsMu.Unlock()
-
-					if allDeducted {
-						fmt.Printf("   ✅ Số dư các ví funding đã được trừ đúng như mong đợi!\n")
-					} else {
-						fmt.Printf("   ⚠️ Số dư các ví funding CHƯA trừ đủ như dự kiến.\n")
-					}
-					break
-				}
-				lastBlockNum = currentBlockNum
-			}
-		}
-	}
-
+	fmt.Printf("✅ Hoàn thành chuyển tiền (%d/%d thành công).\n", fundSuccess, numWallets)
 	fmt.Println("\n==================================================")
 	fmt.Println("🎉 TẤT CẢ QUÁ TRÌNH ĐÃ HOÀN TẤT!")
 }

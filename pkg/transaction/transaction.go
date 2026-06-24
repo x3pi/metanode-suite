@@ -98,7 +98,6 @@ func (t *Transaction) ToEthTransaction() *e_types.Transaction { // SỬA: Kiểu
 	if t.IsDeployContract() {
 		data = t.DeployData().Code()
 	}
-	logger.Error("tx.Type 2: ", tx.Type)
 	switch tx.Type {
 	case e_types.LegacyTxType:
 		var toAddress *common.Address
@@ -128,7 +127,6 @@ func (t *Transaction) ToEthTransaction() *e_types.Transaction { // SỬA: Kiểu
 			innerLegacyTx.R = r
 			innerLegacyTx.S = s
 		}
-		logger.Info("LegacyTxType: ", e_types.NewTx(innerLegacyTx).Hash())
 		// SỬA: Trả về con trỏ trực tiếp từ NewTx
 		return e_types.NewTx(innerLegacyTx)
 
@@ -154,7 +152,6 @@ func (t *Transaction) ToEthTransaction() *e_types.Transaction { // SỬA: Kiểu
 		}
 		accessList := toEthAccessList(tx.AccessList)
 		v, r, s := extractSignature(tx)
-		logger.Error("ToEthTransaction v, r, s", v, r, s)
 
 		innerAccessListTx := &e_types.AccessListTx{
 			ChainID:    chainID,
@@ -197,7 +194,6 @@ func (t *Transaction) ToEthTransaction() *e_types.Transaction { // SỬA: Kiểu
 		}
 		accessList := toEthAccessList(tx.AccessList)
 		v, r, s := extractSignature(tx)
-		logger.Error("ToEthTransaction v, r, s", v, r, s)
 
 		innerDynamicFeeTx := &e_types.DynamicFeeTx{
 			ChainID:    chainID,

@@ -95,3 +95,53 @@ contract DepositContract {
         return totalDeposits;
     }
 }
+
+// ---------------------------------------------------------
+// Test 9: Cross-Contract Calls (Interface calls)
+// ---------------------------------------------------------
+contract TargetContract {
+    uint256 public value;
+
+    function addValue(uint256 _v) external {
+        value += _v;
+    }
+}
+
+contract CallerContract {
+    TargetContract public target;
+
+    constructor(address _target) {
+        target = TargetContract(_target);
+    }
+
+    // Calls the target contract, modifying its state
+    function callTarget(uint256 _v) external {
+        target.addValue(_v);
+    }
+}
+
+// ---------------------------------------------------------
+// Test 10: Cross-Contract Payable Calls
+// ---------------------------------------------------------
+contract PayableTargetContract {
+    uint256 public value;
+    uint256 public totalEthReceived;
+
+    function addValueAndReceive() external payable {
+        value += 1;
+        totalEthReceived += msg.value;
+    }
+}
+
+contract PayableCallerContract {
+    PayableTargetContract public target;
+
+    constructor(address _target) {
+        target = PayableTargetContract(_target);
+    }
+
+    // Accept ETH and forward it to target
+    function callTarget() external payable {
+        target.addValueAndReceive{value: msg.value}();
+    }
+}
