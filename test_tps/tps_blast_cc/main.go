@@ -350,7 +350,7 @@ func main() {
 	flag.BoolVar(&verify, "verify", false, "After each round, check recipient balance to confirm TXs landed")
 	flag.IntVar(&epochWait, "epoch-wait", 300, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
-	flag.BoolVar(&trace, "trace", false, "Enable fetching block traces at the end of the round")
+	flag.BoolVar(&trace, "trace", true, "Enable fetching block traces at the end of the round")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
@@ -1009,67 +1009,78 @@ func main() {
 
 		blastStart := time.Now()
 
-		for i, batchBytes := range batchedMsgs {
-			// Check for STOP flag from block_hash_checker
-			if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
-				reason, _ := os.ReadFile("/tmp/MTN_CHAIN_ERROR_STOP")
-				errMsg := fmt.Sprintf("\n🛑 FATAL: Phát hiện lỗi chuỗi từ block_hash_checker: %s\n   -> DỪNG BLASTING NGAY LẬP TỨC!", string(reason))
-				fmt.Println(errMsg)
-				logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
-				os.Exit(1)
-			}
+		var wg sync.WaitGroup
+		var totalSent int64
 
-			clientIdx := i % len(clients)
-			c := clients[clientIdx]
+		for clientIdx, c := range clients {
+			wg.Add(1)
+			go func(cIdx int, client *activeClient) {
+				defer wg.Done()
+				for i := cIdx; i < len(batchedMsgs); i += len(clients) {
+					batchBytes := batchedMsgs[i]
 
-			if c.rw == nil {
-				c.rw = reconnectNode(c.addr)
-				if c.rw == nil {
-					fmt.Printf("\n[%s]   ❌ Skipping batch %d due to reconnect failure on %s\n", ts(), i, c.addr)
-					continue
-				}
-			}
-
-			err := c.rw.sendRaw(command.SendTransactions, batchBytes)
-			if err != nil {
-				var activeRPCEndpoints []string
-				for _, rc := range rpcPool {
-					activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
-				}
-				fmt.Printf("\n[%s] ⚠️  Gặp lỗi ghi (write error) lên Node TCP: %s tại Batch %d: %v — Đang kết nối lại...\n", ts(), c.addr, i, err)
-				c.rw.close()
-				c.rw = reconnectNode(c.addr)
-				if c.rw != nil {
-					errRetry := c.rw.sendRaw(command.SendTransactions, batchBytes)
-					if errRetry != nil {
-						fmt.Printf("\n[%s] ❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Gửi Batch %d thất bại sau khi reconnect. Chi tiết: %v. Dừng chương trình!\n", ts(), c.addr, activeRPCEndpoints, i, errRetry)
+					// Check for STOP flag from block_hash_checker
+					if _, err := os.Stat("/tmp/MTN_CHAIN_ERROR_STOP"); err == nil {
+						reason, _ := os.ReadFile("/tmp/MTN_CHAIN_ERROR_STOP")
+						errMsg := fmt.Sprintf("\n🛑 FATAL: Phát hiện lỗi chuỗi từ block_hash_checker: %s\n   -> DỪNG BLASTING NGAY LẬP TỨC!", string(reason))
+						fmt.Println(errMsg)
+						logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
 						os.Exit(1)
 					}
-				} else {
-					fmt.Printf("\n[%s] ❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Kết nối lại thất bại tại Batch %d. Dừng chương trình!\n", ts(), c.addr, activeRPCEndpoints, i)
-					os.Exit(1)
+
+					if client.rw == nil {
+						client.rw = reconnectNode(client.addr)
+						if client.rw == nil {
+							fmt.Printf("\n[%s]   ❌ Skipping batch %d due to reconnect failure on %s\n", ts(), i, client.addr)
+							continue
+						}
+					}
+
+					err := client.rw.sendRaw(command.SendTransactions, batchBytes)
+					if err != nil {
+						var activeRPCEndpoints []string
+						for _, rc := range rpcPool {
+							activeRPCEndpoints = append(activeRPCEndpoints, rc.Endpoint)
+						}
+						fmt.Printf("\n[%s] ⚠️  Gặp lỗi ghi (write error) lên Node TCP: %s tại Batch %d: %v — Đang kết nối lại...\n", ts(), client.addr, i, err)
+						client.rw.close()
+						client.rw = reconnectNode(client.addr)
+						if client.rw != nil {
+							errRetry := client.rw.sendRaw(command.SendTransactions, batchBytes)
+							if errRetry != nil {
+								fmt.Printf("\n[%s] ❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Gửi Batch %d thất bại sau khi reconnect. Chi tiết: %v. Dừng chương trình!\n", ts(), client.addr, activeRPCEndpoints, i, errRetry)
+								os.Exit(1)
+							}
+						} else {
+							fmt.Printf("\n[%s] ❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Kết nối lại thất bại tại Batch %d. Dừng chương trình!\n", ts(), client.addr, activeRPCEndpoints, i)
+							os.Exit(1)
+						}
+					}
+
+					if client.rw != nil {
+						client.rw.flush()
+					}
+
+					currentSent := atomic.AddInt64(&totalSent, int64(batchSize))
+					if currentSent > int64(len(allTxs)) {
+						currentSent = int64(len(allTxs))
+					}
+
+					if currentSent%int64(batchSize*10) == 0 || currentSent >= int64(len(allTxs)) {
+						elapsed := time.Since(blastStart)
+						rate := float64(currentSent) / elapsed.Seconds()
+						fmt.Printf("\r[%s]   📤 [%d/%d] %.0f tx/s | elapsed %s   ",
+							ts(), currentSent, len(allTxs), rate, elapsed.Round(time.Millisecond))
+					}
+
+					if i+len(clients) < len(batchedMsgs) {
+						time.Sleep(time.Duration(sleepMs) * time.Millisecond)
+					}
 				}
-			}
-
-			sentTxs := (i + 1) * batchSize
-			if sentTxs > len(allTxs) {
-				sentTxs = len(allTxs)
-			}
-
-			if (i+1)%10 == 0 || i == len(batchedMsgs)-1 {
-				elapsed := time.Since(blastStart)
-				rate := float64(sentTxs) / elapsed.Seconds()
-				fmt.Printf("\r[%s]   📤 [%d/%d] %.0f tx/s | elapsed %s   ",
-					ts(), sentTxs, len(allTxs), rate, elapsed.Round(time.Millisecond))
-			}
-
-			if c.rw != nil {
-				c.rw.flush()
-			}
-			if i < len(batchedMsgs)-1 {
-				time.Sleep(time.Duration(sleepMs) * time.Millisecond)
-			}
+			}(clientIdx, c)
 		}
+
+		wg.Wait()
 
 		for _, c := range clients {
 			if c.rw != nil {
@@ -1244,43 +1255,45 @@ func main() {
 			nextLastBlockNum := lastBlockNum
 			for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
 				blk, err := rpcClient.GetBlockByNumber(bn)
-				if err == nil && blk != nil {
-					// FIX: chỉ gán startEpoch từ block nếu chưa được thiết lập hợp lệ
-					// Bug cũ: khi startEpoch=0 (epoch đầu tiên của chain), code gán lại
-					// startEpoch = blk.Epoch = 0 mỗi vòng lặp, khiến điều kiện
-					// blk.Epoch > startEpoch không bao giờ đúng khi epoch 0→1.
-					if !epochStartSet {
-						startEpoch = blk.Epoch
-						epochStartSet = true
-					}
-					if epochWait > 0 && !epochTransitioned && blk.Epoch > startEpoch {
-						fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d → %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", startEpoch, blk.Epoch, bn, time.Now().Format("15:04:05.000"))
-						epochTransitioned = true
-						processStart = time.Now()
-						lastProgressTime = time.Now()
-						timeoutStartEpoch = blk.Epoch
-					}
+				if err == nil {
+					if blk != nil {
+						// FIX: chỉ gán startEpoch từ block nếu chưa được thiết lập hợp lệ
+						// Bug cũ: khi startEpoch=0 (epoch đầu tiên của chain), code gán lại
+						// startEpoch = blk.Epoch = 0 mỗi vòng lặp, khiến điều kiện
+						// blk.Epoch > startEpoch không bao giờ đúng khi epoch 0→1.
+						if !epochStartSet {
+							startEpoch = blk.Epoch
+							epochStartSet = true
+						}
+						if epochWait > 0 && !epochTransitioned && blk.Epoch > startEpoch {
+							fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d → %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", startEpoch, blk.Epoch, bn, time.Now().Format("15:04:05.000"))
+							epochTransitioned = true
+							processStart = time.Now()
+							lastProgressTime = time.Now()
+							timeoutStartEpoch = blk.Epoch
+						}
 
-					newTxsCount := uint64(0)
-					for _, txHash := range blk.Transactions {
-						txHashLower := strings.ToLower(txHash)
-						if expectedTxHashes[txHashLower] {
-							newTxsCount++
-							delete(expectedTxHashes, txHashLower)
-							if otherHash, exists := hashMapping[txHashLower]; exists {
-								delete(expectedTxHashes, otherHash)
+						newTxsCount := uint64(0)
+						for _, txHash := range blk.Transactions {
+							txHashLower := strings.ToLower(txHash)
+							if expectedTxHashes[txHashLower] {
+								newTxsCount++
+								delete(expectedTxHashes, txHashLower)
+								if otherHash, exists := hashMapping[txHashLower]; exists {
+									delete(expectedTxHashes, otherHash)
+								}
 							}
 						}
-					}
-					if newTxsCount > 0 {
-						blkTime := time.UnixMilli(int64(blk.Timestamp))
-						if !seenAnyTx {
-							firstTxBlockTime = blkTime
-							seenAnyTx = true
+						if newTxsCount > 0 {
+							blkTime := time.UnixMilli(int64(blk.Timestamp))
+							if !seenAnyTx {
+								firstTxBlockTime = blkTime
+								seenAnyTx = true
+							}
+							lastTxBlockTime = blkTime
 						}
-						lastTxBlockTime = blkTime
+						newTxs += newTxsCount
 					}
-					newTxs += newTxsCount
 					nextLastBlockNum = bn
 				} else {
 					break
