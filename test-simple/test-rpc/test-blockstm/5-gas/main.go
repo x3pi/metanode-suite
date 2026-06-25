@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 5-gas
+ * MÔ TẢ   : Kiểm tra giới hạn Gas và trừ Gas khi thực thi bằng Block-STM.
+ * GỌI     : Giao dịch tính toán nhiều hoặc cấu hình gas limit khác nhau.
+ * KỲ VỌNG : Giao dịch thiếu Gas phải bị revert OutOfGas, hệ thống trừ đúng số Gas fee vào tài khoản gọi.
+ */
 package main
 
 import (
@@ -33,6 +39,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 5-gas")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Kiểm tra giới hạn Gas và trừ Gas khi thực thi bằng Block-STM.")
+	fmt.Println("⚡ GỌI     : Giao dịch tính toán nhiều hoặc cấu hình gas limit khác nhau.")
+	fmt.Println("🎯 KỲ VỌNG : Giao dịch thiếu Gas phải bị revert OutOfGas, hệ thống trừ đúng số Gas fee vào tài khoản gọi.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

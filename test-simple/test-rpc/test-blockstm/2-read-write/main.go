@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 2-read-write
+ * MÔ TẢ   : Gửi hỗn hợp các giao dịch chỉ đọc (read) và các giao dịch ghi (write) trạng thái.
+ * GỌI     : Giao dịch read-only và giao dịch update state đan xen.
+ * KỲ VỌNG : Giao dịch read phải lấy được giá trị đúng tại thời điểm đó, không bị ảnh hưởng sai lệch do các write xung đột chưa được commit.
+ */
 package main
 
 import (
@@ -34,6 +40,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 2-read-write")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Gửi hỗn hợp các giao dịch chỉ đọc (read) và các giao dịch ghi (write) trạng thái.")
+	fmt.Println("⚡ GỌI     : Giao dịch read-only và giao dịch update state đan xen.")
+	fmt.Println("🎯 KỲ VỌNG : Giao dịch read phải lấy được giá trị đúng tại thời điểm đó, không bị ảnh hưởng sai lệch do các write xung đột chưa được commit.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 { configPath = os.Args[1] }
 

@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 1-update-same-contract
+ * MÔ TẢ   : Gửi nhiều giao dịch (tx) cùng lúc để gọi hàm update (tăng biến count) trên cùng một Smart Contract.
+ * GỌI     : Giao dịch gọi hàm EVM update state trên 1 contract duy nhất.
+ * KỲ VỌNG : Block-STM phải phát hiện read/write conflict, abort và re-execute để đảm bảo tính tuần tự. Giá trị count cuối cùng phải bằng tổng số tx thành công.
+ */
 package main
 
 import (
@@ -37,6 +43,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 1-update-same-contract")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Gửi nhiều giao dịch (tx) cùng lúc để gọi hàm update (tăng biến count) trên cùng một Smart Contract.")
+	fmt.Println("⚡ GỌI     : Giao dịch gọi hàm EVM update state trên 1 contract duy nhất.")
+	fmt.Println("🎯 KỲ VỌNG : Block-STM phải phát hiện read/write conflict, abort và re-execute để đảm bảo tính tuần tự. Giá trị count cuối cùng phải bằng tổng số tx thành công.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 6-native-many-to-one
+ * MÔ TẢ   : Nhiều tài khoản khác nhau cùng chuyển Native Token vào chung MỘT tài khoản nhận.
+ * GỌI     : Chuyển tiền Native (Coin) từ nhiều ví -> 1 ví duy nhất.
+ * KỲ VỌNG : Xung đột trên tài khoản nhận (cộng dồn số dư). Số dư cuối cùng của người nhận phải bằng tổng số dư ban đầu cộng tổng số tiền đã nhận.
+ */
 package main
 
 import (
@@ -24,6 +30,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 6-native-many-to-one")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Nhiều tài khoản khác nhau cùng chuyển Native Token vào chung MỘT tài khoản nhận.")
+	fmt.Println("⚡ GỌI     : Chuyển tiền Native (Coin) từ nhiều ví -> 1 ví duy nhất.")
+	fmt.Println("🎯 KỲ VỌNG : Xung đột trên tài khoản nhận (cộng dồn số dư). Số dư cuối cùng của người nhận phải bằng tổng số dư ban đầu cộng tổng số tiền đã nhận.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

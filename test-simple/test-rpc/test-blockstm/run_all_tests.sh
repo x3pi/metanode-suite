@@ -25,6 +25,8 @@ declare -A REASONS
 LOG_DIR="test_logs"
 mkdir -p "$LOG_DIR"
 
+
+
 echo "🚀 BẮT ĐẦU CHẠY TỔNG HỢP $TOTAL_TESTS BÀI TEST BLOCK-STM..."
 echo "=========================================================="
 
@@ -44,6 +46,7 @@ for test_dir in "${TESTS[@]}"; do
     exit_code=$?
     
     echo "$output" > "$log_file"
+    
     cd ..
 
     # Phân tích kết quả dựa trên output và exit code

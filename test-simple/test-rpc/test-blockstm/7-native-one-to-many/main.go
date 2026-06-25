@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 7-native-one-to-many
+ * MÔ TẢ   : Một tài khoản gửi Native Token cho NHIỀU tài khoản khác nhau.
+ * GỌI     : Chuyển tiền Native (Coin) từ 1 ví -> nhiều ví khác nhau.
+ * KỲ VỌNG : Xung đột trên tài khoản gửi (trừ số dư nhiều lần, tăng nonce). Nonce phải tăng tuần tự và số dư người gửi phải bị trừ đúng tổng số tiền gửi đi.
+ */
 package main
 
 import (
@@ -24,6 +30,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 7-native-one-to-many")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Một tài khoản gửi Native Token cho NHIỀU tài khoản khác nhau.")
+	fmt.Println("⚡ GỌI     : Chuyển tiền Native (Coin) từ 1 ví -> nhiều ví khác nhau.")
+	fmt.Println("🎯 KỲ VỌNG : Xung đột trên tài khoản gửi (trừ số dư nhiều lần, tăng nonce). Nonce phải tăng tuần tự và số dư người gửi phải bị trừ đúng tổng số tiền gửi đi.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

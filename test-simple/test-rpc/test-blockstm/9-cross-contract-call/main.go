@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 9-cross-contract-call
+ * MÔ TẢ   : Contract A thực hiện gọi chéo sang Contract B (Cross-contract call).
+ * GỌI     : Tx gọi Contract A, bên trong logic của Contract A tiếp tục gọi hàm của Contract B.
+ * KỲ VỌNG : Read/Write set được ghi nhận đầy đủ cho cả Contract A và B. Nếu có conflict ở B thì toàn bộ chain call phải re-execute hợp lý.
+ */
 package main
 
 import (
@@ -32,6 +38,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 9-cross-contract-call")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Contract A thực hiện gọi chéo sang Contract B (Cross-contract call).")
+	fmt.Println("⚡ GỌI     : Tx gọi Contract A, bên trong logic của Contract A tiếp tục gọi hàm của Contract B.")
+	fmt.Println("🎯 KỲ VỌNG : Read/Write set được ghi nhận đầy đủ cho cả Contract A và B. Nếu có conflict ở B thì toàn bộ chain call phải re-execute hợp lý.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

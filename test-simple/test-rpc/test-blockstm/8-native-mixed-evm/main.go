@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 8-native-mixed-evm
+ * MÔ TẢ   : Đan xen các giao dịch chuyển Native Token và các giao dịch gọi Smart Contract (EVM).
+ * GỌI     : Chuyển tiền Native và gọi Smart Contract xen kẽ trong cùng batch.
+ * KỲ VỌNG : Cả hai loại giao dịch được xử lý song song và an toàn, không bị ảnh hưởng (side-effect) chéo.
+ */
 package main
 
 import (
@@ -35,6 +41,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 8-native-mixed-evm")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Đan xen các giao dịch chuyển Native Token và các giao dịch gọi Smart Contract (EVM).")
+	fmt.Println("⚡ GỌI     : Chuyển tiền Native và gọi Smart Contract xen kẽ trong cùng batch.")
+	fmt.Println("🎯 KỲ VỌNG : Cả hai loại giao dịch được xử lý song song và an toàn, không bị ảnh hưởng (side-effect) chéo.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

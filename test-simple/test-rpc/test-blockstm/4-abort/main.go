@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 4-abort
+ * MÔ TẢ   : Kiểm tra các giao dịch chủ động throw lỗi (revert/abort) bên trong logic Smart Contract.
+ * GỌI     : Giao dịch có logic require() hoặc revert() dẫn đến thất bại chủ động.
+ * KỲ VỌNG : Trạng thái của giao dịch abort bị rollback, KHÔNG ảnh hưởng đến các giao dịch khác trong cùng block.
+ */
 package main
 
 import (
@@ -34,6 +40,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 4-abort")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Kiểm tra các giao dịch chủ động throw lỗi (revert/abort) bên trong logic Smart Contract.")
+	fmt.Println("⚡ GỌI     : Giao dịch có logic require() hoặc revert() dẫn đến thất bại chủ động.")
+	fmt.Println("🎯 KỲ VỌNG : Trạng thái của giao dịch abort bị rollback, KHÔNG ảnh hưởng đến các giao dịch khác trong cùng block.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

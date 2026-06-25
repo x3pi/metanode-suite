@@ -1,13 +1,13 @@
 {
     "type": "get_block_transactions",
     "rpc_urls": [
-        "http://localhost:8545",
-        "http://localhost:8547",
-        "http://localhost:8548",
-        "http://localhost:8549",
-        "http://localhost:8550"
+        "http://127.0.0.1:10746",
+        "http://127.0.0.1:10747",
+        "http://127.0.0.1:10748",
+        "http://127.0.0.1:10749",
+        "http://127.0.0.1:10750"
     ],
     "params": {
-        "block": "13"
+        "block": "1"
     }
 }

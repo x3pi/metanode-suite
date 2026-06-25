@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 3-amm-dex
+ * MÔ TẢ   : Mô phỏng swap token trên một AMM DEX với sự tranh chấp cao ở Pool Reserve.
+ * GỌI     : Nhiều user gọi hàm swap token cùng lúc làm thay đổi reserve của Pool.
+ * KỲ VỌNG : Block-STM xử lý mượt mà các conflict trên biến reserve, đảm bảo số dư token sau swap tuân thủ đúng công thức Constant Product.
+ */
 package main
 
 import (
@@ -36,6 +42,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 3-amm-dex")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Mô phỏng swap token trên một AMM DEX với sự tranh chấp cao ở Pool Reserve.")
+	fmt.Println("⚡ GỌI     : Nhiều user gọi hàm swap token cùng lúc làm thay đổi reserve của Pool.")
+	fmt.Println("🎯 KỲ VỌNG : Block-STM xử lý mượt mà các conflict trên biến reserve, đảm bảo số dư token sau swap tuân thủ đúng công thức Constant Product.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]

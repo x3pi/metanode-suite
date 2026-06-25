@@ -1,3 +1,9 @@
+/*
+ * BÀI TEST: 10-cross-contract-payable
+ * MÔ TẢ   : Contract A gọi sang Contract B đồng thời đính kèm value (chuyển Native Token).
+ * GỌI     : Cross-contract call kèm thuộc tính payable (chuyển value).
+ * KỲ VỌNG : State thay đổi cả ở logic EVM (storage) và balance (Native token). Trạng thái sau cùng phải khớp hoàn toàn giá trị dư mới và biến storage.
+ */
 package main
 
 import (
@@ -32,6 +38,15 @@ type Config struct {
 }
 
 func main() {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 10-cross-contract-payable")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Contract A gọi sang Contract B đồng thời đính kèm value (chuyển Native Token).")
+	fmt.Println("⚡ GỌI     : Cross-contract call kèm thuộc tính payable (chuyển value).")
+	fmt.Println("🎯 KỲ VỌNG : State thay đổi cả ở logic EVM (storage) và balance (Native token). Trạng thái sau cùng phải khớp hoàn toàn giá trị dư mới và biến storage.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
 	configPath := "../config.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
