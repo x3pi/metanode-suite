@@ -332,6 +332,7 @@ func main() {
 		epochWait   int
 		targetNode  int
 		trace       bool
+		tpsTarget   int
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -351,6 +352,7 @@ func main() {
 	flag.IntVar(&epochWait, "epoch-wait", 300, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
 	flag.BoolVar(&trace, "trace", true, "Enable fetching block traces at the end of the round")
+	flag.IntVar(&tpsTarget, "tps-target", 0, "Target TPS for paced injection (0 = disable pacing)")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
@@ -404,10 +406,15 @@ func main() {
 	}
 	fmt.Printf("  📋 Loaded %d accounts from %s\n", len(accounts), keysFile)
 
+	var toSend []AccountInfo
 	if count > len(accounts) {
-		count = len(accounts)
+		toSend = make([]AccountInfo, 0, count)
+		for i := 0; i < count; i++ {
+			toSend = append(toSend, accounts[i%len(accounts)])
+		}
+	} else {
+		toSend = accounts[:count]
 	}
-	toSend := accounts[:count]
 
 	fmt.Printf("  📊 TXs to send: %d\n", len(toSend))
 	fmt.Printf("  📍 Recipient: %s\n", recipient)
@@ -422,9 +429,9 @@ func main() {
 		if json.Unmarshal(raw, &rawCfg) == nil {
 			// Thêm rpc_0, rpc_1, rpc_2, rpc_3, ... theo thứ tự
 			for i := 0; i <= 10; i++ {
-				// Nếu load_balance = false, chỉ sử dụng rpc_0 (node hiện tại)
-				if !loadBalance && i > 0 {
-					break
+				// Nếu load_balance = false, chỉ sử dụng rpc_<targetNode>
+				if !loadBalance && i != targetNode {
+					continue
 				}
 
 				key := fmt.Sprintf("rpc_%d", i)
@@ -634,6 +641,7 @@ func main() {
 
 		// Get nonce for this account
 		nonce, ok := nonceMap[acc.Address]
+		nonceMap[acc.Address] = nonce + 1 // Increment for duplicate uses
 		if !ok {
 			// This happens when fetchNonce failed for this address earlier
 			if buildErrors < 5 {
@@ -663,7 +671,9 @@ func main() {
 		)
 
 		// Sign with BLS key
-		internalTx.SetSign(pKey)
+		var accPKey p_common.PrivateKey
+			copy(accPKey[:], privKeyBytes)
+			internalTx.SetSign(accPKey)
 
 		bTx, err := internalTx.Marshal()
 		if err != nil {
@@ -857,7 +867,7 @@ func main() {
 						acc := toSend[idx]
 						exp := int64(-1)
 						if oldN, ok := oldNonceMap[acc.Address]; ok {
-							exp = int64(oldN + 1)
+							exp = int64(oldN)
 						}
 						nonce, err := fetchNonce(acc.Address, exp)
 						if err == nil {
@@ -930,6 +940,7 @@ func main() {
 				bCallData = []byte{}
 
 				nonce, ok := nonceMap[acc.Address]
+				nonceMap[acc.Address] = nonce + 1 // Increment for duplicate uses
 				if !ok {
 					if rebuildErrors < 5 {
 						fmt.Printf("  ⚠️  [REBUILD SKIP] addr=%s — nonce not found (fetch failed earlier)\n", acc.Address)
@@ -949,7 +960,9 @@ func main() {
 					common.Hash{}, common.Hash{},
 					nonce, chainId,
 				)
-				internalTx.SetSign(pKey)
+				var accPKey p_common.PrivateKey
+			copy(accPKey[:], privKeyBytes)
+			internalTx.SetSign(accPKey)
 				bTx, err := internalTx.Marshal()
 				if err != nil {
 					rebuildErrors++
@@ -1074,7 +1087,17 @@ func main() {
 					}
 
 					if i+len(clients) < len(batchedMsgs) {
-						time.Sleep(time.Duration(sleepMs) * time.Millisecond)
+						if tpsTarget > 0 {
+							// Calculate exact time we SHOULD have spent by now to maintain tpsTarget
+							expectedElapsedSecs := float64(currentSent) / float64(tpsTarget)
+							actualElapsedSecs := time.Since(blastStart).Seconds()
+							if expectedElapsedSecs > actualElapsedSecs {
+								pacingSleep := time.Duration((expectedElapsedSecs - actualElapsedSecs) * float64(time.Second))
+								time.Sleep(pacingSleep)
+							}
+						} else if sleepMs > 0 {
+							time.Sleep(time.Duration(sleepMs) * time.Millisecond)
+						}
 					}
 				}
 			}(clientIdx, c)
@@ -1095,7 +1118,7 @@ func main() {
 
 		// ================= Poll for TX completion =================
 		maxWait := time.Duration(waitSecs) * time.Second
-		pollInterval := 20 * time.Millisecond
+		pollInterval := 5 * time.Millisecond
 
 		// Build map of expected tx hashes to correctly count only our TXs
 		expectedTxHashes := make(map[string]bool)
@@ -1253,50 +1276,82 @@ func main() {
 
 			newTxs := uint64(0)
 			nextLastBlockNum := lastBlockNum
-			for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
-				blk, err := rpcClient.GetBlockByNumber(bn)
-				if err == nil {
-					if blk != nil {
-						// FIX: chỉ gán startEpoch từ block nếu chưa được thiết lập hợp lệ
-						// Bug cũ: khi startEpoch=0 (epoch đầu tiên của chain), code gán lại
-						// startEpoch = blk.Epoch = 0 mỗi vòng lặp, khiến điều kiện
-						// blk.Epoch > startEpoch không bao giờ đúng khi epoch 0→1.
-						if !epochStartSet {
-							startEpoch = blk.Epoch
-							epochStartSet = true
-						}
-						if epochWait > 0 && !epochTransitioned && blk.Epoch > startEpoch {
-							fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d → %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", startEpoch, blk.Epoch, bn, time.Now().Format("15:04:05.000"))
-							epochTransitioned = true
-							processStart = time.Now()
-							lastProgressTime = time.Now()
-							timeoutStartEpoch = blk.Epoch
-						}
+			if currentBlockNum > lastBlockNum {
+				maxBlocksToQuery := uint64(20)
+				toBlockNum := currentBlockNum
+				if toBlockNum > lastBlockNum+maxBlocksToQuery {
+					toBlockNum = lastBlockNum + maxBlocksToQuery
+				}
+				numBlocks := toBlockNum - lastBlockNum
 
-						newTxsCount := uint64(0)
-						for _, txHash := range blk.Transactions {
-							txHashLower := strings.ToLower(txHash)
-							if expectedTxHashes[txHashLower] {
-								newTxsCount++
-								delete(expectedTxHashes, txHashLower)
-								if otherHash, exists := hashMapping[txHashLower]; exists {
-									delete(expectedTxHashes, otherHash)
-								}
-							}
-						}
-						if newTxsCount > 0 {
-							blkTime := time.UnixMilli(int64(blk.Timestamp))
-							if !seenAnyTx {
-								firstTxBlockTime = blkTime
-								seenAnyTx = true
-							}
-							lastTxBlockTime = blkTime
-						}
-						newTxs += newTxsCount
+				type blockResult struct {
+					bn  uint64
+					blk *rpc.Block
+					err error
+				}
+				ch := make(chan blockResult, numBlocks)
+				var wg sync.WaitGroup
+
+				for bn := lastBlockNum + 1; bn <= toBlockNum; bn++ {
+					wg.Add(1)
+					go func(blockNum uint64) {
+						defer wg.Done()
+						blk, err := rpcClient.GetBlockByNumber(blockNum)
+						ch <- blockResult{bn: blockNum, blk: blk, err: err}
+					}(bn)
+				}
+				wg.Wait()
+				close(ch)
+
+				results := make([]blockResult, 0, numBlocks)
+				for res := range ch {
+					results = append(results, res)
+				}
+				sort.Slice(results, func(i, j int) bool {
+					return results[i].bn < results[j].bn
+				})
+
+				for _, res := range results {
+					if res.err != nil || res.blk == nil {
+						break
 					}
+					blk := res.blk
+					bn := res.bn
+
+					// FIX: chỉ gán startEpoch từ block nếu chưa được thiết lập hợp lệ
+					if !epochStartSet {
+						startEpoch = blk.Epoch
+						epochStartSet = true
+					}
+					if epochWait > 0 && !epochTransitioned && blk.Epoch > startEpoch {
+						fmt.Printf("\n  ✅ Đã chuyển sang epoch mới: %d → %d (tại block %d). Bắt đầu đếm giờ timeout chờ TX... | Time: %s\n", startEpoch, blk.Epoch, bn, time.Now().Format("15:04:05.000"))
+						epochTransitioned = true
+						processStart = time.Now()
+						lastProgressTime = time.Now()
+						timeoutStartEpoch = blk.Epoch
+					}
+
+					newTxsCount := uint64(0)
+					for _, txHash := range blk.Transactions {
+						txHashLower := strings.ToLower(txHash)
+						if expectedTxHashes[txHashLower] {
+							newTxsCount++
+							delete(expectedTxHashes, txHashLower)
+							if otherHash, exists := hashMapping[txHashLower]; exists {
+								delete(expectedTxHashes, otherHash)
+							}
+						}
+					}
+					if newTxsCount > 0 {
+						blkTime := time.UnixMilli(int64(blk.Timestamp))
+						if !seenAnyTx {
+							firstTxBlockTime = blkTime
+							seenAnyTx = true
+						}
+						lastTxBlockTime = blkTime
+					}
+					newTxs += newTxsCount
 					nextLastBlockNum = bn
-				} else {
-					break
 				}
 			}
 
@@ -1527,6 +1582,34 @@ func main() {
 		sb.WriteString(fmt.Sprintf("  📥 TX in blocks:         %d\n", totalTxsInBlocks))
 		sb.WriteString(fmt.Sprintf("  📊 End-to-End TPS:       ~%.0f tx/s\n", processingTPS))
 		sb.WriteString(fmt.Sprintf("  ⏱️  End-to-End time:      %s\n", totalDuration.Round(time.Millisecond)))
+
+		var traces []rpc.BlockTrace
+		var tracesErr error
+		var totalOnChainExecTime time.Duration
+		if trace {
+			traces, tracesErr = rpcClient.GetBlockTraces(startBlock+1, endBlock)
+			if tracesErr == nil {
+				var totalRealUs float64
+				for _, t := range traces {
+					realTotalUs := float64(t.WaitGoUs) + float64(t.WaitRustUs) + float64(t.ProcessTxsDurationUs) + float64(t.TotalBlockDurationUs)
+					totalRealUs += realTotalUs
+				}
+				totalOnChainExecTime = time.Duration(totalRealUs) * time.Microsecond
+			}
+		}
+		
+		waitAndNetworkDelay := totalDuration - blastDuration - totalOnChainExecTime
+		if waitAndNetworkDelay < 0 {
+			waitAndNetworkDelay = 0
+		}
+
+		sb.WriteString(fmt.Sprintf("  ─────────────────────────────────────────────────\n"))
+		sb.WriteString(fmt.Sprintf("  🔍 END-TO-END TIME BREAKDOWN:\n"))
+		sb.WriteString(fmt.Sprintf("     1️⃣  Client TX Injection:     %s\n", blastDuration.Round(time.Millisecond)))
+		sb.WriteString(fmt.Sprintf("     2️⃣  On-Chain Execution:      %s (Sum of block traces)\n", totalOnChainExecTime.Round(time.Millisecond)))
+		sb.WriteString(fmt.Sprintf("     3️⃣  Mempool, Sync & Polling: %s (Wait & Networking)\n", waitAndNetworkDelay.Round(time.Millisecond)))
+		sb.WriteString(fmt.Sprintf("  ─────────────────────────────────────────────────\n"))
+
 		if isSingleBlock && onChainDuration > 0 {
 			sb.WriteString(fmt.Sprintf("  📊 On-Chain Engine TPS:  ~%.0f tx/s (Single Block Trace Execution)\n", onChainTPS))
 			sb.WriteString(fmt.Sprintf("  ⏱️  On-Chain Commit time: %s (Block Execution Trace)\n", onChainDuration.Round(time.Millisecond)))
@@ -1551,16 +1634,32 @@ func main() {
 					"Block", "TXs", "WaitGo", "WaitRust", "Consensus", "RustFFI", "ClientBatch", "ProcessTX", "CalcRoots", "BlockData", "Mapping", "CommitMem", "SaveDB", "Total", "GCPause"))
 				sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 190)))
 
-				traces, err := rpcClient.GetBlockTraces(startBlock+1, endBlock)
-				if err != nil {
-					sb.WriteString(fmt.Sprintf("  ❌ Could not fetch block traces: %v\n", err))
+				if tracesErr != nil {
+					sb.WriteString(fmt.Sprintf("  ❌ Could not fetch block traces: %v\n", tracesErr))
 				} else {
+					var totalWaitGo, totalWaitRust, totalConsensus, totalRustFFI, totalClientBatch float64
+					var totalProcessTX, totalCalcRoots, totalBlockData, totalMapping, totalCommitMem, totalSaveDB, totalTotal, totalGCPause float64
+
 					for _, t := range traces {
 						// Calculate real total including all phases + wait times (End-to-End Node Latency)
 						realTotalUs := float64(t.WaitGoUs) +
 							float64(t.WaitRustUs) +
 							float64(t.ProcessTxsDurationUs) +
 							float64(t.TotalBlockDurationUs)
+
+						totalWaitGo += float64(t.WaitGoUs)
+						totalWaitRust += float64(t.WaitRustUs)
+						totalConsensus += float64(t.ConsensusDurationUs)
+						totalRustFFI += float64(t.RustDeliveryFFIDurationUs)
+						totalClientBatch += float64(t.ClientBatchProcessingUs)
+						totalProcessTX += float64(t.ProcessTxsDurationUs)
+						totalCalcRoots += float64(t.Phase1TotalDurationUs)
+						totalBlockData += float64(t.BlockDataDurationUs)
+						totalMapping += float64(t.MappingDurationUs)
+						totalCommitMem += float64(t.CommitMemoryDurationUs)
+						totalSaveDB += float64(t.SaveDBDurationUs)
+						totalTotal += float64(t.TotalBlockDurationUs)
+						totalGCPause += float64(t.GCPauseUs)
 
 						sb.WriteString(fmt.Sprintf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
 							t.BlockNumber, t.TxCount,
@@ -1577,6 +1676,77 @@ func main() {
 							float64(t.SaveDBDurationUs)/1000.0,
 							realTotalUs/1000.0,
 							float64(t.GCPauseUs)/1000.0))
+					}
+
+					if len(traces) > 0 {
+						n := float64(len(traces))
+						sb.WriteString(fmt.Sprintf("\n  🔍 BOTTLENECK ANALYSIS (Average per Block)\n"))
+						sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 75)))
+						
+						type stat struct {
+							name  string
+							avgMs float64
+							desc  string
+						}
+						stats := []stat{
+							{"ProcessTX", totalProcessTX / n / 1000.0, "Thực thi EVM & cập nhật State"},
+							{"WaitGo", totalWaitGo / n / 1000.0, "Mempool Go / Xử lý RPC nghẽn"},
+							{"WaitRust", totalWaitRust / n / 1000.0, "Đồng thuận P2P / Rust Core"},
+							{"Consensus", totalConsensus / n / 1000.0, "Rust xử lý thuật toán đồng thuận"},
+							{"SaveDB", totalSaveDB / n / 1000.0, "Ghi dữ liệu Disk I/O"},
+							{"CommitMem", totalCommitMem / n / 1000.0, "Lưu State Cache (Memory)"},
+							{"CalcRoots", totalCalcRoots / n / 1000.0, "Tính toán Merkle Roots"},
+							{"GCPause", totalGCPause / n / 1000.0, "Dừng dọn rác Golang (STW)"},
+							{"ClientBatch", totalClientBatch / n / 1000.0, "Hàng đợi chờ Execution Go"},
+						}
+						
+						sort.Slice(stats, func(i, j int) bool {
+							return stats[i].avgMs > stats[j].avgMs
+						})
+						
+						var baseMs float64 = (totalWaitGo + totalWaitRust + totalTotal) / n / 1000.0
+						if baseMs == 0 {
+							baseMs = 1
+						}
+						
+						for i, s := range stats {
+							if i >= 4 && s.avgMs < 5.0 {
+								break // only show top bottlenecks
+							}
+							percent := (s.avgMs / baseMs) * 100.0
+							if percent > 100.0 {
+								percent = 100.0
+							}
+							icon := "🟢"
+							if s.avgMs > 200 {
+								icon = "🔴"
+							} else if s.avgMs > 50 {
+								icon = "🟡"
+							}
+							sb.WriteString(fmt.Sprintf("  %s %-12s : %8.1f ms (%5.1f%%) | %s\n", icon, s.name, s.avgMs, percent, s.desc))
+						}
+						sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 75)))
+						
+						top := stats[0]
+						sb.WriteString(fmt.Sprintf("  💡 Gợi ý tối ưu:\n"))
+						if top.name == "ProcessTX" && top.avgMs > 500 {
+							sb.WriteString(fmt.Sprintf("     - ProcessTX quá cao (%.1fms). Nút thắt tại CPU xử lý EVM.\n", top.avgMs))
+							sb.WriteString(fmt.Sprintf("     -> Thử giảm 'Max TXs per block' hoặc nâng cấp CPU.\n"))
+						} else if top.name == "WaitRust" && top.avgMs > 1000 {
+							sb.WriteString(fmt.Sprintf("     - WaitRust rất cao (%.1fms). Mạng P2P hoặc đồng thuận lõi đang nghẽn.\n", top.avgMs))
+							sb.WriteString(fmt.Sprintf("     -> Kiểm tra network latency giữa các node hoặc logs của Rust.\n"))
+						} else if top.name == "SaveDB" && top.avgMs > 100 {
+							sb.WriteString(fmt.Sprintf("     - SaveDB cao (%.1fms). Nút thắt tại I/O ổ cứng.\n", top.avgMs))
+							sb.WriteString(fmt.Sprintf("     -> Chuyển sang SSD NVMe hoặc tối ưu cấu hình PebbleDB.\n"))
+						} else if top.name == "GCPause" && top.avgMs > 50 {
+							sb.WriteString(fmt.Sprintf("     - GCPause cao (%.1fms). Golang đang tốn nhiều thời gian dọn rác.\n", top.avgMs))
+							sb.WriteString(fmt.Sprintf("     -> Kiểm tra memory leak hoặc cấu hình lại GOGC.\n"))
+						} else if top.name == "WaitGo" && top.avgMs > 500 {
+							sb.WriteString(fmt.Sprintf("     - WaitGo cao (%.1fms). TX bị nghẽn ở Mempool trước khi vào đồng thuận.\n", top.avgMs))
+							sb.WriteString(fmt.Sprintf("     -> Tối ưu rpc server hoặc Mempool parsing.\n"))
+						} else {
+							sb.WriteString(fmt.Sprintf("     - Hệ thống đang chạy khá mượt mà. Nút thắt chính hiện tại: %s.\n", top.name))
+						}
 					}
 				}
 			} else {
