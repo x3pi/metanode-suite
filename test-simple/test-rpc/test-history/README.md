@@ -74,7 +74,7 @@ go run main.go -config config-local.json
 
 ```bash
 # Đợi 50 block rồi mới check
-go run main.go -config config-local.json -wait 50
+go run main.go -config config-mutil.json -wait 5
 ```
 
 ### 3. Kiểm tra liên tục (Chế độ chạy ngầm)

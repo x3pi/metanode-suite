@@ -637,12 +637,21 @@ func checkBatch(client *http.Client, nodes []nodeInfo, from, to uint64) (mismatc
 					}
 				}
 				if err != nil || (bi.IsError() && bi.Error != "(block không tồn tại)") {
-					// Retry logic: allow lagging nodes to catch up on async LevelDB writes
-					for retries := 1; retries <= 3; retries++ {
-						time.Sleep(500 * time.Millisecond)
-						bi, err = getBlockInfo(client, node.URL, blockNum)
-						if err == nil && (!bi.IsError() || bi.Error == "(block không tồn tại)") {
-							break
+					isPruned := false
+					if err != nil && strings.Contains(err.Error(), "pruned") {
+						isPruned = true
+					}
+					if bi.IsError() && strings.Contains(bi.Error, "pruned") {
+						isPruned = true
+					}
+					if !isPruned {
+						// Retry logic: allow lagging nodes to catch up on async LevelDB writes
+						for retries := 1; retries <= 3; retries++ {
+							time.Sleep(500 * time.Millisecond)
+							bi, err = getBlockInfo(client, node.URL, blockNum)
+							if err == nil && (!bi.IsError() || bi.Error == "(block không tồn tại)") {
+								break
+							}
 						}
 					}
 				}
@@ -1935,14 +1944,14 @@ func watchOnce(client *http.Client, nodes []nodeInfo, totalChecks, totalMismatch
 		if batchEnd > maxBlock {
 			batchEnd = maxBlock
 		}
-		
+
 		bMismatches, bMatched, _, bSkipped, bNilBlocks, bEmptyBlocks := checkBatch(client, nodes, batchStart, batchEnd)
 		mismatches = append(mismatches, bMismatches...)
 		matched += bMatched
 		skipped += bSkipped
 		nilBlocks = append(nilBlocks, bNilBlocks...)
 		emptyBlocks = append(emptyBlocks, bEmptyBlocks...)
-		
+
 		if len(mismatches) > 0 {
 			break // Dừng ngay nếu phát hiện lệch hash trong chunk này
 		}
