@@ -45,6 +45,7 @@ func main() {
 	skipFundFlag := flag.Bool("skip_fund", false, "Bỏ qua bước chuyển native coin vào ví mới")
 	singleNodeFlag := flag.Bool("single", false, "Chỉ gửi đến node đầu tiên (m0) thay vì tất cả các node")
 	traceFlag := flag.Bool("trace", false, "Hiển thị chi tiết trace performance của block")
+	nativeOnlyFlag := flag.Bool("native_only", false, "Chỉ test chuyển native, bỏ qua việc đăng ký BLS")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{
@@ -193,7 +194,10 @@ func main() {
 	// =====================================================================
 	// BƯỚC 2: GỌI ĐĂNG KÝ BLS CHO TẤT CẢ VÍ TRƯỚC (Concurrently)
 	// =====================================================================
-	fmt.Printf("\n[2] Đang đăng ký BLS cho %d ví mới (Async)...\n", numWallets)
+	if *nativeOnlyFlag {
+		fmt.Printf("\n[2] ⏭️  BỎ QUA BƯỚC ĐĂNG KÝ BLS (native_only=true)\n")
+	} else {
+		fmt.Printf("\n[2] Đang đăng ký BLS cho %d ví mới (Async)...\n", numWallets)
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 500) // Giới hạn 500 goroutines đồng thời
@@ -250,6 +254,17 @@ func main() {
 		for len(expectedTxHashes) > 0 {
 			if time.Since(startTime) > maxWait {
 				fmt.Printf("\n❌ Hết thời gian chờ (%s)! Còn %d giao dịch chưa được confirm.\n", maxWait, len(expectedTxHashes))
+				if len(expectedTxHashes) > 0 {
+					fmt.Println("   ⚠️ Các giao dịch chưa được xử lý (Hiển thị tối đa 5):")
+					count := 0
+					for txHash := range expectedTxHashes {
+						if count >= 5 {
+							break
+						}
+						fmt.Printf("      - %s\n", txHash)
+						count++
+					}
+				}
 				break
 			}
 
@@ -298,7 +313,7 @@ func main() {
 			lastBlockNum = currentBlockNum
 		}
 
-		e2eDuration := time.Since(startTime)
+		e2eDuration := time.Since(sendStartTime)
 		e2eTps := float64(totalConfirmed) / e2eDuration.Seconds()
 
 		var onChainTps float64
@@ -371,6 +386,7 @@ func main() {
 			}
 		}
 	}
+	} // Kết thúc khối if *nativeOnlyFlag
 
 	// =====================================================================
 	// BƯỚC 3: CHUYỂN TIỀN VÀO CÁC VÍ VỪA TẠO (Async)
@@ -407,6 +423,7 @@ func main() {
 	expectedFundTxHashes := make(map[string]bool)
 
 	fundStartTime := time.Now()
+	fundStartBlockNum, _ := rpcClient.GetBlockNumber()
 
 	// Khởi tạo stats cho các ví funding
 	for _, walletAddrStr := range fundingWallets {
@@ -507,7 +524,7 @@ func main() {
 
 	if totalFundTxsSent > 0 {
 		fmt.Printf("📡 Đang chờ block mới để kiểm tra số dư %d ví funding...\n", len(fundingWallets))
-		lastBlockNum, _ := rpcClient.GetBlockNumber()
+		lastBlockNum := fundStartBlockNum
 		maxWait := 100 * time.Second
 		startTime := time.Now()
 
@@ -521,6 +538,19 @@ func main() {
 		for {
 			if time.Since(startTime) > maxWait {
 				fmt.Printf("\n❌ Hết thời gian chờ (%s)! Có thể chưa trừ đủ tiền.\n", maxWait)
+				statsMu.Lock()
+				if len(expectedFundTxHashes) > 0 {
+					fmt.Println("   ⚠️ Các giao dịch chưa được xử lý (Hiển thị tối đa 5):")
+					count := 0
+					for txHash := range expectedFundTxHashes {
+						if count >= 5 {
+							break
+						}
+						fmt.Printf("      - %s\n", txHash)
+						count++
+					}
+				}
+				statsMu.Unlock()
 				break
 			}
 
@@ -599,7 +629,7 @@ func main() {
 						fmt.Printf("   ⚠️ Số dư các ví funding CHƯA trừ đủ như dự kiến.\n")
 					}
 
-					e2eDuration := time.Since(startTime)
+					e2eDuration := time.Since(fundStartTime)
 					e2eTps := float64(totalConfirmed) / e2eDuration.Seconds()
 					
 					var onChainTps float64

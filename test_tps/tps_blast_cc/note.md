@@ -38,6 +38,7 @@ Từ phiên bản nâng cấp, công cụ hỗ trợ cơ chế định tuyến v
 ```bash
 go run main.go --count 5000 --target-node 2
 
+go run main.go --count 20000 --rounds 30 --load_balance=false --batch=10 --amount 1 --config=config-multi.json --trace
 
 go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amount 1 --config=config-multi.json --trace
 

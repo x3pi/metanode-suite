@@ -145,3 +145,18 @@ contract PayableCallerContract {
         target.addValueAndReceive{value: msg.value}();
     }
 }
+
+// ---------------------------------------------------------
+// Test 14: Self Destruct Conflict
+// ---------------------------------------------------------
+contract SelfDestructConflict {
+    uint256 public data = 100;
+    
+    function readData() external view returns (uint256) {
+        return data;
+    }
+    
+    function destroy() external {
+        selfdestruct(payable(msg.sender));
+    }
+}

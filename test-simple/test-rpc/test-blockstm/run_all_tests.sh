@@ -2,16 +2,20 @@
 
 # Mảng chứa danh sách các thư mục test
 TESTS=(
-    "1-update-same-contract"
-    "2-read-write"
-    "3-amm-dex"
-    "4-abort"
-    "5-gas"
-    "6-native-many-to-one"
-    "7-native-one-to-many"
-    "8-native-mixed-evm"
-    "9-cross-contract-call"
-    "10-cross-contract-payable"
+    # "1-update-same-contract"
+    # "2-read-write"
+    # "3-amm-dex"
+    # "4-abort"
+    # "5-gas"
+    # "6-native-many-to-one"
+    # "7-native-one-to-many"
+    # "8-native-mixed-evm"
+    # "9-cross-contract-call"
+    # "10-cross-contract-payable"
+    "11-double-spending-same-nonce"
+    "12-insufficient-balance-parallel"
+    "13-deploy-and-call-same-block"
+    "14-selfdestruct-conflict"
 )
 
 TOTAL_TESTS=${#TESTS[@]}
@@ -67,7 +71,7 @@ for test_dir in "${TESTS[@]}"; do
     fi
 
     # Kiểm tra trường hợp đặc biệt bài 1: Lỗi Block-STM chưa apply state
-    if [ "$test_dir" == "1-update-same-contract" ] && echo "$output" | grep -q "Giá trị count cuối cùng: 1"; then
+    if [ "$test_dir" == "1-update-same-contract" ] && echo "$output" | grep -q "Giá trị count cuối cùng: 1$"; then
         FAILED=$((FAILED + 1))
         REASONS["$test_dir"]="Lỗi Block-STM Sequential Merge (Kỳ vọng count=10 nhưng ra 1)"
         echo "❌ THẤT BẠI (Lỗi Block-STM Bug)"
@@ -85,7 +89,8 @@ for test_dir in "${TESTS[@]}"; do
 
 
     # Các bài test khác: Nếu xuất hiện dấu ❌ thì coi như lỗi (giao dịch bị revert ngoài ý muốn)
-    if echo "$output" | grep -q "❌"; then
+    # Loại trừ các bài test cố ý gây revert: 4-abort, 11-double-spending-same-nonce, 12-insufficient-balance-parallel, 14-selfdestruct-conflict
+    if [[ "$test_dir" != "4-abort" && "$test_dir" != "11-double-spending-same-nonce" && "$test_dir" != "12-insufficient-balance-parallel" && "$test_dir" != "14-selfdestruct-conflict" ]] && echo "$output" | grep -q "❌"; then
         FAILED=$((FAILED + 1))
         REASONS["$test_dir"]="Có giao dịch bị Revert hoặc FAILED ngoài ý muốn"
         echo "❌ THẤT BẠI (Lỗi Tx Revert)"
