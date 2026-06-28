@@ -50,6 +50,8 @@ func ts() string {
 	return time.Now().Format("15:04:05.000")
 }
 
+var txHashMap sync.Map // Map[string]string -> maps TxHashHex (lowercase) to SenderAddress (hex)
+
 // rawWriter wraps a raw TCP connection (same as tps_blast)
 type rawWriter struct {
 	conn         net.Conn
@@ -95,8 +97,12 @@ func newRawWriter(addr, version, toAddrHex string) (*rawWriter, error) {
 					var txErr pb.TransactionHashWithError
 					if proto.Unmarshal(msg.Body, &txErr) == nil {
 						txHashHex := common.BytesToHash(txErr.Hash).Hex()
-						fmt.Printf("\n[%s] ❌ SERVER REJECTED TX: %s | Node: %s | Code: %d | Msg: %s\n",
-							ts(), txHashHex, rw.addr, txErr.Code, txErr.Description)
+						senderAddr := "unknown"
+						if val, ok := txHashMap.Load(strings.ToLower(txHashHex)); ok {
+							senderAddr = val.(string)
+						}
+						fmt.Printf("\n[%s] ❌ SERVER REJECTED TX: %s (Sender: %s) | Node: %s | Code: %d | Msg: %s\n",
+							ts(), txHashHex, senderAddr, rw.addr, txErr.Code, txErr.Description)
 						// Nếu lỗi invalid nonce → trigger cross-check nonce divergence
 						if strings.Contains(strings.ToLower(txErr.Description), "invalid nonce") {
 							if rw.nonceChecker != nil {
@@ -681,10 +687,14 @@ func main() {
 			continue
 		}
 
+		txHash := internalTx.ToEthTransaction().Hash()
+		txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
+		txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
+
 		allTxs = append(allTxs, rawTx{
 			bytes:  bTx,
 			addr:   acc.Address,
-			txHash: internalTx.ToEthTransaction().Hash(),
+			txHash: txHash,
 			target: targetContract,
 			amount: txAmount,
 		})
@@ -968,10 +978,14 @@ func main() {
 					rebuildErrors++
 					continue
 				}
+				txHash := internalTx.ToEthTransaction().Hash()
+				txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
+				txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
+
 				allTxs = append(allTxs, rawTx{
 					bytes:  bTx,
 					addr:   acc.Address,
-					txHash: internalTx.ToEthTransaction().Hash(),
+					txHash: txHash,
 					target: targetContract,
 					amount: txAmount,
 				})
