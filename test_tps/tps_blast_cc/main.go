@@ -1100,7 +1100,7 @@ func main() {
 							ts(), currentSent, len(allTxs), rate, elapsed.Round(time.Millisecond))
 					}
 
-					if i+len(clients) < len(batchedMsgs) {
+					if currentSent < int64(len(allTxs)) {
 						if tpsTarget > 0 {
 							// Calculate exact time we SHOULD have spent by now to maintain tpsTarget
 							expectedElapsedSecs := float64(currentSent) / float64(tpsTarget)
@@ -1941,6 +1941,14 @@ func main() {
 			fmt.Printf("💾 Final summary appended to %s\n", reportFilename)
 		}
 	}
+
+	// ── Export JSON cho matching-tps ─────────────────────────
+	type BlastResult struct {
+		RoundTPS []float64 `json:"roundTPS"`
+	}
+	bResult := BlastResult{RoundTPS: allRoundTPS}
+	bData, _ := json.MarshalIndent(bResult, "", "  ")
+	os.WriteFile("blast_cc_results.json", bData, 0644)
 }
 
 func cleanupReports() {

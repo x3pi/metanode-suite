@@ -88,4 +88,6 @@ Công cụ hỗ trợ kịch bản tự động chạy toàn bộ quy trình sin
 2. **Chỉ chạy test TPS (không dọn dẹp database, giữ nguyên ví cũ):**
    ```bash
    ./run_tps_test.sh --no-reset 20000 --rounds 5 --load_balance false
+   ./run_tps_test.sh --no-reset 50000 --rounds 3 --load_balance true --batch 20000 --tps-target 50000 --epoch-wait 0 --config config-multi.json
+
    ```
