@@ -20,16 +20,16 @@ echo "Reading IPs and Proxy Ports from $RPC_NODES_FILE..."
 # Note: For config-multi.json, we exclude node 4 as requested.
 FILE1="$SUITE_DIR/test_tps/tps_blast_cc/config-multi.json"
 if [ -f "$FILE1" ]; then
-    echo "Updating $FILE1 using RPC Proxies (excluding node 4)..."
+    echo "Updating $FILE1 using Nodes (excluding node 4)..."
     
     new_parent=$(jq -r '.tcp_nodes.m0' "$RPC_NODES_FILE")
-    new_rpc_0=$(jq -r '.rpc_proxies.m0 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    new_rpc_0=$(jq -r '.nodes.m0 | sub("^https?://"; "")' "$RPC_NODES_FILE")
     new_conn_1=$(jq -r '.tcp_nodes.m1' "$RPC_NODES_FILE")
-    new_rpc_1=$(jq -r '.rpc_proxies.m1 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    new_rpc_1=$(jq -r '.nodes.m1 | sub("^https?://"; "")' "$RPC_NODES_FILE")
     new_conn_2=$(jq -r '.tcp_nodes.m2' "$RPC_NODES_FILE")
-    new_rpc_2=$(jq -r '.rpc_proxies.m2 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    new_rpc_2=$(jq -r '.nodes.m2 | sub("^https?://"; "")' "$RPC_NODES_FILE")
     new_conn_3=$(jq -r '.tcp_nodes.m3' "$RPC_NODES_FILE")
-    new_rpc_3=$(jq -r '.rpc_proxies.m3 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    new_rpc_3=$(jq -r '.nodes.m3 | sub("^https?://"; "")' "$RPC_NODES_FILE")
 
     jq --arg p "$new_parent" \
        --arg r0 "$new_rpc_0" \
@@ -49,14 +49,14 @@ fi
 # Note: For test-history, we include node 4.
 FILE2="$SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json"
 if [ -f "$FILE2" ]; then
-    echo "Updating $FILE2 using RPC Proxies (including node 4)..."
+    echo "Updating $FILE2 using Nodes (including node 4)..."
     
-    new_rpc_url=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
-    new_url_0=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
-    new_url_1=$(jq -r '.rpc_proxies.m1' "$RPC_NODES_FILE")
-    new_url_2=$(jq -r '.rpc_proxies.m2' "$RPC_NODES_FILE")
-    new_url_3=$(jq -r '.rpc_proxies.m3' "$RPC_NODES_FILE")
-    new_url_4=$(jq -r '.rpc_proxies.m4' "$RPC_NODES_FILE")
+    new_rpc_url=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
+    new_url_0=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
+    new_url_1=$(jq -r '.nodes.m1' "$RPC_NODES_FILE")
+    new_url_2=$(jq -r '.nodes.m2' "$RPC_NODES_FILE")
+    new_url_3=$(jq -r '.nodes.m3' "$RPC_NODES_FILE")
+    new_url_4=$(jq -r '.nodes.m4' "$RPC_NODES_FILE")
 
     jq --arg r "$new_rpc_url" \
        --arg u0 "$new_url_0" \
@@ -93,19 +93,19 @@ else
     echo "Warning: $FILE3 not found." >&2
 fi
 
-echo "Done updating configs to use RPC proxies."
+echo "Done updating configs to use Node endpoints."
 
 # 4. Update $SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json
 FILE4="$SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json"
 if [ -f "$FILE4" ]; then
-    echo "Updating $FILE4 using RPC Proxies (including node 4)..."
+    echo "Updating $FILE4 using Nodes (including node 4)..."
     
-    new_rpc_url=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
-    new_url_0=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
-    new_url_1=$(jq -r '.rpc_proxies.m1' "$RPC_NODES_FILE")
-    new_url_2=$(jq -r '.rpc_proxies.m2' "$RPC_NODES_FILE")
-    new_url_3=$(jq -r '.rpc_proxies.m3' "$RPC_NODES_FILE")
-    new_url_4=$(jq -r '.rpc_proxies.m4' "$RPC_NODES_FILE")
+    new_rpc_url=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
+    new_url_0=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
+    new_url_1=$(jq -r '.nodes.m1' "$RPC_NODES_FILE")
+    new_url_2=$(jq -r '.nodes.m2' "$RPC_NODES_FILE")
+    new_url_3=$(jq -r '.nodes.m3' "$RPC_NODES_FILE")
+    new_url_4=$(jq -r '.nodes.m4' "$RPC_NODES_FILE")
 
     jq --arg r "$new_rpc_url" \
        --arg u0 "$new_url_0" \
@@ -130,11 +130,11 @@ if [ -f "$FILE5" ]; then
     new_parent_3=$(jq -r '.tcp_nodes.m3' "$RPC_NODES_FILE")
     new_parent_4=$(jq -r '.tcp_nodes.m4' "$RPC_NODES_FILE")
 
-    new_rpc_0=$(jq -r '.rpc_proxies.m0' "$RPC_NODES_FILE")
-    new_rpc_1=$(jq -r '.rpc_proxies.m1' "$RPC_NODES_FILE")
-    new_rpc_2=$(jq -r '.rpc_proxies.m2' "$RPC_NODES_FILE")
-    new_rpc_3=$(jq -r '.rpc_proxies.m3' "$RPC_NODES_FILE")
-    new_rpc_4=$(jq -r '.rpc_proxies.m4' "$RPC_NODES_FILE")
+    new_rpc_0=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
+    new_rpc_1=$(jq -r '.nodes.m1' "$RPC_NODES_FILE")
+    new_rpc_2=$(jq -r '.nodes.m2' "$RPC_NODES_FILE")
+    new_rpc_3=$(jq -r '.nodes.m3' "$RPC_NODES_FILE")
+    new_rpc_4=$(jq -r '.nodes.m4' "$RPC_NODES_FILE")
 
     jq --arg p0 "$new_parent_0" --arg p1 "$new_parent_1" --arg p2 "$new_parent_2" --arg p3 "$new_parent_3" --arg p4 "$new_parent_4" \
        --arg r0 "$new_rpc_0" --arg r1 "$new_rpc_1" --arg r2 "$new_rpc_2" --arg r3 "$new_rpc_3" --arg r4 "$new_rpc_4" \
