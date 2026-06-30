@@ -9,13 +9,13 @@ import (
 	"net"
 
 	"tool-test/file-storage/up-down-debug/models"
+
 	"github.com/meta-node-blockchain/meta-node/pkg/logger"
 )
 
 const (
 	RUST_SERVER_1_ADDR = "192.168.1.233:7081"
 	RUST_SERVER_2_ADDR = "192.168.1.233:7082"
-	CHUNK_SIZE         = 1024 * 1 // 1KB
 )
 
 func getServer(chunkIndex int) string {

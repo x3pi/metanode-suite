@@ -25,6 +25,11 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
+var (
+	UploadStartTimes sync.Map // [32]byte -> time.Time
+	UploadEndTimes   sync.Map // [32]byte -> time.Time
+)
+
 type EventListener struct {
 	fileContract *contract.FileContract
 }
@@ -69,10 +74,21 @@ func (e *EventListener) ListenForAdmin1Events() {
 					continue
 				}
 				log.Printf("))))___🎉🎉🎉🎉🎉🎉🎉🎉🎉Nhận được sự kiện FileActivated: FileHash=%x 🎉🎉🎉🎉🎉🎉", eventLog.FileKey)
+				
+				eventTime := time.Now()
+				if valStart, ok := UploadStartTimes.Load(eventLog.FileKey); ok {
+					startTime := valStart.(time.Time)
+					log.Printf("⏱️ Tổng thời gian (từ lúc bắt đầu upload đến khi nhận sự kiện): %s", eventTime.Sub(startTime))
+				}
+				if valEnd, ok := UploadEndTimes.Load(eventLog.FileKey); ok {
+					endTime := valEnd.(time.Time)
+					log.Printf("⏱️ Thời gian chờ sự kiện (từ lúc gửi xong chunks đến khi nhận sự kiện): %s", eventTime.Sub(endTime))
+				}
+
 				//🚀 Bắt đầu gửi giao dịch UploadChunk
 				startChunk := time.Now()
 				log.Printf("🚀 Download lúc: %v", startChunk.Format("15:04:05.000"))
-				downloadFile(e.fileContract, eventLog.FileKey)
+				// downloadFile(e.fileContract, eventLog.FileKey)
 				sentTime := time.Now()
 				log.Printf("📤 dowloadChunk gửi xong lúc: %v (mất %s để gửi)", sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
 

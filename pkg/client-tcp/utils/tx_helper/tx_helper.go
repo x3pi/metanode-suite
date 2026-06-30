@@ -302,6 +302,64 @@ func SendTransaction(
 	return receipt, nil
 }
 
+func SendTransactionAsync(
+	action string,
+	cli *clientpkg.Client,
+	cfg *c_config.ClientConfig,
+	contract common.Address,
+	from common.Address,
+	input []byte,
+	opts *models.TxOptions,
+) (common.Hash, error) {
+	if cli == nil || cfg == nil {
+		return common.Hash{}, fmt.Errorf("client and config are required")
+	}
+	if (contract == common.Address{}) && action != "deploy" {
+		return common.Hash{}, fmt.Errorf("contract address is required")
+	}
+	if (from == common.Address{}) {
+		return common.Hash{}, fmt.Errorf("from address is required")
+	}
+
+	normalized := NormalizeTxOptions(opts)
+	amount := normalized.Amount
+	if amount == nil {
+		amount = big.NewInt(0)
+	}
+
+	related := make([]common.Address, 0, len(normalized.Related)+1)
+	if len(normalized.Related) > 0 {
+		related = append(related, normalized.Related...)
+	}
+	related = append(related, cfg.Address())
+
+	maxGas := ChooseOrDefault(normalized.MaxGas, com_pkg.DefaultMaxGas)
+	maxGasPrice := ChooseOrDefault(normalized.MaxGasPrice, com_pkg.DefaultMaxGasPrice)
+	maxTimeUse := ChooseOrDefault(normalized.MaxTimeUse, com_pkg.DefaultMaxExecution)
+
+	callData := mt_transaction.NewCallData(input)
+	payload, err := callData.Marshal()
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to marshal calldata for %s: %w", action, err)
+	}
+
+	txHash, err := cli.SendTransactionWithDeviceKeyAsync(
+		from,
+		contract,
+		amount,
+		payload,
+		related,
+		maxGas,
+		maxGasPrice,
+		maxTimeUse,
+	)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to send %s transaction async: %w", action, err)
+	}
+	logger.Info("✅ %s submitted async (txHash=%s)", action, txHash.Hex())
+	return txHash, nil
+}
+
 func SendTransactionNoneKey(
 	action string,
 	cli *clientpkg.Client,
@@ -349,24 +407,17 @@ func SendTransactionNoneKey(
 		cachedNonce = val.(uint64)
 	}
 
-	var usedNonce uint64
-	for i := 0; i < 5; i++ {
-		as, err := cli.GetAccountState(from, 10*time.Second)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get account state: %w", err)
-		}
-
-		usedNonce = as.Nonce()
-		if cachedNonce == 0 || usedNonce >= cachedNonce {
-			break
-		}
-		logger.Info("nonce not synced yet, retrying... %d %d", cachedNonce, usedNonce)
-		// Đợi node đồng bộ state rồi thử lại
-		time.Sleep(1 * time.Second)
+	as, err := cli.GetAccountState(from, 10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account state: %w", err)
 	}
 
-	if cachedNonce != 0 && usedNonce < cachedNonce {
-		return nil, fmt.Errorf("stale nonce fetched from node: got %d, expected >= %d", usedNonce, cachedNonce)
+	usedNonce := as.Nonce()
+	
+	// Nếu cache lớn hơn thì dùng cache để bypass node lag
+	if cachedNonce != 0 && cachedNonce > usedNonce {
+		logger.Info("Node nonce lag (got %d, expected %d), using cached nonce to proceed", usedNonce, cachedNonce)
+		usedNonce = cachedNonce
 	}
 
 	// Gửi write transaction

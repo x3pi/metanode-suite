@@ -254,7 +254,7 @@ func (tc *TransactionController) SendTransactionWithDeviceKey(
 		chainId,
 	)
 	transaction.SetSign(tc.clientContext.KeyPair.PrivateKey())
-	logger.Info(transaction)
+	// logger.Info(transaction)
 
 	// Create TransactionWithDeviceKey
 	transactionWithDeviceKey := &pb.TransactionWithDeviceKey{

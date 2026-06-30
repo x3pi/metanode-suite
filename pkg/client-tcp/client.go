@@ -1245,12 +1245,109 @@ func (client *Client) SendTransactionWithDeviceKey(
 		if err != nil {
 			return nil, err
 		}
-		logger.Info("Receipt Data: %v", receipt)
+		// logger.Info("Receipt Data: %v", receipt)
 		return receipt, nil
 	}
 
 	// Nếu kênh accountStateChan bị đóng, trả lỗi
 	return nil, fmt.Errorf("account state channel closed unexpectedly")
+}
+
+func (client *Client) SendTransactionWithDeviceKeyAsync(
+	fromAddress common.Address,
+	toAddress common.Address,
+	amount *big.Int,
+	data []byte,
+	relatedAddress []common.Address,
+	maxGas uint64,
+	maxGasPrice uint64,
+	maxTimeUse uint64,
+) (common.Hash, error) {
+	// Lấy kết nối tới Parent Node
+	parentConn := client.clientContext.ConnectionsManager.ParentConnection()
+
+	if parentConn == nil || !parentConn.IsConnect() {
+		err := client.ReconnectToParent()
+		if err != nil {
+			return common.Hash{}, err
+		}
+		parentConn = client.clientContext.ConnectionsManager.ParentConnection()
+	}
+	// Gửi yêu cầu lấy trạng thái tài khoản
+	client.clientContext.MessageSender.SendBytes(
+		parentConn,
+		command.GetAccountState,
+		fromAddress.Bytes(),
+	)
+	// logger.Info("TcpRemoteAddr: %v", parentConn.TcpRemoteAddr())
+
+	// logger.Info("TcpLocalAddr: %v", parentConn.TcpLocalAddr())
+	// Lắng nghe tài khoản trong kênh accountStateChan bằng for range
+	for as := range client.accountStateChan {
+		// Nếu không phải tài khoản mong muốn, tiếp tục lắng nghe mà không bỏ dữ liệu
+		if as.Address() != fromAddress {
+			// Gửi lại dữ liệu cho luồng khác đọc (không bỏ dữ liệu)
+			client.accountStateChan <- as
+			time.Sleep(50 * time.Millisecond) // Delay trước khi tiếp tục lặp
+			continue
+		}
+		// Nếu tìm thấy tài khoản phù hợp, xử lý giao dịch
+		lastHash := as.LastHash()
+		pendingBalance := as.PendingBalance()
+
+		err := client.clientContext.MessageSender.SendBytes(
+			parentConn,
+			"GetDeviceKey",
+			lastHash.Bytes(),
+		)
+
+		if err != nil {
+			return common.Hash{}, err
+		}
+
+		// Lắng nghe deviceKey từ server
+		receiveDeviceKey := <-client.deviceKeyChan
+		TransactionHash := receiveDeviceKey.TransactionHash
+		lastDeviceKey := common.HexToHash(
+			hex.EncodeToString(receiveDeviceKey.LastDeviceKeyFromServer),
+		)
+
+		// Tạo khóa thiết bị mới
+		rawNewDeviceKeyBytes := []byte(fmt.Sprintf("%s-%d", hex.EncodeToString(TransactionHash), time.Now().Unix()))
+		rawNewDeviceKey := crypto.Keccak256(rawNewDeviceKeyBytes)
+		newDeviceKey := crypto.Keccak256Hash(rawNewDeviceKey)
+
+		// Chuyển đổi danh sách địa chỉ liên quan sang mảng byte
+		bRelatedAddresses := make([][]byte, len(relatedAddress))
+		for i, v := range relatedAddress {
+			bRelatedAddresses[i] = v.Bytes()
+		}
+		// Gửi giao dịch với device key
+		tx, err := client.transactionController.SendTransactionWithDeviceKey(
+			fromAddress,
+			toAddress,
+			pendingBalance,
+			amount,
+			maxGas,
+			maxGasPrice,
+			maxTimeUse,
+			data,
+			bRelatedAddresses,
+			lastDeviceKey,
+			newDeviceKey,
+			as.Nonce(),
+			rawNewDeviceKey,
+			client.clientContext.Config.ChainId,
+		)
+		if err != nil {
+			return common.Hash{}, err
+		}
+
+		return tx.Hash(), nil
+	}
+
+	// Nếu kênh accountStateChan bị đóng, trả lỗi
+	return common.Hash{}, fmt.Errorf("account state channel closed unexpectedly")
 }
 
 func (client *Client) SendAllTransactionsInDirectory(

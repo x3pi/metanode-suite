@@ -1,12 +1,38 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
 
-# Tên file đầu ra (mặc định output.txt) - có thể truyền tên file như tham số đầu tiên
-OUT="${1:-output.txt}"
-SIZE_MB=2000 # Kích thước file mong muốn test (2GB = 2048MB)
-TARGET_BYTES=$((SIZE_MB * 1024 * 1024 ))
+OUT="output.txt"
+CHUNK_SIZE=256000 # Mặc định 250KB (250 * 1024)
+CHUNKS=20
+TARGET_BYTES=0
 
-echo "Tạo file '${OUT}' kích thước ${SIZE_MB}MB (~${TARGET_BYTES} bytes)..."
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --chunks)
+      CHUNKS="$2"
+      shift 2
+      ;;
+    --chunk-size-kb)
+      CHUNK_SIZE=$(($2 * 1024))
+      shift 2
+      ;;
+    --size-mb)
+      TARGET_BYTES=$(($2 * 1024 * 1024))
+      shift 2
+      ;;
+    *)
+      OUT="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ "$TARGET_BYTES" -eq 0 ]; then
+    TARGET_BYTES=$(( CHUNK_SIZE * CHUNKS ))
+    echo "Tạo file '${OUT}' với số lượng ${CHUNKS} chunks (Mỗi chunk $((CHUNK_SIZE/1024))KB) -> Tổng kích thước: ${TARGET_BYTES} bytes..."
+else
+    echo "Tạo file '${OUT}' với kích thước $(($TARGET_BYTES/1024/1024))MB -> Tổng kích thước: ${TARGET_BYTES} bytes..."
+fi
 
 # Ưu tiên tạo file text có ký tự in được: dùng `yes` (nhiều hệ thống có sẵn)
 if command -v yes >/dev/null 2>&1 && command -v head >/dev/null 2>&1; then

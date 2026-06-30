@@ -19,8 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/websocket"
-
 	"tool-test/file-storage/up-down-debug/config"
 	"tool-test/file-storage/up-down-debug/contract"
 	"tool-test/file-storage/up-down-debug/listener"
@@ -30,7 +28,9 @@ import (
 	tx_models "tool-test/pkg/client-tcp/models"
 	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
 	"tool-test/pkg/logger"
-	pb "tool-test/pkg/proto"
+	// pb "tool-test/pkg/proto"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -224,12 +224,18 @@ func main() {
 	// --- CHẾ ĐỘ UPLOAD ---
 	go func(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instanceHttp *contract.FileContract, fromAddress common.Address) {
 		// for {
-		time.Sleep(1 * time.Second)
+		// time.Sleep(1 * time.Second)
 		startChunk := time.Now()
 		log.Printf("🚀  Bắt đầu UploadChunk lúc: %v (TCP: %v)", startChunk.Format("15:04:05.000"), *useTCP)
 		fileKey, _ := uploadFile(client, privateKey, instanceHttp, fromAddress, *useTCP)
+		
+		listener.UploadStartTimes.Store(fileKey, startChunk)
+
 		// uploadFileGetInputData(client, privateKey, instanceHttp, fromAddress)
 		sentTime := time.Now()
+		
+		listener.UploadEndTimes.Store(fileKey, sentTime)
+
 		upLogger, _ := loggerfile.NewFileLogger("UploadFile.log")
 		upLogger.Info("📤  UploadChunk gửi xong lúc: %v (mất %s để gửi)",
 			sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
@@ -452,7 +458,7 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 	}
 
 	var countErr int
-	sem := make(chan struct{}, 1000)
+	sem := make(chan struct{}, 10) // Tăng limit lên 10 để chạy đồng thời
 	var wg sync.WaitGroup
 	auth.Value = big.NewInt(0) // Chỉ cần thanh toán một lần ban đầu
 	// fileTimeLogger, _ := loggerfile.NewFileLogger("fileClientLogger.log")
@@ -519,7 +525,7 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 
 				if useTCP {
 					logger.Info("🚀 [Chunk %d -k %s] up (TCP)...", i, hex.EncodeToString(fileKey[:]))
-					tcpReceipt, errTCP := tx_helper.SendTransaction(
+					txHash, errTCP := tx_helper.SendTransactionAsync(
 						"uploadChunk",
 						tcpClient,
 						tcpCfg,
@@ -532,17 +538,36 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 						},
 					)
 					err = errTCP
-					if err == nil && tcpReceipt != nil {
-						status := tcpReceipt.Status()
-						if status == pb.RECEIPT_STATUS_RETURNED || status == pb.RECEIPT_STATUS_HALTED {
-							sentTime := time.Now()
-							logger.Info("📤 [Chunk %d -k %s] up xong TCP: (mất %s để gửi)",
-								i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
-							return
-						} else {
-							err = fmt.Errorf("TCP Tx Failed with status: %s", status.String())
-						}
+					if err == nil {
+						sentTime := time.Now()
+						logger.Info("📤 [Chunk %d -k %s] up xong TCP: tx=%s (mất %s để gửi)",
+							i, hex.EncodeToString(fileKey[:]), txHash.Hex(), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+						return
 					}
+					// tcpReceipt, errTCP := tx_helper.SendTransaction(
+					// 	"uploadChunk",
+					// 	tcpClient,
+					// 	tcpCfg,
+					// 	common.HexToAddress(config.ContractAddressHex),
+					// 	fromAddress,
+					// 	inputData,
+					// 	&tx_models.TxOptions{
+					// 		MaxGas:      5_000_000,
+					// 		MaxGasPrice: 20_000_000_000,
+					// 	},
+					// )
+					// err = errTCP
+					// if err == nil && tcpReceipt != nil {
+					// 	status := tcpReceipt.Status()
+					// 	if status == pb.RECEIPT_STATUS_RETURNED || status == pb.RECEIPT_STATUS_HALTED {
+					// 		sentTime := time.Now()
+					// 		logger.Info("📤 [Chunk %d -k %s] up xong TCP: (mất %s để gửi)",
+					// 			i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+					// 		return
+					// 	} else {
+					// 		err = fmt.Errorf("TCP Tx Failed with status: %s", status.String())
+					// 	}
+					// }
 				} else {
 					logger.Info("🚀 [Chunk %d -k %s] up...", i, hex.EncodeToString(fileKey[:]))
 					var txRPC *types.Transaction
