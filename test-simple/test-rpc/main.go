@@ -468,13 +468,15 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
 		if err == nil {
-			if receipt.Status == 1 {
-				fmt.Printf("\n   ✅ DEPLOY THÀNH CÔNG! (Gas used: %d)\n", receipt.GasUsed)
-				fmt.Printf("   📌 CONTRACT ADDRESS MỚI TẠO: %s\n", receipt.ContractAddress.Hex())
-				return &receipt.ContractAddress, nil
-			} else {
-				fmt.Printf("\n   ❌ DEPLOY THẤT BẠI! (Giao dịch bị Revert)\n")
-				return nil, fmt.Errorf("Tx Revert")
+			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+				if receipt.Status == 1 {
+					fmt.Printf("\n   ✅ DEPLOY THÀNH CÔNG! (Gas used: %d)\n", receipt.GasUsed)
+					fmt.Printf("   📌 CONTRACT ADDRESS MỚI TẠO: %s\n", receipt.ContractAddress.Hex())
+					return &receipt.ContractAddress, nil
+				} else {
+					fmt.Printf("\n   ❌ DEPLOY THẤT BẠI! (Giao dịch bị Revert)\n")
+					return nil, fmt.Errorf("Tx Revert")
+				}
 			}
 		} else if err != ethereum.NotFound {
 			return nil, fmt.Errorf("Lỗi hệ thống khi check receipt: %v", err)
@@ -582,81 +584,83 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
 		if err == nil {
-			fmt.Println()
-			if receipt.Status == 1 {
-				fmt.Printf("   ✅ Tx THÀNH CÔNG (Gas used: %d)\n", receipt.GasUsed)
-				if hasAbi && len(receipt.Logs) > 0 {
-					fmt.Printf("   📝 SỰ KIỆN (EVENTS):\n")
-					verifiedEvents := make(map[int]bool)
+			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+				fmt.Println()
+				if receipt.Status == 1 {
+					fmt.Printf("   ✅ Tx THÀNH CÔNG (Gas used: %d)\n", receipt.GasUsed)
+					if hasAbi && len(receipt.Logs) > 0 {
+						fmt.Printf("   📝 SỰ KIỆN (EVENTS):\n")
+						verifiedEvents := make(map[int]bool)
 
-					for i, vLog := range receipt.Logs {
-						if len(vLog.Topics) == 0 {
-							continue
-						}
-						event, err := parsedABI.EventByID(vLog.Topics[0])
-						if err != nil {
-							fmt.Printf("      - Log [%d]: Topic0=%s (Không tìm thấy trong ABI)\n", i, vLog.Topics[0].Hex())
-							continue
-						}
+						for i, vLog := range receipt.Logs {
+							if len(vLog.Topics) == 0 {
+								continue
+							}
+							event, err := parsedABI.EventByID(vLog.Topics[0])
+							if err != nil {
+								fmt.Printf("      - Log [%d]: Topic0=%s (Không tìm thấy trong ABI)\n", i, vLog.Topics[0].Hex())
+								continue
+							}
 
-						logStrBuilder := strings.Builder{}
-						fmt.Printf("      - Log [%d] Event: %s\n", i, event.Name)
-						for j, topic := range vLog.Topics {
-							fmt.Printf("         + Topic[%d]: %s\n", j, topic.Hex())
-							logStrBuilder.WriteString(topic.Hex() + " ")
-						}
-						if len(vLog.Data) > 0 {
-							unpacked, err := event.Inputs.NonIndexed().Unpack(vLog.Data)
-							if err == nil {
-								fmt.Printf("         + Data: ")
-								dataStrBuilder := strings.Builder{}
-								for k, unp := range unpacked {
-									strVal := fmt.Sprintf("%v", unp)
-									fmt.Printf(strVal)
-									dataStrBuilder.WriteString(strVal)
-									if k < len(unpacked)-1 {
-										fmt.Printf(", ")
-										dataStrBuilder.WriteString(", ")
+							logStrBuilder := strings.Builder{}
+							fmt.Printf("      - Log [%d] Event: %s\n", i, event.Name)
+							for j, topic := range vLog.Topics {
+								fmt.Printf("         + Topic[%d]: %s\n", j, topic.Hex())
+								logStrBuilder.WriteString(topic.Hex() + " ")
+							}
+							if len(vLog.Data) > 0 {
+								unpacked, err := event.Inputs.NonIndexed().Unpack(vLog.Data)
+								if err == nil {
+									fmt.Printf("         + Data: ")
+									dataStrBuilder := strings.Builder{}
+									for k, unp := range unpacked {
+										strVal := fmt.Sprintf("%v", unp)
+										fmt.Printf(strVal)
+										dataStrBuilder.WriteString(strVal)
+										if k < len(unpacked)-1 {
+											fmt.Printf(", ")
+											dataStrBuilder.WriteString(", ")
+										}
+									}
+									fmt.Println()
+									logStrBuilder.WriteString(dataStrBuilder.String())
+								} else {
+									fmt.Printf("         + Lỗi đọc Data: %v\n", err)
+								}
+							}
+
+							logFullStr := string(vLog.Data) + logStrBuilder.String()
+
+							// Tự động kiểm tra events dựa trên cấu hình expected_events
+							for eIdx, expected := range expectedEvents {
+								if expected.Name == event.Name {
+									allMatch := true
+									for _, text := range expected.Contains {
+										if !strings.Contains(logFullStr, text) {
+											allMatch = false
+											break
+										}
+									}
+									if allMatch {
+										verifiedEvents[eIdx] = true
+										fmt.Printf("         ✅ [Verified] Khớp điều kiện cho event '%s'\n", expected.Name)
 									}
 								}
-								fmt.Println()
-								logStrBuilder.WriteString(dataStrBuilder.String())
-							} else {
-								fmt.Printf("         + Lỗi đọc Data: %v\n", err)
 							}
 						}
 
-						logFullStr := string(vLog.Data) + logStrBuilder.String()
-
-						// Tự động kiểm tra events dựa trên cấu hình expected_events
+						// Bắt lỗi nếu có event yêu cầu Verify mà chưa xuất hiện
 						for eIdx, expected := range expectedEvents {
-							if expected.Name == event.Name {
-								allMatch := true
-								for _, text := range expected.Contains {
-									if !strings.Contains(logFullStr, text) {
-										allMatch = false
-										break
-									}
-								}
-								if allMatch {
-									verifiedEvents[eIdx] = true
-									fmt.Printf("         ✅ [Verified] Khớp điều kiện cho event '%s'\n", expected.Name)
-								}
+							if !verifiedEvents[eIdx] {
+								return fmt.Errorf("Không tìm thấy Event '%s' có chứa đúng các thông số: %v", expected.Name, expected.Contains)
 							}
 						}
 					}
-
-					// Bắt lỗi nếu có event yêu cầu Verify mà chưa xuất hiện
-					for eIdx, expected := range expectedEvents {
-						if !verifiedEvents[eIdx] {
-							return fmt.Errorf("Không tìm thấy Event '%s' có chứa đúng các thông số: %v", expected.Name, expected.Contains)
-						}
-					}
+					return nil
+				} else {
+					fmt.Printf("   ❌ Tx THẤT BẠI (Revert)\n")
+					return fmt.Errorf("Tx Reverted")
 				}
-				return nil
-			} else {
-				fmt.Printf("   ❌ Tx THẤT BẠI (Revert)\n")
-				return fmt.Errorf("Tx Reverted")
 			}
 		} else if err != ethereum.NotFound {
 			return fmt.Errorf("Lỗi hệ thống khi check receipt: %v", err)

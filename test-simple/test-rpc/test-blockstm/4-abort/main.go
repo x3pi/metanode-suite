@@ -153,8 +153,11 @@ func sendTx(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
-		if err == nil {
+		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return receipt, nil
+		}
+		if err != nil && err.Error() != "not found" {
+			return nil, err
 		}
 		time.Sleep(300 * time.Millisecond)
 	}

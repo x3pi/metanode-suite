@@ -152,7 +152,7 @@ func main() {
 		
 		for {
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
-			if err == nil {
+			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if i == 0 {
 					// Tx 0 là destroy
 					if receipt.Status == 1 {
@@ -199,7 +199,7 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
-		if err == nil {
+		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return &receipt.ContractAddress, nil
 		}
 		time.Sleep(300 * time.Millisecond)

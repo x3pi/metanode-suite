@@ -140,7 +140,7 @@ func main() {
 		}
 		for {
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
-			if err == nil {
+			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status != 1 {
 					fmt.Printf("❌ Wallet %d Tx bị revert!\n", i)
 				} else {

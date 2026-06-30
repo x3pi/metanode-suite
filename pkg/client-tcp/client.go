@@ -755,6 +755,7 @@ func (client *Client) SendTransaction(
 	maxGas uint64,
 	maxGasPrice uint64,
 	maxTimeUse uint64,
+	nonce uint64,
 ) (types.Receipt, error) {
 
 	if client.clientContext == nil || client.clientContext.ConnectionsManager == nil {
@@ -768,33 +769,10 @@ func (client *Client) SendTransaction(
 		}
 	}
 
-	client.clientContext.MessageSender.SendBytes(parentConn, command.GetAccountState, fromAddress.Bytes())
-
 	lastDeviceKey := common.HexToHash("0000000000000000000000000000000000000000000000000000000000000000")
 	newDeviceKey := common.HexToHash("0000000000000000000000000000000000000000000000000000000000000000")
 
-	var as types.AccountState
-	timeout := time.After(10 * time.Second)
-loop:
-	for {
-		select {
-		case state := <-client.accountStateChan:
-			if state.Address() == fromAddress {
-				as = state
-				break loop
-			}
-			// Đẩy lại vào channel nếu không đúng ví đang cần
-			go func(s types.AccountState) {
-				client.accountStateChan <- s
-			}(state)
-			time.Sleep(10 * time.Millisecond)
-		case <-timeout:
-			logger.DebugP("Timeout waiting for account state")
-			return nil, fmt.Errorf("timeout waiting for account state")
-		}
-	}
-
-	pendingBalance := as.PendingBalance()
+	pendingBalance := big.NewInt(0)
 
 	bRelatedAddresses := make([][]byte, len(relatedAddress))
 	for i, v := range relatedAddress {
@@ -813,7 +791,7 @@ loop:
 		bRelatedAddresses,
 		lastDeviceKey,
 		newDeviceKey,
-		as.Nonce(),
+		nonce,
 		client.clientContext.Config.ChainId,
 	)
 	if err != nil {

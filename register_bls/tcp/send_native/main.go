@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"bufio"
 	"log"
 	"math/big"
 	"net/http"
@@ -235,13 +235,15 @@ func main() {
 
 	for round := 1; round <= numRounds; round++ {
 		fmt.Printf("\n--- Bắt đầu VÒNG %d/%d ---\n", round, numRounds)
-		
+
 		var fundWg sync.WaitGroup
 		jobs := make(chan GeneratedKey, len(generatedKeys))
 		for _, key := range generatedKeys {
 			jobs <- key
 		}
 		close(jobs)
+
+		var hasError bool
 
 		for workerID, walletAddrStr := range fundingWallets {
 			fundWg.Add(1)
@@ -252,8 +254,15 @@ func main() {
 				client := clientPool[wID%len(clientPool)]
 
 				for key := range jobs {
+					fundMu.Lock()
+					if hasError {
+						fundMu.Unlock()
+						return
+					}
+					fundMu.Unlock()
+
 					toAddress := common.HexToAddress(key.Address)
-					
+
 					receipt, err := tx_helper.SendTransactionNoneKey(
 						"NativeTransfer",
 						client,
@@ -266,7 +275,10 @@ func main() {
 
 					if err != nil {
 						fmt.Printf("❌ Ví %d (%s): Lỗi chuyển tiền từ %s: %v\n", key.Index, toAddress.Hex(), fromAddress.Hex(), err)
-						continue
+						fundMu.Lock()
+						hasError = true
+						fundMu.Unlock()
+						return
 					}
 
 					if receipt != nil && (receipt.Status() == pb.RECEIPT_STATUS_RETURNED || receipt.Status() == pb.RECEIPT_STATUS_HALTED) {
@@ -282,17 +294,27 @@ func main() {
 							status = receipt.Status().String()
 						}
 						fmt.Printf("❌ Ví %d: Chuyển tiền thất bại (Status: %s)\n", key.Index, status)
+						fundMu.Lock()
+						hasError = true
+						fundMu.Unlock()
+						return
 					}
 				}
 			}(workerID, walletAddrStr)
 		}
 
 		fundWg.Wait()
+		if hasError {
+			errMsg := fmt.Sprintf("❌ Đã xảy ra lỗi (hoặc timeout) trong VÒNG %d. Dừng toàn bộ script ngay lập tức!", round)
+			fmt.Println(errMsg)
+			// sendTelegramNotification(errMsg)
+			os.Exit(1)
+		}
 		fmt.Printf("--- Hoàn thành VÒNG %d ---\n", round)
 	}
 
 	fmt.Printf("\n✅ Hoàn thành tổng cộng (%d/%d thành công).\n", totalSuccess, totalTxs)
-	
+
 	if totalSuccess < totalTxs {
 		errMsg := fmt.Sprintf("❌ [send_native] Lỗi chuyển tiền Native: Chỉ thành công %d/%d txs. Đã bị hụt %d txs!", totalSuccess, totalTxs, totalTxs-totalSuccess)
 		fmt.Println(errMsg)

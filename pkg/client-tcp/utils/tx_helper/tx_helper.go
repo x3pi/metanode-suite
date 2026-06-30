@@ -3,6 +3,8 @@ package tx_helper
 import (
 	"fmt"
 	"math/big"
+	"sync"
+	"time"
 
 	clientpkg "tool-test/pkg/client-tcp"
 	com_pkg "tool-test/pkg/client-tcp/common"
@@ -14,6 +16,11 @@ import (
 	"tool-test/pkg/types"
 
 	"github.com/ethereum/go-ethereum/common"
+)
+
+var (
+	// nonceCache lưu lại nonce mới nhất đã được ghi nhận trên chain cho mỗi address
+	nonceCache sync.Map
 )
 
 func NormalizeTxOptions(opts *models.TxOptions) models.TxOptions {
@@ -335,7 +342,33 @@ func SendTransactionNoneKey(
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal calldata for %s: %w", action, err)
 	}
-	// payload := input
+
+	// Cơ chế kiểm tra nonce: đảm bảo nonce lấy về phải > cachedNonce
+	var cachedNonce uint64
+	if val, ok := nonceCache.Load(from); ok {
+		cachedNonce = val.(uint64)
+	}
+
+	var usedNonce uint64
+	for i := 0; i < 5; i++ {
+		as, err := cli.GetAccountState(from, 10*time.Second)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get account state: %w", err)
+		}
+
+		usedNonce = as.Nonce()
+		if cachedNonce == 0 || usedNonce >= cachedNonce {
+			break
+		}
+		logger.Info("nonce not synced yet, retrying... %d %d", cachedNonce, usedNonce)
+		// Đợi node đồng bộ state rồi thử lại
+		time.Sleep(1 * time.Second)
+	}
+
+	if cachedNonce != 0 && usedNonce < cachedNonce {
+		return nil, fmt.Errorf("stale nonce fetched from node: got %d, expected >= %d", usedNonce, cachedNonce)
+	}
+
 	// Gửi write transaction
 	receipt, err := cli.SendTransaction(
 		from,
@@ -346,10 +379,15 @@ func SendTransactionNoneKey(
 		maxGas,
 		maxGasPrice,
 		maxTimeUse,
+		usedNonce,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send %s transaction: %w", action, err)
 	}
+
+	// Lưu lại cache khi gửi thành công
+	nonceCache.Store(from, usedNonce+1)
+
 	if receipt == nil {
 		return nil, fmt.Errorf("%s transaction returned empty receipt", action)
 	}

@@ -113,18 +113,18 @@ run_multi() {
             TARGET_KEY="$NODE_ID"
         fi
         
-        CHECK_EXISTS=$(jq -r ".rpc_proxies[\"$TARGET_KEY\"]" /tmp/rpc_nodes.json)
+        CHECK_EXISTS=$(jq -r ".nodes[\"$TARGET_KEY\"]" /tmp/rpc_nodes.json)
         if [ "$CHECK_EXISTS" = "null" ] || [ -z "$CHECK_EXISTS" ]; then
             echo "❌ Node $TARGET_KEY không tồn tại trong /tmp/rpc_nodes.json"
             exit 1
         fi
         NODE_KEYS="$TARGET_KEY"
     else
-        NODE_KEYS=$(jq -r '.rpc_proxies | keys[]' /tmp/rpc_nodes.json | sort)
+        NODE_KEYS=$(jq -r '.nodes | keys[]' /tmp/rpc_nodes.json | sort)
     fi
     
     for key in $NODE_KEYS; do
-        export RPC_URL=$(jq -r ".rpc_proxies[\"$key\"]" /tmp/rpc_nodes.json)
+        export RPC_URL=$(jq -r ".nodes[\"$key\"]" /tmp/rpc_nodes.json)
         export TCP_URL=$(jq -r ".tcp_nodes[\"$key\"]" /tmp/rpc_nodes.json)
         
         # Ưu tiên cấu hình override trực tiếp nếu có

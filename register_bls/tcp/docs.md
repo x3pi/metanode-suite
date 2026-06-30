@@ -34,7 +34,6 @@ go run main.go -count 100
 # Tạo và xử lý cho 100 ví NHƯNG chỉ gửi lên 1 node duy nhất (node m0)
 go run main.go -count 20000 -single -skip_fund -trace
 # Chỉ chuyển tiền
-go run main.go -count=4000 -native_only
 
 ```
 

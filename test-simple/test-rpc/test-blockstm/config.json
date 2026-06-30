@@ -1,5 +1,5 @@
 {
-  "rpc_url": "http://192.168.1.234:8650",
+  "rpc_url": "http://192.168.1.234:10746",
   "private_keys": [
     "3f7a0514531a1485edc4270f06dbed62da4974c3b5bbd54a4534060514b8023d",
     "2aad2565bed5347214de1c14752933e9a410a76daed530e80ed6ce7af9363cf4",

@@ -164,7 +164,7 @@ func main() {
 		if hash == (common.Hash{}) { continue }
 		for {
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
-			if err == nil {
+			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status != 1 {
 					fmt.Printf("❌ Tx %s bị revert!\n", hash.Hex())
 					revertCount++
@@ -235,7 +235,7 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
-		if err == nil {
+		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			if receipt.Status == 1 {
 				addr := crypto.CreateAddress(from, nonce)
 				return &addr, nil

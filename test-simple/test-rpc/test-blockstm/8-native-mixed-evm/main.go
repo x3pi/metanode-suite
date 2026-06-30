@@ -159,7 +159,7 @@ func main() {
 		if hash == (common.Hash{}) { continue }
 		for {
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
-			if err == nil {
+			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status != 1 {
 					fmt.Printf("❌ Tx %s bị revert!\n", hash.Hex())
 				} else {
@@ -224,11 +224,11 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
-		if err == nil {
+		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			if receipt.Status != 1 { return nil, fmt.Errorf("deploy reverted") }
 			return &receipt.ContractAddress, nil
 		}
-		if err != ethereum.NotFound { return nil, err }
+		if err != nil && err != ethereum.NotFound { return nil, err }
 		time.Sleep(300 * time.Millisecond)
 	}
 }
