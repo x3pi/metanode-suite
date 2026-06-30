@@ -66,13 +66,12 @@ func main() {
 	for _, batch := range cfg.Batches {
 		fmt.Printf("\n▶️ ĐANG CHẠY TEST VỚI BATCH = %d...\n", batch)
 
-		parallelArg := fmt.Sprintf("--parallel_native=%t", cfg.ParallelNative)
-		loadBalanceArg := fmt.Sprintf("--load_balance=%t", cfg.LoadBalance)
 		countArg := fmt.Sprintf("%d", cfg.Count)
 		roundsArg := fmt.Sprintf("%d", cfg.Rounds)
-		batchArg := fmt.Sprintf("--batch=%d", batch)
+		batchArg := fmt.Sprintf("%d", batch)
+		loadBalArg := fmt.Sprintf("%t", cfg.LoadBalance)
 
-		cmd := exec.Command("go", "run", "main.go", "--count", countArg, parallelArg, "--rounds", roundsArg, loadBalanceArg, batchArg, "--amount", "1")
+		cmd := exec.Command("./run_tps_test.sh", countArg, "--config", "config-multi.json", "--rounds", roundsArg, "--load_balance", loadBalArg, "--batch", batchArg, "--tps-target", "5000")
 		cmd.Dir = "../tps_blast_cc" // Chạy trong thư mục gốc của tps_blast_cc
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

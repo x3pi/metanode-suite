@@ -20,7 +20,7 @@ echo "Reading IPs and Proxy Ports from $RPC_NODES_FILE..."
 # Note: For config-multi.json, we exclude node 4 as requested.
 FILE1="$SUITE_DIR/test_tps/tps_blast_cc/config-multi.json"
 if [ -f "$FILE1" ]; then
-    echo "Updating $FILE1 using RPC Proxies (excluding node 4)..."
+    echo "Updating $FILE1 using Nodes (excluding node 4)..."
     
     new_parent=$(jq -r '.tcp_nodes.m0' "$RPC_NODES_FILE")
     new_rpc_0=$(jq -r '.nodes.m0 | sub("^https?://"; "")' "$RPC_NODES_FILE")
@@ -49,7 +49,7 @@ fi
 # Note: For test-history, we include node 4.
 FILE2="$SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json"
 if [ -f "$FILE2" ]; then
-    echo "Updating $FILE2 using RPC Proxies (including node 4)..."
+    echo "Updating $FILE2 using Nodes (including node 4)..."
     
     new_rpc_url=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
     new_url_0=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
@@ -93,12 +93,12 @@ else
     echo "Warning: $FILE3 not found." >&2
 fi
 
-echo "Done updating configs to use RPC proxies."
+echo "Done updating configs to use Node endpoints."
 
 # 4. Update $SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json
 FILE4="$SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json"
 if [ -f "$FILE4" ]; then
-    echo "Updating $FILE4 using RPC Proxies (including node 4)..."
+    echo "Updating $FILE4 using Nodes (including node 4)..."
     
     new_rpc_url=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")
     new_url_0=$(jq -r '.nodes.m0' "$RPC_NODES_FILE")

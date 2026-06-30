@@ -69,3 +69,25 @@ go run main.go --count 20000 --target-node 1 > blast_gap.log 2>&1 &
 # Kiểm tra sức chịu tải cụ thể trên Node vừa khôi phục (Ví dụ Node 2)
 go run main.go --count 5000 --target-node 2 > blast_restore.log 2>&1
 ```
+
+## 🚀 Kịch bản tự động hóa toàn bộ quy trình (`run_tps_test.sh`)
+
+Công cụ hỗ trợ kịch bản tự động chạy toàn bộ quy trình sinh khóa chuẩn, cấu hình genesis, triển khai và khởi động lại cụm validator, sau đó kích hoạt bài test hiệu năng thông qua tệp [run_tps_test.sh](file:///home/abc/chain-n/metanode-suite/test_tps/tps_blast_cc/run_tps_test.sh).
+
+### Các tùy chọn nâng cao:
+- `--no-reset`: Bỏ qua quá trình sinh khóa mới và deploy reset lại cụm node (giữ nguyên cơ sở dữ liệu blockchain và ví hiện có, chỉ kích hoạt chạy benchmark).
+- Số lượng ví và các tùy chọn khác (`--rounds`, `--batch`, `--load_balance`, ...) có thể truyền trực tiếp từ dòng lệnh.
+
+### Ví dụ sử dụng:
+
+1. **Sinh mới khóa chuẩn và reset cụm node chạy lại từ đầu:**
+   ```bash
+   ./run_tps_test.sh 50000 --rounds 3 --batch 20000
+   ```
+
+2. **Chỉ chạy test TPS (không dọn dẹp database, giữ nguyên ví cũ):**
+   ```bash
+   ./run_tps_test.sh --no-reset 20000 --rounds 5 --load_balance false
+   ./run_tps_test.sh --no-reset 50000 --rounds 3 --load_balance true --batch 20000 --tps-target 50000 --epoch-wait 0 --config config-multi.json
+
+   ```

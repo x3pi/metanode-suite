@@ -50,6 +50,8 @@ func ts() string {
 	return time.Now().Format("15:04:05.000")
 }
 
+var txHashMap sync.Map // Map[string]string -> maps TxHashHex (lowercase) to SenderAddress (hex)
+
 // rawWriter wraps a raw TCP connection (same as tps_blast)
 type rawWriter struct {
 	conn         net.Conn
@@ -95,8 +97,12 @@ func newRawWriter(addr, version, toAddrHex string) (*rawWriter, error) {
 					var txErr pb.TransactionHashWithError
 					if proto.Unmarshal(msg.Body, &txErr) == nil {
 						txHashHex := common.BytesToHash(txErr.Hash).Hex()
-						fmt.Printf("\n[%s] ❌ SERVER REJECTED TX: %s | Node: %s | Code: %d | Msg: %s\n",
-							ts(), txHashHex, rw.addr, txErr.Code, txErr.Description)
+						senderAddr := "unknown"
+						if val, ok := txHashMap.Load(strings.ToLower(txHashHex)); ok {
+							senderAddr = val.(string)
+						}
+						fmt.Printf("\n[%s] ❌ SERVER REJECTED TX: %s (Sender: %s) | Node: %s | Code: %d | Msg: %s\n",
+							ts(), txHashHex, senderAddr, rw.addr, txErr.Code, txErr.Description)
 						// Nếu lỗi invalid nonce → trigger cross-check nonce divergence
 						if strings.Contains(strings.ToLower(txErr.Description), "invalid nonce") {
 							if rw.nonceChecker != nil {
@@ -681,10 +687,14 @@ func main() {
 			continue
 		}
 
+		txHash := internalTx.ToEthTransaction().Hash()
+		txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
+		txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
+
 		allTxs = append(allTxs, rawTx{
 			bytes:  bTx,
 			addr:   acc.Address,
-			txHash: internalTx.ToEthTransaction().Hash(),
+			txHash: txHash,
 			target: targetContract,
 			amount: txAmount,
 		})
@@ -968,10 +978,14 @@ func main() {
 					rebuildErrors++
 					continue
 				}
+				txHash := internalTx.ToEthTransaction().Hash()
+				txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
+				txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
+
 				allTxs = append(allTxs, rawTx{
 					bytes:  bTx,
 					addr:   acc.Address,
-					txHash: internalTx.ToEthTransaction().Hash(),
+					txHash: txHash,
 					target: targetContract,
 					amount: txAmount,
 				})
@@ -1086,7 +1100,7 @@ func main() {
 							ts(), currentSent, len(allTxs), rate, elapsed.Round(time.Millisecond))
 					}
 
-					if i+len(clients) < len(batchedMsgs) {
+					if currentSent < int64(len(allTxs)) {
 						if tpsTarget > 0 {
 							// Calculate exact time we SHOULD have spent by now to maintain tpsTarget
 							expectedElapsedSecs := float64(currentSent) / float64(tpsTarget)
@@ -1927,6 +1941,14 @@ func main() {
 			fmt.Printf("💾 Final summary appended to %s\n", reportFilename)
 		}
 	}
+
+	// ── Export JSON cho matching-tps ─────────────────────────
+	type BlastResult struct {
+		RoundTPS []float64 `json:"roundTPS"`
+	}
+	bResult := BlastResult{RoundTPS: allRoundTPS}
+	bData, _ := json.MarshalIndent(bResult, "", "  ")
+	os.WriteFile("blast_cc_results.json", bData, 0644)
 }
 
 func cleanupReports() {
