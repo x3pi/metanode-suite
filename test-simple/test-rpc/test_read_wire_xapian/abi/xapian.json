@@ -608,7 +608,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "docId",
+        "name": "index",
         "type": "uint256"
       }
     ],
@@ -652,7 +652,7 @@
             "type": "string"
           }
         ],
-        "internalType": "struct IFullDBV1.ProductData",
+        "internalType": "struct ProductData",
         "name": "",
         "type": "tuple"
       }
@@ -664,7 +664,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "docId",
+        "name": "index",
         "type": "uint256"
       },
       {

@@ -430,9 +430,9 @@ contract TestFullDBV1 {
 
     // ════════════════════════════════════════════════════════════════
     function runStep5c_GetData_View(
-        uint256 docId
+        uint256 index
     ) public returns (ProductData memory) {
-        bytes memory rawBytes = fullDB.getDataDocument(DB_NAME, docId);
+        bytes memory rawBytes = fullDB.getDataDocument(DB_NAME, docIds[index]);
         ProductData memory parsedData;
         if (rawBytes.length > 0) {
             parsedData = abi.decode(rawBytes, (ProductData));
@@ -441,10 +441,10 @@ contract TestFullDBV1 {
     }
 
     function runStep5d_GetValue_View(
-        uint256 docId,
+        uint256 index,
         uint32 valueSlot
     ) public returns (string memory) {
-        return fullDB.getValueDocument(DB_NAME, docId, valueSlot, true);
+        return fullDB.getValueDocument(DB_NAME, docIds[index], valueSlot, true);
     }
     function runStep5b_QuerySearch_View(
         string memory query

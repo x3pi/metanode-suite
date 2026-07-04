@@ -19,15 +19,25 @@ interface IFullDBV1 {
     ) external returns (uint256);
 }
 
+contract Counter {
+    uint256 public count;
+    
+    function increase() external {
+        count++;
+    }
+}
+
 contract SharedUpdate {
     IFullDBV1 constant fullDB = IFullDBV1(0x0000000000000000000000000000000000000107);
-    string constant DB_NAME = "blockstm_shared_xapian";
+    string constant DB_NAME = "blockstm_shared_xapian_evm";
     uint256 public sharedDocId;
+    Counter public counterContract;
 
     event SharedUpdated(address indexed wallet, uint256 newCounter, uint256 docId);
 
-    constructor() {
+    constructor(address _counter) {
         fullDB.getOrCreateDb(DB_NAME);
+        counterContract = Counter(_counter);
     }
 
     function initializeDoc() external {
@@ -35,6 +45,9 @@ contract SharedUpdate {
     }
 
     function incrementShared() external {
+        // Increment EVM contract count
+        counterContract.increase();
+
         // 2. LÀM THEO ĐÚNG Ý BẠN: Đọc biến count trực tiếp từ Xapian
         bytes memory data = fullDB.getDataDocument(DB_NAME, sharedDocId);
         uint256 currentCount = abi.decode(data, (uint256));
