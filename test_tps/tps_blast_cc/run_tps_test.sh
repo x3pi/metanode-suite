@@ -8,7 +8,7 @@ COUNT=50000
 # Cấu hình mặc định cho công cụ test tps_blast_cc
 ROUNDS=3
 LOAD_BALANCE=true
-BATCH=20000
+BATCH=5000
 TPS_TARGET=50000
 EPOCH_WAIT=0
 CONFIG="config-multi.json"
@@ -71,17 +71,7 @@ fi
 echo "=========================================================="
 
 if [ "$RESET" = true ]; then
-  echo "👉 Bước 1: Sinh bộ $COUNT ví kép chuẩn (BLS + ECDSA tương khớp)..."
-  cd ~/chain-n/metanode/execution
-  sed -i "s/count := [0-9]*/count := $COUNT/g" generate_valid_keys.go
-  go run generate_valid_keys.go
-
-  echo "👉 Bước 2: Nạp các ví vừa sinh vào genesis.json..."
-  cp ~/chain-n/metanode/deploy/systemd/genesis.json.example ~/chain-n/metanode/deploy/systemd/genesis.json
-  python3 ~/chain-n/metanode-suite/test_tps/gen_spam_keys/manage_genesis.py add ~/chain-n/metanode/deploy/systemd/genesis.json ~/chain-n/metanode-suite/test_tps/gen_spam_keys/generated_keys.json
-
-  echo "👉 Bước 3: Đồng bộ hóa khóa public BLS tương ứng vào genesis.json..."
-  go run fix_genesis.go
+  echo "👉 Bước 1-3: Đã loại bỏ do chuyển sang Rust (Mock RPC không cần pre-fund ví trong genesis)."
 
   echo "👉 Bước 4: Deploy & Reset lại toàn bộ cụm node (Xóa dữ liệu cũ)..."
   cd ~/chain-n/metanode/deploy/ansible
@@ -95,7 +85,9 @@ cd ~/chain-n/metanode-suite/test_tps/tps_blast_cc
 # Cập nhật cấu hình IP/Proxy
 ../../scripts/update-ip/update-ip.sh || true
 
-go run main.go \
+rm -f /tmp/MTN_CHAIN_ERROR_STOP
+
+GOMAXPROCS=16 go run main.go \
   --count "$COUNT" \
   --rounds "$ROUNDS" \
   --load_balance="$LOAD_BALANCE" \

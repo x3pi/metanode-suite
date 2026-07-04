@@ -1,0 +1,94 @@
+--- main.go
++++ main.go
+@@ -64,10 +64,7 @@
+ }
+ 
+ func newRawWriter(addr, version, toAddrHex string) (*rawWriter, error) {
+-conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+-if err != nil {
+-return nil, err
+-}
++conn := (net.Conn)(nil) // Bypassing TCP
+ rw := &rawWriter{
+ n:      conn,
+-writer:    bufio.NewWriterSize(conn, 4*1024*1024),
++writer:    nil,
+      addr,
+ :   version,
+ toAddrHex,
+ }
+ 
+-go func() {
+-reader := bufio.NewReader(conn)
+-for {
+-lengthBuf := make([]byte, 8)
+-if _, err := io.ReadFull(reader, lengthBuf); err != nil {
+-return
+-}
+-length := binary.LittleEndian.Uint64(lengthBuf)
+-b := make([]byte, length)
+-if _, err := io.ReadFull(reader, b); err != nil {
+-return
+-}
+-var msg pb.Message
+-if err := proto.Unmarshal(b, &msg); err == nil {
+-if msg.Header.Command == "Error" {
+-var txErr pb.TxError
+-if err := proto.Unmarshal(msg.Body, &txErr); err == nil {
+-txHashHex := hexutil.Encode(txErr.TxHash)
+-senderAddr := "unknown"
+-if val, ok := txHashMap.Load(strings.ToLower(txHashHex)); ok {
+-senderAddr = val.(string)
+-}
+-fmt.Printf("\n[%s] ❌ [REJECTED] Tx: %s | Sender: %s | Node: %s | ErrCode: %d | Msg: %s\n",
+-ts(), txHashHex, senderAddr, rw.addr, txErr.Code, txErr.Description)
+-// Nếu lỗi invalid nonce → trigger cross-check nonce divergence
+-if strings.Contains(strings.ToLower(txErr.Description), "invalid nonce") {
+-if rw.nonceChecker != nil {
+-// Không block goroutine đọc — chạy check bất đồng bộ
+-go rw.nonceChecker(txHashHex)
+-}
+-}
+-}
+-} else if msg.Header.Command != "Receipt" {
+-fmt.Printf("\n[%s] 📩 SERVER: %s\n", ts(), msg.Header.Command)
+-}
+-}
+-}
+-}()
+-
+ return rw, nil
+ }
+ 
+ func (rw *rawWriter) sendRaw(cmd string, body []byte) error {
+-toAddr := common.HexToAddress(rw.toAddrHex)
+-msgProto := &pb.Message{
+-Header: &pb.Header{
+-Command:   cmd,
+-Version:   rw.version,
+-ToAddress: toAddr.Bytes(),
+-ID:        uuid.New().String(),
+-},
+-Body: body,
+-}
+-b, err := proto.Marshal(msgProto)
+-if err != nil {
+-return err
+-}
+-lengthBuf := make([]byte, 8)
+-binary.LittleEndian.PutUint64(lengthBuf, uint64(len(b)))
+-rw.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+-if _, err := rw.writer.Write(lengthBuf); err != nil {
+-return err
+-}
+-if _, err := rw.writer.Write(b); err != nil {
+-return err
+-}
+-return nil
++    hexTx := hexutil.Encode(body)
++    _, err := rw.rpcPool[0].SendRawTransaction(hexTx)
++    return err
+ }
+ 
+-func (rw *rawWriter) flush() error { return rw.writer.Flush() }
++func (rw *rawWriter) flush() error { return nil }

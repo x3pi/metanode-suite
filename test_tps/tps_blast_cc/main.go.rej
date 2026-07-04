@@ -1,0 +1,15 @@
+--- main.go
++++ main.go
+@@ -64,10 +64,7 @@
+ }
+ 
+ func newRawWriter(addr, version, toAddrHex string) (*rawWriter, error) {
+-conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+-if err != nil {
+-return nil, err
+-}
++conn := (net.Conn)(nil) // Bypassing TCP
+ rw := &rawWriter{
+ n:      conn,
+-writer:    bufio.NewWriterSize(conn, 4*1024*1024),
++writer:    nil,

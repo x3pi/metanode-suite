@@ -691,6 +691,9 @@ func main() {
 		txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
 		txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
 
+		rawHash := crypto.Keccak256Hash(bTx)
+		txHashMap.Store(strings.ToLower(rawHash.Hex()), acc.Address)
+
 		allTxs = append(allTxs, rawTx{
 			bytes:  bTx,
 			addr:   acc.Address,
@@ -856,8 +859,8 @@ func main() {
 		// ── Re-fetch nonces + rebuild TXs for rounds > 1 ──
 		if round > 1 {
 			// Wait for chain to fully process previous round before re-fetching nonces
-			fmt.Printf("  ⏳ Waiting 3s for chain to finalize previous round...\n")
-			time.Sleep(3 * time.Second)
+			fmt.Printf("  ⏳ Waiting 20s for chain to finalize previous round...\n")
+			time.Sleep(20 * time.Second)
 			fmt.Printf("  🔍 Re-fetching nonces for %d accounts (pool: %d nodes)...\n", len(toSend), len(rpcPool))
 			oldNonceMap := nonceMap
 			nonceMap = make(map[string]uint64)
@@ -981,6 +984,8 @@ func main() {
 				txHash := internalTx.ToEthTransaction().Hash()
 				txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
 				txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
+				rawHash := crypto.Keccak256Hash(bTx)
+				txHashMap.Store(strings.ToLower(rawHash.Hex()), acc.Address)
 
 				allTxs = append(allTxs, rawTx{
 					bytes:  bTx,
@@ -1136,7 +1141,7 @@ func main() {
 
 		// Build map of expected tx hashes to correctly count only our TXs
 		expectedTxHashes := make(map[string]bool)
-		hashMapping := make(map[string]string)
+		hashMapping := make(map[string][]string)
 		for _, tx := range allTxs {
 			ethHashLower := strings.ToLower(tx.txHash.Hex())
 			expectedTxHashes[ethHashLower] = true
@@ -1147,8 +1152,13 @@ func main() {
 				pbHashLower := strings.ToLower(pbHash.Hex())
 				expectedTxHashes[pbHashLower] = true
 
-				hashMapping[ethHashLower] = pbHashLower
-				hashMapping[pbHashLower] = ethHashLower
+				rawHash := crypto.Keccak256Hash(tx.bytes)
+				rawHashLower := strings.ToLower(rawHash.Hex())
+				expectedTxHashes[rawHashLower] = true
+
+				hashMapping[ethHashLower] = []string{pbHashLower, rawHashLower}
+				hashMapping[pbHashLower] = []string{ethHashLower, rawHashLower}
+				hashMapping[rawHashLower] = []string{ethHashLower, pbHashLower}
 			}
 		}
 
@@ -1311,6 +1321,7 @@ func main() {
 					go func(blockNum uint64) {
 						defer wg.Done()
 						blk, err := rpcClient.GetBlockByNumber(blockNum)
+	if err != nil { fmt.Printf("DEBUG: Block %d failed to fetch: %v\n", blockNum, err) } else { if blk == nil { fmt.Printf("DEBUG: Block %d is nil\n", blockNum) } }
 						ch <- blockResult{bn: blockNum, blk: blk, err: err}
 					}(bn)
 				}
@@ -1351,11 +1362,14 @@ func main() {
 						if expectedTxHashes[txHashLower] {
 							newTxsCount++
 							delete(expectedTxHashes, txHashLower)
-							if otherHash, exists := hashMapping[txHashLower]; exists {
-								delete(expectedTxHashes, otherHash)
+							if otherHashes, exists := hashMapping[txHashLower]; exists {
+								for _, otherHash := range otherHashes {
+									delete(expectedTxHashes, otherHash)
+								}
 							}
 						}
 					}
+
 					if newTxsCount > 0 {
 						blkTime := time.UnixMilli(int64(blk.Timestamp))
 						if !seenAnyTx {
@@ -1533,8 +1547,8 @@ func main() {
 				traces, err := rpcClient.GetBlockTraces(endBlock, endBlock)
 				if err == nil && len(traces) > 0 {
 					t := traces[0]
-					if t.TotalBlockDurationUs > 0 {
-						onChainDuration = time.Duration(t.TotalBlockDurationUs) * time.Microsecond
+					if t.TotalExecutionUs > 0 {
+						onChainDuration = time.Duration(t.TotalExecutionUs) * time.Microsecond
 						txCountForTps := t.TxCount
 						if txCountForTps <= 0 {
 							txCountForTps = int(totalTxsInBlocks)
@@ -1605,7 +1619,7 @@ func main() {
 			if tracesErr == nil {
 				var totalRealUs float64
 				for _, t := range traces {
-					realTotalUs := float64(t.WaitGoUs) + float64(t.WaitRustUs) + float64(t.ProcessTxsDurationUs) + float64(t.TotalBlockDurationUs)
+					realTotalUs := float64(0) + float64(0) + float64(t.EvmExecutionDurationUs) + float64(t.TotalExecutionUs)
 					totalRealUs += realTotalUs
 				}
 				totalOnChainExecTime = time.Duration(totalRealUs) * time.Microsecond
@@ -1656,40 +1670,40 @@ func main() {
 
 					for _, t := range traces {
 						// Calculate real total including all phases + wait times (End-to-End Node Latency)
-						realTotalUs := float64(t.WaitGoUs) +
-							float64(t.WaitRustUs) +
-							float64(t.ProcessTxsDurationUs) +
-							float64(t.TotalBlockDurationUs)
+						realTotalUs := float64(0) +
+							float64(0) +
+							float64(t.EvmExecutionDurationUs) +
+							float64(t.TotalExecutionUs)
 
-						totalWaitGo += float64(t.WaitGoUs)
-						totalWaitRust += float64(t.WaitRustUs)
-						totalConsensus += float64(t.ConsensusDurationUs)
-						totalRustFFI += float64(t.RustDeliveryFFIDurationUs)
-						totalClientBatch += float64(t.ClientBatchProcessingUs)
-						totalProcessTX += float64(t.ProcessTxsDurationUs)
-						totalCalcRoots += float64(t.Phase1TotalDurationUs)
-						totalBlockData += float64(t.BlockDataDurationUs)
-						totalMapping += float64(t.MappingDurationUs)
-						totalCommitMem += float64(t.CommitMemoryDurationUs)
-						totalSaveDB += float64(t.SaveDBDurationUs)
-						totalTotal += float64(t.TotalBlockDurationUs)
-						totalGCPause += float64(t.GCPauseUs)
+						totalWaitGo += float64(0)
+						totalWaitRust += float64(0)
+						totalConsensus += float64(0)
+						totalRustFFI += float64(0)
+						totalClientBatch += float64(0)
+						totalProcessTX += float64(t.EvmExecutionDurationUs)
+						totalCalcRoots += float64(0)
+						totalBlockData += float64(0)
+						totalMapping += float64(0)
+						totalCommitMem += float64(0)
+						totalSaveDB += float64(t.CommitDurationUs)
+						totalTotal += float64(t.TotalExecutionUs)
+						totalGCPause += float64(0)
 
 						sb.WriteString(fmt.Sprintf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
 							t.BlockNumber, t.TxCount,
-							float64(t.WaitGoUs)/1000.0,
-							float64(t.WaitRustUs)/1000.0,
-							float64(t.ConsensusDurationUs)/1000.0,
-							float64(t.RustDeliveryFFIDurationUs)/1000.0,
-							float64(t.ClientBatchProcessingUs)/1000.0,
-							float64(t.ProcessTxsDurationUs)/1000.0,
-							float64(t.Phase1TotalDurationUs)/1000.0, // calc roots
-							float64(t.BlockDataDurationUs)/1000.0,
-							float64(t.MappingDurationUs)/1000.0,
-							float64(t.CommitMemoryDurationUs)/1000.0,
-							float64(t.SaveDBDurationUs)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(t.EvmExecutionDurationUs)/1000.0,
+							float64(0)/1000.0, // calc roots
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(t.CommitDurationUs)/1000.0,
 							realTotalUs/1000.0,
-							float64(t.GCPauseUs)/1000.0))
+							float64(0)/1000.0))
 					}
 
 					if len(traces) > 0 {
