@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"math/big"
@@ -119,9 +120,13 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	rounds := flag.Int("rounds", 1, "Số round muốn test")
+	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
+	flag.Parse()
+
+	configPath := *configFlag
+	if flag.NArg() > 0 {
+		configPath = flag.Arg(0)
 	}
 
 	raw, err := os.ReadFile(configPath)
@@ -201,60 +206,69 @@ func main() {
 	var errs []error
 	var errsMu sync.Mutex
 
-	fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update Xapian DB...\n", len(testKeys))
 	start := time.Now()
+	totalSuccess := 0
 
-	// WaitGroup and channels to track tx hashes
-	txHashes := make([]common.Hash, len(testKeys))
+	for r := 1; r <= *rounds; r++ {
+		fmt.Printf("\n🔥 --- ROUND %d/%d --- 🔥\n", r, *rounds)
+		fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update Xapian DB...\n", len(testKeys))
 
-	for i, pkStr := range testKeys {
-		wg.Add(1)
-		go func(idx int, pKeyHex string) {
-			defer wg.Done()
+		// WaitGroup and channels to track tx hashes
+		txHashes := make([]common.Hash, len(testKeys))
 
-			pk, err := crypto.HexToECDSA(pKeyHex)
-			if err != nil {
-				errsMu.Lock()
-				errs = append(errs, fmt.Errorf("lỗi key %d: %v", idx, err))
-				errsMu.Unlock()
-				return
-			}
-			from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
+		for i, pkStr := range testKeys {
+			wg.Add(1)
+			go func(idx int, pKeyHex string) {
+				defer wg.Done()
 
-			hash, err := sendIncrementShared(client, pk, cfg.ChainID, from, contractAddr, parsedABI)
-			if err != nil {
-				errsMu.Lock()
-				errs = append(errs, fmt.Errorf("lỗi send tx từ wallet %d: %v", idx, err))
-				errsMu.Unlock()
-				return
-			}
+				pk, err := crypto.HexToECDSA(pKeyHex)
+				if err != nil {
+					errsMu.Lock()
+					errs = append(errs, fmt.Errorf("round %d - lỗi key %d: %v", r, idx, err))
+					errsMu.Unlock()
+					return
+				}
+				from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
 
-			fmt.Printf("✅ Wallet %d gửi tx thành công: %s\n", idx, hash.Hex())
-			txHashes[idx] = hash
-		}(i, pkStr)
-	}
+				hash, err := sendIncrementShared(client, pk, cfg.ChainID, from, contractAddr, parsedABI)
+				if err != nil {
+					errsMu.Lock()
+					errs = append(errs, fmt.Errorf("round %d - lỗi send tx từ wallet %d: %v", r, idx, err))
+					errsMu.Unlock()
+					return
+				}
 
-	wg.Wait()
-
-	if len(errs) > 0 {
-		fmt.Println("❌ Một số giao dịch gửi thất bại:")
-		for _, e := range errs {
-			fmt.Println("  -", e)
+				fmt.Printf("✅ Round %d - Wallet %d gửi tx thành công: %s\n", r, idx, hash.Hex())
+				txHashes[idx] = hash
+			}(i, pkStr)
 		}
-	}
 
-	fmt.Println("⏳ Chờ các giao dịch được confirm...")
-	for i, hash := range txHashes {
-		if hash == (common.Hash{}) {
-			continue
+		wg.Wait()
+
+		if len(errs) > 0 {
+			fmt.Println("❌ Một số giao dịch gửi thất bại trong round này:")
+			errsMu.Lock()
+			for _, e := range errs {
+				fmt.Println("  -", e)
+			}
+			errs = nil // reset cho round sau
+			errsMu.Unlock()
 		}
-		receipt, err := waitReceipt(client, hash)
-		if err != nil {
-			fmt.Printf("❌ Wallet %d chờ receipt thất bại: %v\n", i, err)
-		} else if receipt.Status != 1 {
-			fmt.Printf("❌ Wallet %d Tx bị revert!\n", i)
-		} else {
-			fmt.Printf("✅ Wallet %d Tx %s confirmed trong block %d\n", i, hash.Hex()[:10]+"...", receipt.BlockNumber.Uint64())
+
+		fmt.Println("⏳ Chờ các giao dịch được confirm...")
+		for i, hash := range txHashes {
+			if hash == (common.Hash{}) {
+				continue
+			}
+			receipt, err := waitReceipt(client, hash)
+			if err != nil {
+				fmt.Printf("❌ Round %d - Wallet %d chờ receipt thất bại: %v\n", r, i, err)
+			} else if receipt.Status != 1 {
+				fmt.Printf("❌ Round %d - Wallet %d Tx bị revert!\n", r, i)
+			} else {
+				fmt.Printf("✅ Round %d - Wallet %d Tx %s confirmed trong block %d\n", r, i, hash.Hex()[:10]+"...", receipt.BlockNumber.Uint64())
+				totalSuccess++
+			}
 		}
 	}
 
@@ -267,12 +281,12 @@ func main() {
 	fmt.Println("\n📊 KẾT QUẢ:")
 	fmt.Printf("Thời gian gửi & chờ: %v\n", elapsed)
 	fmt.Printf("Giá trị counter cuối cùng lưu trong Xapian DB: %d\n", actual)
-	fmt.Printf("Số lượng ví tham gia: %d\n", len(testKeys))
+	fmt.Printf("Tổng số lượng tx thành công: %d (trên %d round, mỗi round %d ví)\n", totalSuccess, *rounds, len(testKeys))
 
-	if actual == uint64(len(testKeys)) {
+	if actual == uint64(totalSuccess) {
 		fmt.Println("🎉 TEST PASSED: BlockSTM xử lý write conflict trên Xapian DB đúng!")
 	} else {
-		fmt.Printf("⚠️ TEST FAILED: Kỳ vọng %d nhưng nhận %d\n", len(testKeys), actual)
+		fmt.Printf("⚠️ TEST FAILED: Kỳ vọng %d nhưng nhận %d\n", totalSuccess, actual)
 	}
 }
 
