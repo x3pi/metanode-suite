@@ -185,18 +185,6 @@ func main() {
 	}
 	fmt.Println("✅ InitializeDoc thành công!\n")
 
-	// Lấy sharedDocId để debug
-	data, _ := parsedABI.Pack("sharedDocId")
-	result, err := client.CallContract(context.Background(), ethereum.CallMsg{To: contractAddr, Data: data}, nil)
-	if err == nil {
-		outputs, _ := parsedABI.Unpack("sharedDocId", result)
-		if len(outputs) > 0 {
-			if val, ok := outputs[0].(*big.Int); ok {
-				fmt.Printf("🔍 [DEBUG] sharedDocId in EVM state: %s (hex: %x)\n\n", val.String(), val)
-			}
-		}
-	}
-
 	var wg sync.WaitGroup
 	var errs []error
 	var errsMu sync.Mutex
