@@ -7,9 +7,9 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-type PublicKey [96]byte
+type PublicKey [48]byte
 type PrivateKey [32]byte
-type Sign [48]byte
+type Sign [96]byte
 
 func (pk PublicKey) Bytes() []byte {
 	return pk[:]
@@ -37,13 +37,13 @@ func (s Sign) String() string {
 
 func PubkeyFromBytes(bytes []byte) PublicKey {
 	p := PublicKey{}
-	copy(p[0:96], bytes)
+	copy(p[0:48], bytes)
 	return p
 }
 
 func SignFromBytes(bytes []byte) Sign {
 	s := Sign{}
-	copy(s[0:48], bytes)
+	copy(s[0:96], bytes)
 	return s
 }
 

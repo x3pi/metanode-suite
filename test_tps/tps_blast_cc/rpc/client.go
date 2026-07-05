@@ -254,9 +254,9 @@ type BlockTrace struct {
 	BlockNumber uint64 `json:"block_number"`
 	TxCount     int    `json:"tx_count"`
 
-	EvmExecutionDurationUs int64 `json:"evm_execution_duration_us"`
-	CommitDurationUs       int64 `json:"commit_duration_us"`
-	TotalExecutionUs       int64 `json:"total_execution_us"`
+	EvmExecutionDurationUs int64 `json:"process_txs_duration_ms"`
+	CommitDurationUs       int64 `json:"save_db_duration_ms"`
+	TotalExecutionUs       int64 `json:"total_block_duration_ms"`
 }
 
 // GetBlockTraces fetches block traces via JSON-RPC

@@ -12,13 +12,13 @@ import (
 	cm "tool-test/pkg/common"
 )
 
-type blstPublicKey = blst.P2Affine
-type blstSignature = blst.P1Affine
-type blstAggregateSignature = blst.P1Aggregate
-type blstAggregatePublicKey = blst.P2Aggregate
+type blstPublicKey = blst.P1Affine
+type blstSignature = blst.P2Affine
+type blstAggregateSignature = blst.P2Aggregate
+type blstAggregatePublicKey = blst.P1Aggregate
 type blstSecretKey = blst.SecretKey
 
-var dstMinPk = []byte("BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_")
+var dstMinPk = []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_")
 
 // blsCurveOrder is the order r of the BLS12-381 curve.
 // Valid private key must satisfy: 0 < key < r.
