@@ -1,6 +1,6 @@
 [
   {
-    "contract": "0xdC7b4fFD274112318083CCB3900d6287776f78b6",
+    "contract": "0x4C34b0072AFCeE6e431B8f9f657a3d8FfcEFd38E",
     "abi_path": "./test_read_wire_xapian/abi/xapian.json",
     "action": "call",
     "method": "runStep5b_QuerySearch_View",
