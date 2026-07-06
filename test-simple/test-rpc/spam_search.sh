@@ -6,7 +6,7 @@ echo "🚀 Bắt đầu spam QuerySearch_View vô tận (Ctrl+C để thoát)...
 trap "echo '🛑 Đã dừng spam!'; exit 0" SIGINT SIGTERM
 
 round=1
-while [ $round -le 1 ]; do
+while true; do
   echo "🌀 Spam vòng thứ $round..."
   
   ./spam_bin -config=./config-local.json -data=./test_read_wire_xapian/spam/data-xapian-search-t1.json &
