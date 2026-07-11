@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/big"
 	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/meta-node-blockchain/meta-node/pkg/bls"
 )
 
 // KeyInfo represents a generated key pair
@@ -37,6 +39,7 @@ func main() {
 	balance := flag.String("balance", "100000000000000000000", "Initial balance for each account (wei, default 100 ETH)")
 	blsKey := flag.String("bls", "0x86d5de6f7c9c13cc0d959a553cc0e4853ba5faae45a28da9bddc8ef8e104eb5d3dece8dfaa24f11b4243ec27537e3184", "Default BLS public key")
 	flag.Parse()
+	_ = blsKey
 
 	fmt.Println("═══════════════════════════════════════════════════")
 	fmt.Println("  🔑 SPAM KEY GENERATOR — Gen + Inject Genesis")
@@ -49,8 +52,9 @@ func main() {
 
 	start := time.Now()
 	keys := make([]KeyInfo, 0, *count)
+	blsOrder, _ := new(big.Int).SetString("73eda7532f2cd774824b5f5648b294e305f4dd7647464a95a7008693d5b508f5", 16)
 
-	for i := 0; i < *count; i++ {
+	for i := 0; i < *count; {
 		privateKey, err := crypto.GenerateKey()
 		if err != nil {
 			fmt.Printf("  ❌ Error generating key #%d: %v\n", i+1, err)
@@ -58,6 +62,11 @@ func main() {
 		}
 
 		privKeyBytes := crypto.FromECDSA(privateKey)
+		privInt := new(big.Int).SetBytes(privKeyBytes)
+		if privInt.Cmp(blsOrder) >= 0 {
+			continue
+		}
+
 		address := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 		info := KeyInfo{
@@ -66,9 +75,10 @@ func main() {
 			Address:    address.Hex(),
 		}
 		keys = append(keys, info)
+		i++
 
-		if (i+1)%100 == 0 {
-			fmt.Printf("  ✅ Generated %d/%d keys...\n", i+1, *count)
+		if i%100 == 0 {
+			fmt.Printf("  ✅ Generated %d/%d keys...\n", i, *count)
 		}
 	}
 
@@ -136,13 +146,22 @@ func main() {
 			if existingAddrs[key.Address] {
 				continue // skip duplicate
 			}
+			privBytes, err := hex.DecodeString(key.PrivateKey)
+			if err != nil {
+				fmt.Printf("  ❌ Error decoding private key: %v\n", err)
+				os.Exit(1)
+			}
+			kp := bls.NewKeyPair(privBytes)
+			pubBytes := kp.PublicKey()
+			pubHex := "0x" + hex.EncodeToString(pubBytes[:])
+
 			newAlloc := GenesisAlloc{
 				Address:      key.Address,
 				Balance:      *balance,
 				PendingBal:   "0",
 				LastHash:     "0x0000000000000000000000000000000000000000000000000000000000000000",
 				DeviceKey:    "0x0000000000000000000000000000000000000000000000000000000000000000",
-				PublicKeyBls: *blsKey,
+				PublicKeyBls: pubHex,
 			}
 			existingAlloc = append(existingAlloc, newAlloc)
 			added++
