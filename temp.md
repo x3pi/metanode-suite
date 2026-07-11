@@ -1,1 +1,0 @@
-Lưu ý: Tôi đang tiếp tục điều tra vấn đề thứ 2 bạn đề cập (NOMT-ALIGN-REBUILD trên stake_db) do dữ liệu NOMT lúc Genesis không được flush xuống PebbleDB đúng cách.
