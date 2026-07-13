@@ -106,8 +106,13 @@ const bytecodeHex = "0x608060405234801561000f575f5ffd5b5061010773fffffffffffffff
 
 type Config struct {
 	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
 	ChainID     int64    `json:"chain_id"`
+}
+
+type GeneratedKey struct {
+	Index      int    `json:"index"`
+	PrivateKey string `json:"private_key"`
+	Address    string `json:"address"`
 }
 
 func main() {
@@ -122,6 +127,8 @@ func main() {
 
 	rounds := flag.Int("rounds", 1, "Số round muốn test")
 	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
+	keysFile := flag.String("keys", "/home/abc/nhat/con-chain-v2/metanode-suite/test_tps/gen_spam_keys/generated_keys.json", "Đường dẫn file chứa private keys")
+	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
 	flag.Parse()
 
 	configPath := *configFlag
@@ -153,14 +160,26 @@ func main() {
 		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
 	}
 
-	if len(cfg.PrivateKeys) == 0 {
-		log.Fatalf("❌ Không có private key nào trong config")
+	keysRaw, err := os.ReadFile(*keysFile)
+	if err != nil {
+		log.Fatalf("❌ Lỗi đọc file keys %s: %v", *keysFile, err)
+	}
+	var genKeys []GeneratedKey
+	if err := json.Unmarshal(keysRaw, &genKeys); err != nil {
+		log.Fatalf("❌ Lỗi parse keys: %v", err)
 	}
 
-	// Lấy tối đa 10 private keys cho bài test này
-	testKeys := cfg.PrivateKeys
-	if len(testKeys) > 10 {
-		testKeys = testKeys[:10]
+	var testKeys []string
+	for _, gk := range genKeys {
+		testKeys = append(testKeys, gk.PrivateKey)
+	}
+
+	if *numKeys > 0 && len(testKeys) > *numKeys {
+		testKeys = testKeys[:*numKeys]
+	}
+
+	if len(testKeys) == 0 {
+		log.Fatalf("❌ Không có private key nào được load")
 	}
 
 	// Use the first key to deploy
@@ -189,18 +208,6 @@ func main() {
 		log.Fatalf("❌ Khởi tạo Document thất bại!")
 	}
 	fmt.Println("✅ InitializeDoc thành công!")
-
-	// Lấy sharedDocId để debug
-	data, _ := parsedABI.Pack("sharedDocId")
-	result, err := client.CallContract(context.Background(), ethereum.CallMsg{To: contractAddr, Data: data}, nil)
-	if err == nil {
-		outputs, _ := parsedABI.Unpack("sharedDocId", result)
-		if len(outputs) > 0 {
-			if val, ok := outputs[0].(*big.Int); ok {
-				fmt.Printf("🔍 [DEBUG] sharedDocId in EVM state: %s (hex: %x)\n\n", val.String(), val)
-			}
-		}
-	}
 
 	var wg sync.WaitGroup
 	var errs []error
