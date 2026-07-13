@@ -188,7 +188,7 @@ func main() {
 	if err != nil || initReceipt.Status != 1 {
 		log.Fatalf("❌ Khởi tạo Document thất bại!")
 	}
-	fmt.Println("✅ InitializeDoc thành công!\n")
+	fmt.Println("✅ InitializeDoc thành công!")
 
 	// Lấy sharedDocId để debug
 	data, _ := parsedABI.Pack("sharedDocId")
