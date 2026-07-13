@@ -16,6 +16,11 @@ TESTS=(
     "12-insufficient-balance-parallel"
     "13-deploy-and-call-same-block"
     "14-selfdestruct-conflict"
+    "15-xapian-shared-update"
+    "16-xapian-evm-contract"
+    "17-xapian-parallel-read-write"
+    "18-update-different-variables"
+    "19-xapian-parallel-update"
 )
 
 TOTAL_TESTS=${#TESTS[@]}

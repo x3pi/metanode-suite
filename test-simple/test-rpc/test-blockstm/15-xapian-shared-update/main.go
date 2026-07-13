@@ -128,7 +128,7 @@ func main() {
 	rounds := flag.Int("rounds", 1, "Số round muốn test")
 	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
 	keysFile := flag.String("keys", "/home/abc/nhat/con-chain-v2/metanode-suite/test_tps/gen_spam_keys/generated_keys.json", "Đường dẫn file chứa private keys")
-	numKeys := flag.Int("num", 0, "Số lượng keys để test (0 = tất cả, mặc định là 0)")
+	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
 	flag.Parse()
 
 	configPath := *configFlag
