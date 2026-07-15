@@ -40,3 +40,4 @@ test-simple/test-rpc/test-history/main
 test-simple/test-rpc/test-blockstm/18-update-different-variables/main
 .gitignore
 test-simple/test-rpc/test-blockstm/19-xapian-parallel-update/test_xapian
+file-storage/up-down-debug/benchmark_file.bin

@@ -3,7 +3,6 @@ package processor
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -156,17 +155,13 @@ func RequestChunkFromRustServerQuic(
 		return nil, fmt.Errorf("server báo lỗi: %v", response.Message)
 	}
 
-	// Decode chunk data
-	chunkData, err := base64.StdEncoding.DecodeString(*response.ChunkDataBase64)
+	// Đọc Frame 2: Dữ liệu nhị phân thô
+	chunkData, err := readFrameWithLength(stream)
 	if err != nil {
-		log.Printf("⚠️  [Chunk %d] Hex decode failed, trying base64...", chunkIndex)
-		// Try base64 decode if hex fails
-		chunkData, err = base64.StdEncoding.DecodeString(*response.ChunkDataBase64)
-		if err != nil {
-			log.Printf("❌ [Chunk %d] Decode FAILED: %v", chunkIndex, err)
-			return nil, fmt.Errorf("failed to decode chunk data: %v", err)
-		}
+		log.Printf("❌ [Chunk %d] Đọc frame 2 FAILED: %v", chunkIndex, err)
+		return nil, fmt.Errorf("lỗi khi đọc chunk data: %v", err)
 	}
+	
 	return chunkData, nil
 }
 

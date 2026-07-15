@@ -25,20 +25,26 @@ import (
 	processor "tool-test/file-storage/up-down-debug/proccessor"
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
-	tx_models "tool-test/pkg/client-tcp/models"
-	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
-	"tool-test/pkg/logger"
 
-	// pb "tool-test/pkg/proto"
+	tx_models "tool-test/pkg/client-tcp/models"
+	"tool-test/pkg/client-tcp/utils/tx_helper"
+	mt_common "tool-test/pkg/common"
+	"tool-test/pkg/logger"
+	pb "tool-test/pkg/proto"
+	mt_transaction "tool-test/pkg/transaction"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/meta-node-blockchain/meta-node/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
 )
@@ -157,7 +163,7 @@ func main() {
 	// --- 1. Kết nối đến client Ethereum ---
 	envFile := flag.String("envfile", ".env.1", "Path to .env file")
 	downloadKeyHex := flag.String("download", "", "FileKey (hex string) to download directly")
-	useTCP := flag.Bool("tcp", false, "Use TCP instead of RPC for UploadChunk")
+	mode := flag.String("mode", "http-bls", "Mode to use for UploadChunk: http, tcp, or http-bls")
 	fileSizeGB := flag.Float64("size", 0, "Size in GB to generate a dummy file for upload")
 	workers := flag.Int("workers", 10, "Number of concurrent workers for uploading chunks")
 	rounds := flag.Int("rounds", 1, "Number of benchmark rounds to run sequentially")
@@ -207,10 +213,22 @@ func main() {
 	}
 	ls := listener.NewEventListener(instanceWS)
 	ls.Start()
-	clientHttp, err := ethclient.Dial(config.HttpUrl)
-	if err != nil {
-		log.Fatalf("Lỗi kết nối đến Ethereum client: %v", err)
+	// --- Default HTTP Client for testing bottleneck ---
+	// customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	// customTransport.MaxIdleConns = 1000
+	// customTransport.MaxIdleConnsPerHost = 1000
+	// customTransport.MaxConnsPerHost = 1000
+	// customTransport.IdleConnTimeout = 90 * time.Second
+
+	httpClient := &http.Client{
+		// Transport: customTransport, // Tạm thời dùng DefaultTransport
+		Timeout:   2 * time.Minute,
 	}
+	rpcClient, err := rpc.DialHTTPWithClient(config.HttpUrl, httpClient)
+	if err != nil {
+		log.Fatalf("Lỗi tạo RPC client: %v", err)
+	}
+	clientHttp := ethclient.NewClient(rpcClient)
 	defer clientHttp.Close()
 	instanceHttp, err := contract.NewFileContract(contractAddress, clientHttp)
 	if err != nil {
@@ -229,17 +247,54 @@ func main() {
 		var fileKey [32]byte
 		copy(fileKey[:], bytes)
 
-		startChunk := time.Now()
-		log.Printf("🚀 Bắt đầu Download lúc: %v", startChunk.Format("15:04:05.000"))
-		if err := DownloadFile(client, privateKey, instanceHttp, fileKey); err != nil {
-			log.Fatalf("Lỗi trong quá trình tải xuống: %v", err)
+		totalRounds := *rounds
+		var sumMbps float64
+		var successRounds int
+		
+		for r := 1; r <= totalRounds; r++ {
+			fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			fmt.Printf("🔄 DOWNLOAD ROUND %d / %d\n", r, totalRounds)
+			startChunk := time.Now()
+			log.Printf("🚀 Bắt đầu Download lúc: %v với %d workers", startChunk.Format("15:04:05.000"), *workers)
+			
+			contentLen, durBlockchain, durQUIC, err := DownloadFile(client, privateKey, instanceHttp, fileKey, *workers)
+			if err != nil {
+				log.Printf("❌ Lỗi trong quá trình tải xuống ở round %d: %v", r, err)
+				continue
+			}
+			
+			sentTime := time.Now()
+			totalDuration := sentTime.Sub(startChunk)
+			
+			totalMbps := (float64(contentLen) / (1024 * 1024)) / totalDuration.Seconds()
+			quicMbps := (float64(contentLen) / (1024 * 1024)) / durQUIC.Seconds()
+			sumMbps += totalMbps
+			successRounds++
+			
+			// Format giống hệt Upload
+			logMsg := fmt.Sprintf("[Download] [Round %d/%d] 📥 Download hoàn tất. Tổng thời gian: %vs (mất %vs cho Blockchain, %vs cho chunk download). Tốc độ tổng: %.2f MB/s (Tốc độ kéo chunks: %.2f MB/s)",
+				r, totalRounds, totalDuration.Seconds(), durBlockchain.Seconds(), durQUIC.Seconds(), totalMbps, quicMbps)
+			
+			fmt.Println("\n" + logMsg)
+			
+			downLogger, _ := loggerfile.NewFileLogger("DownloadBenchmark.log")
+			downLogger.Info(logMsg)
 		}
-		sentTime := time.Now()
-		log.Printf("✅ Download hoàn tất lúc: %v (mất %s)", sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+		
+		if totalRounds > 1 && successRounds > 0 {
+			avgMbps := sumMbps / float64(successRounds)
+			fmt.Printf("\n📊 KẾT QUẢ BENCHMARK DOWNLOAD (%d rounds)\n", successRounds)
+			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			fmt.Printf("⚡ Tốc độ TỔNG trung bình: %.2f MB/s\n", avgMbps)
+			
+			downLogger, _ := loggerfile.NewFileLogger("DownloadBenchmark.log")
+			downLogger.Info("📊 BENCHMARK SUMMARY [Download]: %d rounds, avg=%.2f MB/s", successRounds, avgMbps)
+		}
 		return
 	}
 
 	// --- CHẾ ĐỘ UPLOAD ---
+	fmt.Printf("\n🚀 Bắt đầu UPLOAD với %d workers (mode: %s)\n", *workers, *mode)
 	go func(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instanceHttp *contract.FileContract, fromAddress common.Address) {
 		upLogger, _ := loggerfile.NewFileLogger("UploadFile.log")
 		totalRounds := *rounds
@@ -249,7 +304,13 @@ func main() {
 		var tcpClient *client_tcp.Client
 		var tcpCfg *tcp_config.ClientConfig
 		var contractABI *abi.ABI
-		if *useTCP {
+		var err error
+		contractABI, err = contract.FileContractMetaData.GetAbi()
+		if err != nil {
+			log.Fatalf("Failed to get contract ABI: %v", err)
+		}
+
+		if *mode == "tcp" {
 			tcpCfg = &tcp_config.ClientConfig{
 				ParentConnectionAddress: config.TcpUrl,
 				PrivateKey_:             config.PrivateKeyBLS,
@@ -257,14 +318,9 @@ func main() {
 				ChainId:                 uint64(config.ChainId),
 				ParentAddress:           fromAddress.Hex(),
 			}
-			var err error
 			tcpClient, err = client_tcp.NewClient(tcpCfg)
 			if err != nil {
 				log.Fatalf("Lỗi kết nối TCP: %v", err)
-			}
-			contractABI, err = contract.FileContractMetaData.GetAbi()
-			if err != nil {
-				log.Fatalf("Failed to get contract ABI: %v", err)
 			}
 		}
 
@@ -275,35 +331,38 @@ func main() {
 				fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 			}
 			startChunk := time.Now()
-			log.Printf("🚀  Bắt đầu UploadChunk lúc: %v (TCP: %v)", startChunk.Format("15:04:05.000"), *useTCP)
-			fileKey, _, contentLen := uploadFile(client, privateKey, instanceHttp, fromAddress, *useTCP, *workers, tcpClient, tcpCfg, contractABI)
+			log.Printf("🚀  Bắt đầu UploadChunk lúc: %v (Mode: %v)", startChunk.Format("15:04:05.000"), *mode)
+			fileKey, _, contentLen, chunkUploadDuration := uploadFile(client, clientHttp, privateKey, instanceHttp, fromAddress, *mode, *workers, tcpClient, tcpCfg, contractABI)
 
 			listener.UploadStartTimes.Store(fileKey, startChunk)
 
 			sentTime := time.Now()
 			listener.UploadEndTimes.Store(fileKey, sentTime)
 
-			elapsedSecs := sentTime.Sub(startChunk).Seconds()
-			mbps := (float64(contentLen) / (1024 * 1024)) / elapsedSecs
+			totalElapsedSecs := sentTime.Sub(startChunk).Seconds()
+			mbps := (float64(contentLen) / (1024 * 1024)) / totalElapsedSecs
+			
+			chunkUploadSecs := chunkUploadDuration.Seconds()
+			chunkUploadMbps := (float64(contentLen) / (1024 * 1024)) / chunkUploadSecs
+
 			totalMbps += mbps
 			successRounds++
 
-			upLogger.Info("[Round %d/%d] 📤 UploadChunk gửi xong lúc: %v (mất %s). Speed: %.2f MB/s",
-				round, totalRounds, sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk), mbps)
+			upLogger.Info("[%s] [Round %d/%d] 📤 Upload hoàn tất. Tổng thời gian: %v (mất %v cho PushFileInfo, %v cho chunk upload). Tốc độ tổng: %.2f MB/s (Tốc độ đẩy chunks: %.2f MB/s)",
+				*mode, round, totalRounds, sentTime.Sub(startChunk), sentTime.Sub(startChunk)-chunkUploadDuration, chunkUploadDuration, mbps, chunkUploadMbps)
 
 			fmt.Println("\n🎉🎉🎉 QUÁ TRÌNH TẢI TỆP LÊN HOÀN TẤT! 🎉🎉🎉")
 			fmt.Printf("🔑 FileKey để tải xuống: %x\n", fileKey)
-			fmt.Printf("🚀 [Round %d] Tốc độ Upload: %.2f MB/s (kích thước: %.2f MB, thời gian: %.2f s)\n",
-				round, mbps, float64(contentLen)/(1024*1024), elapsedSecs)
+			fmt.Printf("🚀 [%s] [Round %d] Tốc độ Upload TỔNG CỘNG: %.2f MB/s (kích thước: %.2f MB, tổng thời gian: %.2f s)\n",
+				*mode, round, mbps, float64(contentLen)/(1024*1024), totalElapsedSecs)
 		}
 
 		if totalRounds > 1 && successRounds > 0 {
 			avgMbps := totalMbps / float64(successRounds)
-			fmt.Printf("\n📊 KẾT QUẢ BENCHMARK (%d rounds)\n", successRounds)
+			fmt.Printf("\n📊 KẾT QUẢ BENCHMARK (%d rounds) - Mode: %s\n", successRounds, *mode)
 			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-			fmt.Printf("⚡ Tốc độ trung bình: %.2f MB/s\n", avgMbps)
-			fmt.Printf("⚡ Tốc độ cao nhất:   %.2f MB/s\n", totalMbps) // simplified
-			upLogger.Info("📊 BENCHMARK SUMMARY: %d rounds, avg=%.2f MB/s", successRounds, avgMbps)
+			fmt.Printf("⚡ Tốc độ TỔNG trung bình: %.2f MB/s\n", avgMbps)
+			upLogger.Info("📊 BENCHMARK SUMMARY [%s]: %d rounds, avg=%.2f MB/s", *mode, successRounds, avgMbps)
 		}
 	}(client, privateKey, instanceHttp, fromAddress)
 
@@ -436,7 +495,7 @@ func uploadFileGetInputData(client *ethclient.Client, privateKey *ecdsa.PrivateK
 	return fileKey, fileName
 }
 
-func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fromAddress common.Address, useTCP bool, numWorkers int, tcpClient *client_tcp.Client, tcpCfg *tcp_config.ClientConfig, contractABI *abi.ABI) ([32]byte, string, uint64) {
+func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fromAddress common.Address, mode string, numWorkers int, tcpClient *client_tcp.Client, tcpCfg *tcp_config.ClientConfig, contractABI *abi.ABI) ([32]byte, string, uint64, time.Duration) {
 	fileData, err := os.ReadFile(config.FilePath)
 	if err != nil {
 		log.Fatalf("Failed to read file: %v", err)
@@ -525,6 +584,8 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 	var wg sync.WaitGroup
 	auth.Value = big.NewInt(0) // Chỉ cần thanh toán một lần ban đầu
 
+	chunkUploadStartTime := time.Now()
+
 	for i := uint64(0); i < totalChunks; i++ {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -542,25 +603,67 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 			// Tạo Merkle Proof
 			proofBytes := getMerkleProofPadded(paddedLeaves, int(i))
 
-			var inputData []byte
-			if useTCP {
-				var err error
-				inputData, err = contractABI.Pack("uploadChunk", fileKey, chunk, big.NewInt(int64(i)), proofBytes)
-				if err != nil {
-					log.Printf("❌ Failed to encode chunk %d: %v", i, err)
-					countErr++
-					return
-				}
+			inputData, err := contractABI.Pack("uploadChunk", fileKey, chunk, big.NewInt(int64(i)), proofBytes)
+			if err != nil {
+				log.Printf("❌ Failed to encode chunk %d: %v", i, err)
+				countErr++
+				return
 			}
 
 			// --- Bước 2: Logic Thử lại (Retry) ---
 			const maxRetries = 3               // Thử lại tối đa 3 lần
 			const retryDelay = 1 * time.Second // Chờ 3 giây giữa các lần thử
-			var err error
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				startChunk := time.Now()
 
-				if useTCP {
+				switch mode {
+				case "http-bls":
+					logger.Info("🚀 [Chunk %d -k %s] up (HTTP BLS)...", i, hex.EncodeToString(fileKey[:]))
+					callData := mt_transaction.NewCallData(inputData)
+					payload, err := callData.Marshal()
+					if err != nil {
+						log.Printf("❌ Failed to marshal calldata for chunk %d: %v", i, err)
+						countErr++
+						return
+					}
+					tx := mt_transaction.NewTransactionWithoutNonce(
+						fromAddress,
+						common.HexToAddress(config.ContractAddressHex),
+						big.NewInt(0),
+						5_000_000,
+						20_000_000_000,
+						uint64(time.Now().Unix()+300),
+						payload,
+						[][]byte{},
+						common.Hash{},
+						common.Hash{},
+						uint64(config.ChainId),
+					)
+					blsPrivBytes, _ := hex.DecodeString(strings.TrimPrefix(config.PrivateKeyBLS, "0x"))
+					tx.SetSign(mt_common.PrivateKeyFromBytes(blsPrivBytes))
+
+					txWithDeviceKey := &pb.TransactionWithDeviceKey{
+						Transaction: tx.Proto().(*pb.Transaction),
+						DeviceKey:   []byte{},
+					}
+					bTx, errMarshal := proto.Marshal(txWithDeviceKey)
+					if errMarshal != nil {
+						log.Printf("❌ Failed to marshal tx: %v", errMarshal)
+						return
+					}
+
+					var txHashStr string
+					errTCP := clientHttp.Client().CallContext(context.Background(), &txHashStr, "mtn_sendRawTransactionWithDeviceKey", hexutil.Bytes(bTx))
+					if errTCP == nil {
+						txHash := common.HexToHash(txHashStr)
+						sentTime := time.Now()
+						logger.Info("📤 [Chunk %d -k %s] up xong HTTP BLS: tx=%s (mất %s để gửi)",
+							i, hex.EncodeToString(fileKey[:]), txHash.Hex(), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+						return
+					}
+					err = errTCP
+
+				case "tcp":
 					logger.Info("🚀 [Chunk %d -k %s] up (TCP)...", i, hex.EncodeToString(fileKey[:]))
 					txHash, errTCP := tx_helper.SendTransactionAsync(
 						"uploadChunk",
@@ -574,49 +677,25 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 							MaxGasPrice: 20_000_000_000,
 						},
 					)
-					err = errTCP
-					if err == nil {
+					if errTCP == nil {
 						sentTime := time.Now()
 						logger.Info("📤 [Chunk %d -k %s] up xong TCP: tx=%s (mất %s để gửi)",
 							i, hex.EncodeToString(fileKey[:]), txHash.Hex(), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
 						return
 					}
-					// tcpReceipt, errTCP := tx_helper.SendTransaction(
-					// 	"uploadChunk",
-					// 	tcpClient,
-					// 	tcpCfg,
-					// 	common.HexToAddress(config.ContractAddressHex),
-					// 	fromAddress,
-					// 	inputData,
-					// 	&tx_models.TxOptions{
-					// 		MaxGas:      5_000_000,
-					// 		MaxGasPrice: 20_000_000_000,
-					// 	},
-					// )
-					// err = errTCP
-					// if err == nil && tcpReceipt != nil {
-					// 	status := tcpReceipt.Status()
-					// 	if status == pb.RECEIPT_STATUS_RETURNED || status == pb.RECEIPT_STATUS_HALTED {
-					// 		sentTime := time.Now()
-					// 		logger.Info("📤 [Chunk %d -k %s] up xong TCP: (mất %s để gửi)",
-					// 			i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
-					// 		return
-					// 	} else {
-					// 		err = fmt.Errorf("TCP Tx Failed with status: %s", status.String())
-					// 	}
-					// }
-				} else {
-					logger.Info("🚀 [Chunk %d -k %s] up...", i, hex.EncodeToString(fileKey[:]))
+					err = errTCP
+
+				default: // "http"
+					logger.Info("🚀 [Chunk %d -k %s] up (HTTP)...", i, hex.EncodeToString(fileKey[:]))
 					var txRPC *types.Transaction
 					txRPC, err = instance.UploadChunk(auth, fileKey, chunk, big.NewInt(int64(i)), proofBytes)
 					if err == nil {
 						// THÀNH CÔNG
 						sentTime := time.Now()
-						if txRPC == nil {
-							logger.Info("📤 [Chunk %d -k %s -v %v] ", i, hex.EncodeToString(fileKey[:]), txRPC)
+						if txRPC != nil {
+							logger.Info("📤 [Chunk %d -k %s] up xong HTTP: tx=%s (mất %s để gửi)",
+								i, hex.EncodeToString(fileKey[:]), txRPC.Hash().Hex(), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
 						}
-						logger.Info("📤 [Chunk %d -k %s] up xong: (mất %s để gửi)",
-							i, hex.EncodeToString(fileKey[:]), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
 						return // Thoát khỏi goroutine (thành công)
 					}
 				}
@@ -637,41 +716,56 @@ func uploadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance
 		}(i)
 	}
 	wg.Wait()
+	chunkUploadDuration := time.Since(chunkUploadStartTime)
 	fmt.Printf("✅ File upload completed! với %d lỗi\n", countErr)
-	return fileKey, fileName, contentLen
+	return fileKey, fileName, contentLen, chunkUploadDuration
 }
 
-// DownloadFile là một hàm độc lập để tải tệp bằng fileKey của nó.
-func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fileKey [32]byte) error {
+// DownloadFile là một hàm độc lập để tải tệp bằng fileKey của nó. Trả về: kích thước tệp, thời gian Blockchain, thời gian QUIC download, lỗi.
+func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fileKey [32]byte, workers int) (uint64, time.Duration, time.Duration, error) {
 	fileKeyHex := hex.EncodeToString(fileKey[:])
+	
+	// Khởi tạo logger để lưu kết quả ra file DownloadBenchmark.log
+	downLogger, _ := loggerfile.NewFileLogger("DownloadBenchmark.log")
+	downLogger.Info("========================================")
+	downLogger.Info("🚀 Bắt đầu quá trình tải tệp với FileKey: %s | Workers: %d", fileKeyHex, workers)
 	fmt.Printf("\nBắt đầu quá trình tải tệp với FileKey: %s\n", fileKeyHex)
 
 	// --- Bước 1: Lấy thông tin tệp từ Blockchain ---
 	fmt.Println("\nBước 1: Đang lấy thông tin tệp (GetFileInfo)...")
+	tGetInfo := time.Now()
 	fileInfo, err := instance.GetFileInfo(&bind.CallOpts{}, fileKey)
 	if err != nil {
-		return fmt.Errorf("lỗi lấy thông tin tệp: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi lấy thông tin tệp: %v", err)
 	}
 	if fileInfo.ContentLen == 0 {
-		return fmt.Errorf("không tìm thấy thông tin cho FileKey này hoặc tệp không có nội dung")
+		return 0, 0, 0, fmt.Errorf("không tìm thấy thông tin cho FileKey này hoặc tệp không có nội dung")
 	}
-	fmt.Printf("--- Thông tin tệp từ Blockchain ---\n  Tên: %s\n  Kích thước: %d bytes\n  Hash (SHA256): %x\n  Tổng số chunk: %d\n",
+	durGetInfo := time.Since(tGetInfo)
+	msgInfo := fmt.Sprintf("--- Thông tin tệp từ Blockchain ---\n  Tên: %s\n  Kích thước: %d bytes\n  Hash (SHA256): %x\n  Tổng số chunk: %d\n",
 		fileInfo.Name, fileInfo.ContentLen, fileInfo.MerkleRoot, fileInfo.TotalChunks)
+	fmt.Print(msgInfo)
+	downLogger.Info(msgInfo)
+	
+	msgGetInfoTime := fmt.Sprintf("⏱️ Thời gian lấy GetFileInfo: %v", durGetInfo)
+	fmt.Println(msgGetInfoTime)
+	downLogger.Info(msgGetInfoTime)
 
 	// --- Bước 2: Thanh toán và lấy DownloadKey ---
 	fmt.Println("\nBước 2: Đang thanh toán để tải xuống và lấy DownloadKey...")
+	tPay := time.Now()
 	chainID, err := client.ChainID(context.Background())
 	if err != nil {
-		return fmt.Errorf("lỗi lấy chain ID: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi lấy chain ID: %v", err)
 	}
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
-		return fmt.Errorf("lỗi tạo transactor: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi tạo transactor: %v", err)
 	}
 
 	requiredPayment, err := instance.CalculatePrice(&bind.CallOpts{}, big.NewInt(int64(fileInfo.TotalChunks)))
 	if err != nil {
-		return fmt.Errorf("lỗi tính toán giá: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi tính toán giá: %v", err)
 	}
 	fmt.Printf("Yêu cầu thanh toán để tải xuống: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e18)
 
@@ -681,16 +775,16 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 
 	tx, err := instance.PayForDownload(auth, fileKey, big.NewInt(1))
 	if err != nil {
-		return fmt.Errorf("lỗi thanh toán cho việc tải tệp: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi thanh toán cho việc tải tệp: %v", err)
 	}
 	fmt.Printf("Giao dịch thanh toán đã được gửi: %s. Đang chờ khai thác...\n", tx.Hash().Hex())
 
 	receipt, err := bind.WaitMined(context.Background(), client, tx)
 	if err != nil {
-		return fmt.Errorf("lỗi chờ giao dịch được khai thác: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi chờ giao dịch được khai thác: %v", err)
 	}
 	if receipt.Status != 1 {
-		return fmt.Errorf("giao dịch thanh toán thất bại. Trạng thái: %d", receipt.Status)
+		return 0, 0, 0, fmt.Errorf("giao dịch thanh toán thất bại. Trạng thái: %d", receipt.Status)
 	}
 
 	var downloadKey [32]byte
@@ -704,8 +798,12 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 		}
 	}
 	if !foundEvent {
-		return fmt.Errorf("không thể tìm thấy sự kiện DownloadKeyGenerated trong biên lai giao dịch")
+		return 0, 0, 0, fmt.Errorf("không thể tìm thấy sự kiện DownloadKeyGenerated trong biên lai giao dịch")
 	}
+	durPay := time.Since(tPay)
+	msgPay := fmt.Sprintf("⏱️ Thời gian PayForDownload (tạo tx + chờ khai thác + lấy key): %v", durPay)
+	fmt.Println(msgPay)
+	downLogger.Info(msgPay)
 
 	// hexStr := "850721e32817d473052c1ba7a5e249379dbd3ace4f5ab82fa95373249351dc4c"
 	// bytes, err := hex.DecodeString(hexStr)
@@ -725,71 +823,102 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 
 	// --- Bước 3: Tải xuống các chunk từ Rust servers ---
 	fmt.Println("\nBước 3: Đang tải xuống các chunk từ Rust servers...")
+	tDownload := time.Now()
 	var wg sync.WaitGroup
+	// Chuẩn bị file đích trước để ghi trực tiếp (Zero-copy, O(1) RAM)
+	outputFileName := config.OutputFile
+	outputDir := filepath.Dir(outputFileName)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return 0, 0, 0, fmt.Errorf("lỗi tạo thư mục đầu ra '%s': %v", outputDir, err)
+	}
+	outFile, err := os.OpenFile(outputFileName, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("lỗi tạo file đầu ra: %v", err)
+	}
+	defer outFile.Close()
+	outFile.Truncate(int64(fileInfo.ContentLen)) // Cấp phát cứng ổ đĩa trước
+
+	var downloadedCount uint64
 	var mu sync.Mutex
 
-	downloadedChunks := make(map[uint64][]byte, fileInfo.TotalChunks)
 	conn1, err := processor.CreateQuicConnection(processor.RUST_SERVER_1_ADDR_QUIC)
 	if err != nil {
-		return fmt.Errorf("lỗi tạo kết nối QUIC đến server 1: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi tạo kết nối QUIC đến server 1: %v", err)
 	}
 	conn2, err := processor.CreateQuicConnection(processor.RUST_SERVER_2_ADDR_QUIC)
 	if err != nil {
-		return fmt.Errorf("lỗi tạo kết nối QUIC đến server 2: %v", err)
+		return 0, 0, 0, fmt.Errorf("lỗi tạo kết nối QUIC đến server 2: %v", err)
 	}
+	// Ký tin nhắn MỘT LẦN duy nhất thay vì ký 2000 lần
+	sign, err := listener.SignMessage(privateKey, downloadKeyHex)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("lỗi ký thông điệp tải xuống: %v", err)
+	}
+
+	// Giới hạn số lượng worker tải đồng thời (theo tham số -workers)
+	if workers <= 0 {
+		workers = 50 // fallback default
+	}
+	sem := make(chan struct{}, workers)
+
 	for i := uint64(0); i < fileInfo.TotalChunks; i++ {
 		wg.Add(1)
+		sem <- struct{}{} // Giới hạn worker
 		go func(i uint64) {
 			defer wg.Done()
-			sign, err := listener.SignMessage(privateKey, downloadKeyHex)
-			if err != nil {
-				log.Printf("Lỗi ký cho chunk %d: %v", i, err)
-				return // ✅ chỉ return trống
-			}
+			defer func() { <-sem }()
+
 			var conn quic.Connection
 			if int(i)%2 == 0 {
-				// pool = server1Pool
 				conn = conn1
 			} else {
-				// pool = server2Pool
 				conn = conn2
 			}
-			// Mượn 1 kết nối từ pool
 			chunkData, err := processor.RequestChunkFromRustServerQuic(conn, fileKeyHex, downloadKeyHex, int(i), sign)
 			if err != nil {
 				log.Printf("Lỗi tải chunk %d: %v", i, err)
 				return // ✅ chỉ return trống
 			}
-			// pool <- conn
+			offset := int64(i * config.ChunkSize)
+			_, err = outFile.WriteAt(chunkData, offset)
+			if err != nil {
+				log.Printf("Lỗi ghi chunk %d ra ổ đĩa: %v", i, err)
+				return
+			}
+			
 			mu.Lock()
-			downloadedChunks[i] = chunkData
+			downloadedCount++
 			mu.Unlock()
 
-			fmt.Printf("  ✅ Đã tải xong chunk %d.\n", i)
+			fmt.Printf("  ✅ Đã tải và ghi xong chunk %d.\n", i)
 		}(i)
 	}
 	wg.Wait()
+	
+	durDownload := time.Since(tDownload)
+	mbps := (float64(fileInfo.ContentLen) / 1024 / 1024) / durDownload.Seconds()
+	msgDownload := fmt.Sprintf("⏱️ Thời gian tải xuống song song %d chunks mạng QUIC: %v (Tốc độ mạng: %.2f MB/s)", fileInfo.TotalChunks, durDownload, mbps)
+	fmt.Println(msgDownload)
+	downLogger.Info(msgDownload)
 
-	if uint64(len(downloadedChunks)) != fileInfo.TotalChunks {
-		return fmt.Errorf("tải tệp thất bại. Chỉ tải được %d/%d chunks", len(downloadedChunks), fileInfo.TotalChunks)
+	if downloadedCount != fileInfo.TotalChunks {
+		errStr := fmt.Sprintf("tải tệp thất bại. Chỉ tải được %d/%d chunks", downloadedCount, fileInfo.TotalChunks)
+		downLogger.Info(errStr)
+		return 0, 0, 0, fmt.Errorf(errStr)
 	}
 
-	// --- Bước 4: Ghép các chunk và lưu tệp ---
-	fmt.Println("\nBước 4: Đang ghép các chunk và lưu tệp...")
-	var downloadedData []byte
-	for i := uint64(0); i < fileInfo.TotalChunks; i++ {
-		downloadedData = append(downloadedData, downloadedChunks[i]...)
-	}
+	// --- Bước 4: Đồng bộ đĩa ---
+	fmt.Println("\nBước 4: Đang đồng bộ đĩa (fsync)...")
+	tMerge := time.Now()
+	outFile.Sync() // fsync ổ đĩa
 
-	outputFileName := config.OutputFile
-	outputDir := filepath.Dir(outputFileName)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("lỗi tạo thư mục đầu ra '%s': %v", outputDir, err)
-	}
-	err = os.WriteFile(outputFileName, downloadedData, 0644)
-	if err != nil {
-		return fmt.Errorf("lỗi ghi tệp đã tải xuống '%s': %v", outputFileName, err)
-	}
-	fmt.Printf("\n🎉 Tệp đã được lưu thành công với tên '%s'\n", outputFileName)
-	return nil
+	durMerge := time.Since(tMerge)
+	msgMerge := fmt.Sprintf("⏱️ Thời gian ghép chunk và ghi đĩa: %v", durMerge)
+	fmt.Println(msgMerge)
+	downLogger.Info(msgMerge)
+	
+	msgSuccess := fmt.Sprintf("🎉 Tệp đã được lưu thành công với tên '%s'", outputFileName)
+	fmt.Println("\n" + msgSuccess)
+	// downLogger.Info(msgSuccess) -> Không cần vì ta đã gộp log ở trên main()
+	return fileInfo.ContentLen, (durGetInfo + durPay), durDownload, nil
 }

@@ -1,0 +1,10 @@
+#include <xapian.h>
+#include <iostream>
+
+int main() {
+    Xapian::Query q1 = Xapian::Query::MatchAll;
+    Xapian::Query q2(std::string(""));
+    std::cout << "q1: " << q1.get_description() << std::endl;
+    std::cout << "q2: " << q2.get_description() << std::endl;
+    return 0;
+}
