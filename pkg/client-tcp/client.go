@@ -1322,8 +1322,8 @@ func (client *Client) SendTransactionWithDeviceKeyAsync(
 		for i, v := range relatedAddress {
 			bRelatedAddresses[i] = v.Bytes()
 		}
-		// Gửi giao dịch với device key
-		tx, err := client.transactionController.SendTransactionWithDeviceKey(
+		// Sử dụng client.SendTransactionWithDeviceKeySync vừa được tạo trong client_chain.go
+		txHash, err := client.SendTransactionWithDeviceKeySync(
 			fromAddress,
 			toAddress,
 			pendingBalance,
@@ -1343,7 +1343,7 @@ func (client *Client) SendTransactionWithDeviceKeyAsync(
 			return common.Hash{}, err
 		}
 
-		return tx.Hash(), nil
+		return txHash, nil
 	}
 
 	// Nếu kênh accountStateChan bị đóng, trả lỗi

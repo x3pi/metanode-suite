@@ -620,7 +620,8 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 				case "http-bls":
 					logger.Info("🚀 [Chunk %d -k %s] up (HTTP BLS)...", i, hex.EncodeToString(fileKey[:]))
 					callData := mt_transaction.NewCallData(inputData)
-					payload, err := callData.Marshal()
+					var payload []byte
+					payload, err = callData.Marshal()
 					if err != nil {
 						log.Printf("❌ Failed to marshal calldata for chunk %d: %v", i, err)
 						countErr++

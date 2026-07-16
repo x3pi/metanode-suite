@@ -104,47 +104,59 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
 
     try {
       // Tải song song (Concurrency limit để tránh quá tải)
+      // Dùng Worker Pool thực thụ (Xoay vòng liên tục) thay vì Batching
       const CONCURRENCY_LIMIT = 20;
-      for (let i = 0; i < totalChunks; i += CONCURRENCY_LIMIT) {
-        const batch = [];
-        for (let j = 0; j < CONCURRENCY_LIMIT && i + j < totalChunks; j++) {
-          const chunkIndex = i + j;
+      let currentIndex = 0;
+      const chunksData = new Array<ArrayBuffer>(totalChunks); // Khởi tạo mảng tĩnh
+      let hasError = false; // Cờ báo lỗi để dừng các worker khác
+
+      // Định nghĩa 1 Worker
+      const worker = async () => {
+        while (currentIndex < totalChunks && !hasError) {
+          const chunkIndex = currentIndex++; // Lấy task tiếp theo và tăng biến đếm ngay lập tức
           const transport = chunkIndex % 2 === 0 ? t1 : t2;
+          
+          let lastError: any;
+          const MAX_RETRIES = 3;
+          let success = false;
 
-          batch.push((async () => {
-            let lastError: any;
-            const MAX_RETRIES = 3;
-
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-              try {
-                // transport được lấy dựa theo chunkIndex (t1 hoặc t2)
-                const result = await fetchChunkOnStream(transport, downloadKeyStr, chunkIndex, signatureHex);
-                if (!result.ok) {
-                  throw new Error(`Server báo lỗi: ${result.error}`);
-                }
-                return { index: chunkIndex, data: result.data };
-              } catch (err: any) {
-                lastError = err;
-                console.warn(`[Retry ${attempt}/${MAX_RETRIES}] Lỗi tải chunk ${chunkIndex}:`, err);
-
-                if (attempt < MAX_RETRIES) {
-                  // Đợi 1 chút trước khi thử lại (tăng dần thời gian chờ)
-                  await new Promise(res => setTimeout(res, 1000 * attempt));
-                }
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+              const result = await fetchChunkOnStream(transport, downloadKeyStr, chunkIndex, signatureHex);
+              if (!result.ok) throw new Error(`Server báo lỗi: ${result.error}`);
+              
+              // Gán trực tiếp vào mảng theo đúng index (không cần sắp xếp lại)
+              chunksData[chunkIndex] = result.data; 
+              success = true;
+              break;
+            } catch (err: any) {
+              lastError = err;
+              console.warn(`[Retry ${attempt}/${MAX_RETRIES}] Lỗi tải chunk ${chunkIndex}:`, err);
+              if (attempt < MAX_RETRIES) {
+                await new Promise(res => setTimeout(res, 1000 * attempt));
               }
             }
-            throw new Error(`Lỗi tải chunk ${chunkIndex} sau ${MAX_RETRIES} lần thử: ${lastError?.message || String(lastError)}`);
-          })());
-        }
+          }
+          if (!success) {
+             hasError = true;
+             throw new Error(`Lỗi tải chunk ${chunkIndex} sau ${MAX_RETRIES} lần thử: ${lastError?.message || String(lastError)}`);
+          }
 
-        onProgress?.(`Đang tải batch chunk ${i + 1} - ${Math.min(i + CONCURRENCY_LIMIT, totalChunks)}/${totalChunks}...`);
-        const batchResults = await Promise.all(batch);
-
-        // Sắp xếp đúng thứ tự chunk
-        for (const res of batchResults.sort((a, b) => a.index - b.index)) {
-          chunksData.push(res.data);
+          // Cập nhật log 
+          if (chunkIndex % 50 === 0) {
+            onProgress?.(`Đang tải... đã xong ${chunkIndex}/${totalChunks} chunks`);
+          }
         }
+      };
+
+      // Khởi chạy 20 workers cùng lúc
+      const workers = [];
+      for (let i = 0; i < CONCURRENCY_LIMIT; i++) {
+        workers.push(worker());
       }
+
+      // Đợi tất cả workers cày xong
+      await Promise.all(workers);
     } finally {
       t1.close();
       t2.close();

@@ -1,13 +1,10 @@
-import { createPublicClient, createWalletClient, http, type Address, type Hex, decodeEventLog } from "viem";
+import { createPublicClient, createWalletClient, http, type Address, type Hex, decodeEventLog, bytesToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { contracts, privateKey } from "../constants/contracts";
 import { chain991 } from "../constants/customChain";
 import { buildMerkleTreePadded, getMerkleProofPadded } from "./merkle";
 import type { Abi } from "viem";
-
-const CHUNK_SIZE = 250 * 1024; // 1MB chunks (adjust as needed)
-
-// Create clients
+const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 const publicClient = createPublicClient({
   chain: chain991,
   transport: http(),
@@ -145,14 +142,13 @@ async function uploadChunk(
 
   // Convert merkleProof to bytes32[] format (each proof element must be exactly 32 bytes)
   const merkleProofBytes32 = merkleProof.map((p) => {
-    // Ensure each proof is exactly 32 bytes
     const proof32 = new Uint8Array(32);
     proof32.set(p.slice(0, 32), 0);
-    return `0x${Array.from(proof32).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
+    return bytesToHex(proof32);
   });
 
-  // Convert chunkData to hex string for bytes type
-  const chunkDataHex = `0x${Array.from(chunkData).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
+  // Convert chunkData to hex string for bytes type (Optimized with viem's bytesToHex)
+  const chunkDataHex = bytesToHex(chunkData);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -231,31 +227,40 @@ export async function uploadFile(
     // 4. Push file info
     const fileKey = await pushFileInfo(info, onProgress);
 
-    // 5. Upload chunks in parallel (with concurrency limit)
-    const concurrencyLimit = 50;
-    let currentChunkIndex = 0;
+    // 5. Upload chunks in parallel (with rolling worker pool)
+    const concurrencyLimit = 20;
+    let uploadedCount = 0;
+    let nextChunkIndex = 0;
+    let hasError = false;
 
-    const uploadChunkWithIndex = async (index: number) => {
-      const chunk = chunks[index];
-      const proof = getMerkleProofPadded(paddedLeaves, index);
-      await uploadChunk(fileKey, chunk, index, proof);
-      currentChunkIndex++;
-      onProgress?.({
-        stage: "uploading",
-        fileKey,
-        currentChunk: currentChunkIndex,
-        totalChunks: Number(totalChunks),
-      });
+    const worker = async () => {
+      while (nextChunkIndex < chunks.length && !hasError) {
+        const index = nextChunkIndex++;
+        const chunk = chunks[index];
+        const proof = getMerkleProofPadded(paddedLeaves, index);
+
+        try {
+          await uploadChunk(fileKey, chunk, index, proof);
+          uploadedCount++;
+          // Cập nhật tiến độ sau mỗi chunk hoặc mỗi 10 chunks để tránh re-render quá nhiều
+          onProgress?.({
+            stage: "uploading",
+            fileKey,
+            currentChunk: uploadedCount,
+            totalChunks: Number(totalChunks),
+          });
+        } catch (err) {
+          hasError = true;
+          throw err;
+        }
+      }
     };
 
-    // Process chunks in batches
-    for (let i = 0; i < chunks.length; i += concurrencyLimit) {
-      const batch = chunks.slice(i, i + concurrencyLimit);
-      const batchPromises = batch.map((_, batchIndex) =>
-        uploadChunkWithIndex(i + batchIndex)
-      );
-      await Promise.all(batchPromises);
+    const workers = [];
+    for (let i = 0; i < concurrencyLimit; i++) {
+      workers.push(worker());
     }
+    await Promise.all(workers);
 
     const endTime = Date.now();
     console.log(`⏱️ Tổng thời gian upload: ${((endTime - startTime) / 1000).toFixed(2)}s`);

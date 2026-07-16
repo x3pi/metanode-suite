@@ -3,6 +3,7 @@ package client
 import (
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -202,4 +203,68 @@ func (client *Client) ChainGetLogs(
 		return nil, fmt.Errorf("server error: %s", response.Error)
 	}
 	return response, nil
+}
+
+// SendTransactionWithDeviceKeySync gửi giao dịch và đợi TransactionSuccess.
+func (client *Client) SendTransactionWithDeviceKeySync(
+	fromAddress common.Address,
+	toAddress common.Address,
+	pendingUse *big.Int,
+	amount *big.Int,
+	maxGas uint64,
+	maxGasPrice uint64,
+	maxTimeUse uint64,
+	data []byte,
+	relatedAddress [][]byte,
+	lastDeviceKey common.Hash,
+	newDeviceKey common.Hash,
+	nonce uint64,
+	deviceKey []byte,
+	chainId uint64,
+) (common.Hash, error) {
+	transaction := mt_transaction.NewTransaction(
+		fromAddress,
+		toAddress,
+		amount,
+		maxGas,
+		maxGasPrice,
+		maxTimeUse,
+		data,
+		relatedAddress,
+		lastDeviceKey,
+		newDeviceKey,
+		nonce,
+		chainId,
+	)
+	transaction.SetSign(client.clientContext.KeyPair.PrivateKey())
+
+	transactionWithDeviceKey := &pb.TransactionWithDeviceKey{
+		Transaction: transaction.Proto().(*pb.Transaction),
+		DeviceKey:   deviceKey,
+	}
+
+	bTransactionWithDeviceKey, err := proto.Marshal(transactionWithDeviceKey)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to marshal TransactionWithDeviceKey: %w", err)
+	}
+
+	respMsg, err := client.sendChainRequest(command.SendTransactionWithDeviceKey, bTransactionWithDeviceKey, 300*time.Second)
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	cmd := respMsg.Command()
+	if cmd == command.TransactionError {
+		txErr := &mt_transaction.TransactionHashWithError{}
+		if err := txErr.Unmarshal(respMsg.Body()); err != nil {
+			return common.Hash{}, fmt.Errorf("failed to unmarshal transaction error: %w", err)
+		}
+		return common.Hash{}, fmt.Errorf("transaction error: %s", txErr.Proto().Description)
+	}
+
+	if cmd == command.TransactionSuccess {
+		return transaction.Hash(), nil
+	}
+
+	return common.Hash{}, fmt.Errorf("unexpected command: %s", cmd)
 }
