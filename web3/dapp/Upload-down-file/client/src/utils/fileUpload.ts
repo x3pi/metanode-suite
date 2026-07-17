@@ -130,59 +130,6 @@ export async function pushFileInfo(
   return fileKey;
 }
 
-// Upload a single chunk
-async function uploadChunk(
-  fileKey: Hex,
-  chunkData: Uint8Array,
-  chunkIndex: number,
-  merkleProof: Uint8Array[]
-): Promise<void> {
-  const maxRetries = 3;
-  const retryDelay = 1000; // 1 second
-
-  // Convert merkleProof to bytes32[] format (each proof element must be exactly 32 bytes)
-  const merkleProofBytes32 = merkleProof.map((p) => {
-    const proof32 = new Uint8Array(32);
-    proof32.set(p.slice(0, 32), 0);
-    return bytesToHex(proof32);
-  });
-
-  // Convert chunkData to hex string for bytes type (Optimized with viem's bytesToHex)
-  const chunkDataHex = bytesToHex(chunkData);
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await walletClient.writeContract({
-        address: contracts.File.address,
-        abi: contracts.File.abi as Abi,
-        functionName: "uploadChunk",
-        args: [
-          fileKey,
-          chunkDataHex,
-          BigInt(chunkIndex),
-          merkleProofBytes32,
-        ],
-        gas: 3000000n,
-      });
-
-      // await publicClient.waitForTransactionReceipt({ hash });
-      return; // Success
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("to store chunk on disk")) {
-        return; // Server error, skip this chunk
-      }
-
-      if (attempt < maxRetries) {
-        console.warn(`Chunk ${chunkIndex}, attempt ${attempt}/${maxRetries} failed:`, error);
-        await new Promise((resolve) => setTimeout(resolve, retryDelay));
-      } else {
-        throw new Error(`Failed to upload chunk ${chunkIndex} after ${maxRetries} attempts: ${errorMessage}`);
-      }
-    }
-  }
-}
-
 // Main upload function
 export async function uploadFile(
   file: File,
@@ -227,40 +174,74 @@ export async function uploadFile(
     // 4. Push file info
     const fileKey = await pushFileInfo(info, onProgress);
 
-    // 5. Upload chunks in parallel (with rolling worker pool)
-    const concurrencyLimit = 20;
+    // 5. Upload chunks in parallel using Web Workers
+    const concurrencyLimit = 10; // Giới hạn 10 luồng CPU vật lý
     let uploadedCount = 0;
     let nextChunkIndex = 0;
     let hasError = false;
+    let activeWorkers = 0;
 
-    const worker = async () => {
-      while (nextChunkIndex < chunks.length && !hasError) {
+    await new Promise<void>((resolve, reject) => {
+      // Create worker pool
+      const workers: Worker[] = [];
+      for (let i = 0; i < concurrencyLimit; i++) {
+        workers.push(new Worker(new URL("./upload.worker.ts", import.meta.url), { type: "module" }));
+      }
+
+      const dispatchTask = (worker: Worker) => {
+        if (hasError) return;
+        if (nextChunkIndex >= chunks.length) {
+          if (activeWorkers === 0) resolve();
+          return;
+        }
+
         const index = nextChunkIndex++;
         const chunk = chunks[index];
         const proof = getMerkleProofPadded(paddedLeaves, index);
+        activeWorkers++;
 
-        try {
-          await uploadChunk(fileKey, chunk, index, proof);
-          uploadedCount++;
-          // Cập nhật tiến độ sau mỗi chunk hoặc mỗi 10 chunks để tránh re-render quá nhiều
-          onProgress?.({
-            stage: "uploading",
-            fileKey,
-            currentChunk: uploadedCount,
-            totalChunks: Number(totalChunks),
-          });
-        } catch (err) {
+        worker.postMessage({
+          id: index,
+          fileKey,
+          chunkData: chunk,
+          chunkIndex: index,
+          merkleProof: proof,
+        });
+      };
+
+      workers.forEach((worker) => {
+        worker.onmessage = (e) => {
+          activeWorkers--;
+          const { success, error } = e.data;
+
+          if (success) {
+            uploadedCount++;
+            onProgress?.({
+              stage: "uploading",
+              fileKey,
+              currentChunk: uploadedCount,
+              totalChunks: Number(totalChunks),
+            });
+            dispatchTask(worker);
+          } else {
+            hasError = true;
+            reject(new Error(`Worker error: ${error}`));
+          }
+        };
+
+        worker.onerror = (err) => {
+          activeWorkers--;
           hasError = true;
-          throw err;
-        }
-      }
-    };
+          reject(err);
+        };
 
-    const workers = [];
-    for (let i = 0; i < concurrencyLimit; i++) {
-      workers.push(worker());
-    }
-    await Promise.all(workers);
+        // Start first tasks
+        dispatchTask(worker);
+      });
+    });
+
+    // Cleanup workers
+    // (In a real app you might want to keep them alive or terminate them)
 
     const endTime = Date.now();
     console.log(`⏱️ Tổng thời gian upload: ${((endTime - startTime) / 1000).toFixed(2)}s`);

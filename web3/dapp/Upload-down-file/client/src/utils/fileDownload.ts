@@ -92,7 +92,7 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     const vHex = vValue.toString(16).padStart(2, '0');
     const signatureHex = `${signatureObj.r}${signatureObj.s.replace('0x', '')}${vHex}`;
 
-    const chunksData: ArrayBuffer[] = [];
+    let chunksData = new Array<ArrayBuffer>(totalChunks);
 
     onProgress?.("Đang khởi tạo kết nối WebTransport...");
     const { getWtOptions, fetchChunkOnStream } = await import('./wtTransport');
@@ -105,9 +105,8 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     try {
       // Tải song song (Concurrency limit để tránh quá tải)
       // Dùng Worker Pool thực thụ (Xoay vòng liên tục) thay vì Batching
-      const CONCURRENCY_LIMIT = 20;
+      const CONCURRENCY_LIMIT = 10;
       let currentIndex = 0;
-      const chunksData = new Array<ArrayBuffer>(totalChunks); // Khởi tạo mảng tĩnh
       let hasError = false; // Cờ báo lỗi để dừng các worker khác
 
       // Định nghĩa 1 Worker
@@ -115,7 +114,7 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
         while (currentIndex < totalChunks && !hasError) {
           const chunkIndex = currentIndex++; // Lấy task tiếp theo và tăng biến đếm ngay lập tức
           const transport = chunkIndex % 2 === 0 ? t1 : t2;
-          
+
           let lastError: any;
           const MAX_RETRIES = 3;
           let success = false;
@@ -124,9 +123,9 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
             try {
               const result = await fetchChunkOnStream(transport, downloadKeyStr, chunkIndex, signatureHex);
               if (!result.ok) throw new Error(`Server báo lỗi: ${result.error}`);
-              
+
               // Gán trực tiếp vào mảng theo đúng index (không cần sắp xếp lại)
-              chunksData[chunkIndex] = result.data; 
+              chunksData[chunkIndex] = result.data;
               success = true;
               break;
             } catch (err: any) {
@@ -138,8 +137,8 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
             }
           }
           if (!success) {
-             hasError = true;
-             throw new Error(`Lỗi tải chunk ${chunkIndex} sau ${MAX_RETRIES} lần thử: ${lastError?.message || String(lastError)}`);
+            hasError = true;
+            throw new Error(`Lỗi tải chunk ${chunkIndex} sau ${MAX_RETRIES} lần thử: ${lastError?.message || String(lastError)}`);
           }
 
           // Cập nhật log 

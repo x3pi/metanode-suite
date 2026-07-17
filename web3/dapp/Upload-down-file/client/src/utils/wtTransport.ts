@@ -79,14 +79,12 @@ export async function readResponseFrame(
   }
 
   const payloadLen = new DataView(bytes.buffer).getUint32(0, false);
-  const payload = bytes.slice(4, 4 + payloadLen);
+  if (bytes.length < 4 + payloadLen) return { ok: false, error: "Thiếu dữ liệu" };
 
-  if (payload.length < 2) return { ok: false, error: "Payload quá ngắn để parse JSON header" };
+  const jsonLen = new DataView(bytes.buffer).getUint16(4, false);
+  if (bytes.length < 6 + jsonLen) return { ok: false, error: "JSON header bị cắt cụt" };
 
-  const jsonLen = new DataView(payload.buffer, payload.byteOffset).getUint16(0, false);
-  if (payload.length < 2 + jsonLen) return { ok: false, error: "JSON header bị cắt cụt" };
-
-  const jsonBytes = payload.slice(2, 2 + jsonLen);
+  const jsonBytes = bytes.subarray(6, 6 + jsonLen);
   const jsonStr = new TextDecoder().decode(jsonBytes);
 
   let header: any;
@@ -100,11 +98,10 @@ export async function readResponseFrame(
     return { ok: false, error: header.message || "Unknown server error" };
   }
 
-  // ArrayBuffer cần copy vì slice trả về view trên cùng buffer
-  const rawData = payload.slice(2 + jsonLen).buffer.slice(
-    payload.byteOffset + 2 + jsonLen,
-    payload.byteOffset + payloadLen
-  );
+  // Extract raw chunk directly from the original buffer to avoid multiple copies
+  // payload starts at 4, json header ends at 4 + 2 + jsonLen = 6 + jsonLen
+  // chunk data ends at 4 + payloadLen
+  const rawData = bytes.buffer.slice(bytes.byteOffset + 6 + jsonLen, bytes.byteOffset + 4 + payloadLen);
 
   return { ok: true, id: header.id, command: header.command, data: rawData };
 }
