@@ -2,7 +2,7 @@ import { createPublicClient, createWalletClient, http, type Address, type Hex, d
 import { privateKeyToAccount } from "viem/accounts";
 import { contracts, privateKey } from "../constants/contracts";
 import { chain991 } from "../constants/customChain";
-import { buildMerkleTreePadded, getMerkleProofPadded } from "./merkle";
+import { buildMerkleTreeFromLeaves, getMerkleProofPadded } from "./merkle";
 import type { Abi } from "viem";
 const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 const publicClient = createPublicClient({
@@ -139,20 +139,34 @@ export async function uploadFile(
   try {
     onProgress?.({ stage: "preparing" });
 
-    // 1. Read file and split into chunks
-    const fileData = new Uint8Array(await file.arrayBuffer());
-    const contentLen = BigInt(fileData.length);
-    const totalChunks = BigInt(Math.ceil(fileData.length / CHUNK_SIZE));
+    // 1. Calculate file info
+    const contentLen = BigInt(file.size);
+    const totalChunks = BigInt(Math.ceil(file.size / CHUNK_SIZE));
     console.log("totalChunks", totalChunks);
-    // 2. Build Merkle tree
-    const chunks: Uint8Array[] = [];
-    for (let i = 0; i < totalChunks; i++) {
-      const start = Number(i) * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, fileData.length);
-      chunks.push(fileData.slice(start, end));
-    }
 
-    const { paddedLeaves, merkleRoot } = buildMerkleTreePadded(chunks);
+    // 2. Build Merkle tree using Worker to avoid blocking UI and saving RAM
+    const leaves = await new Promise<Uint8Array[]>((resolve, reject) => {
+      const worker = new Worker(new URL("./merkle.worker.ts", import.meta.url), { type: "module" });
+      worker.onmessage = (e) => {
+        if (e.data.type === "progress") {
+          // Can emit progress for hashing if needed
+          // onProgress?.({ stage: "preparing", currentChunk: e.data.progress, totalChunks: 100 });
+        } else if (e.data.type === "done") {
+          worker.terminate();
+          resolve(e.data.leaves);
+        } else if (e.data.type === "error") {
+          worker.terminate();
+          reject(new Error(e.data.error));
+        }
+      };
+      worker.onerror = (err) => {
+        worker.terminate();
+        reject(err);
+      };
+      worker.postMessage({ file, CHUNK_SIZE });
+    });
+
+    const { paddedLeaves, merkleRoot } = buildMerkleTreeFromLeaves(leaves);
     const merkleRootHex = `0x${Array.from(merkleRoot).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
 
     // 3. Prepare file info
@@ -188,25 +202,37 @@ export async function uploadFile(
         workers.push(new Worker(new URL("./upload.worker.ts", import.meta.url), { type: "module" }));
       }
 
-      const dispatchTask = (worker: Worker) => {
+      const dispatchTask = async (worker: Worker) => {
         if (hasError) return;
-        if (nextChunkIndex >= chunks.length) {
+        if (nextChunkIndex >= Number(totalChunks)) {
           if (activeWorkers === 0) resolve();
           return;
         }
 
         const index = nextChunkIndex++;
-        const chunk = chunks[index];
-        const proof = getMerkleProofPadded(paddedLeaves, index);
         activeWorkers++;
 
-        worker.postMessage({
-          id: index,
-          fileKey,
-          chunkData: chunk,
-          chunkIndex: index,
-          merkleProof: proof,
-        });
+        try {
+          // Read just this chunk into memory lazily
+          const start = index * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, file.size);
+          const chunkBlob = file.slice(start, end);
+          const chunkBuffer = await chunkBlob.arrayBuffer();
+          const chunkData = new Uint8Array(chunkBuffer);
+
+          const proof = getMerkleProofPadded(paddedLeaves, index);
+
+          worker.postMessage({
+            id: index,
+            fileKey,
+            chunkData: chunkData,
+            chunkIndex: index,
+            merkleProof: proof,
+          });
+        } catch (err) {
+          hasError = true;
+          reject(err);
+        }
       };
 
       workers.forEach((worker) => {

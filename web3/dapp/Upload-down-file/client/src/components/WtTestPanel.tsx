@@ -32,12 +32,15 @@ export default function WtTestPanel() {
 
     setLoading(true);
     addLog(`🚀 Bắt đầu tải file: ${key}`);
+    const startTime = Date.now();
 
     try {
       await downloadFileAndSave(key, (msg) => {
         addLog(msg);
       });
-      addLog(`✅ Hoàn tất tải file và lưu xuống máy!`);
+      const endTime = Date.now();
+      const elapsed = ((endTime - startTime) / 1000).toFixed(2);
+      addLog(`✅ Hoàn tất tải file và lưu xuống máy trong ${elapsed} giây!`);
     } catch (err) {
       addLog(`❌ Exception: ${err instanceof Error ? err.message : String(err)}`);
     } finally {

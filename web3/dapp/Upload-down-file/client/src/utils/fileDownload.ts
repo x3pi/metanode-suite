@@ -92,7 +92,30 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     const vHex = vValue.toString(16).padStart(2, '0');
     const signatureHex = `${signatureObj.r}${signatureObj.s.replace('0x', '')}${vHex}`;
 
-    let chunksData = new Array<ArrayBuffer>(totalChunks);
+    const suggestedName = fileInfo.name || `downloaded-${fileKey}`;
+    let fileHandle: any = null;
+    let writable: any = null;
+    let chunksData: ArrayBuffer[] = [];
+    const useFileSystemAccess = 'showSaveFilePicker' in window;
+
+    if (useFileSystemAccess) {
+      try {
+        fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName,
+        });
+        writable = await fileHandle.createWritable();
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          onProgress?.("Đã hủy tải xuống.");
+          return;
+        }
+        console.warn('showSaveFilePicker error, falling back to Blob:', err);
+      }
+    }
+
+    if (!writable) {
+      chunksData = new Array<ArrayBuffer>(totalChunks);
+    }
 
     onProgress?.("Đang khởi tạo kết nối WebTransport...");
     const { getWtOptions, fetchChunkOnStream } = await import('./wtTransport');
@@ -109,6 +132,32 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
       let currentIndex = 0;
       let hasError = false; // Cờ báo lỗi để dừng các worker khác
 
+      // === TẠO HÀNG ĐỢI GHI Ổ CỨNG (Disk Write Queue) ===
+      const writeQueue: { chunkIndex: number; data: ArrayBuffer }[] = [];
+      let isWriting = false;
+      let writerError: any = null;
+
+      const processWriteQueue = async () => {
+        if (isWriting || !writable) return;
+        isWriting = true;
+        try {
+          while (writeQueue.length > 0) {
+            const item = writeQueue.shift();
+            if (!item) break;
+            await writable.write({
+              type: "write",
+              position: item.chunkIndex * 1024 * 1024,
+              data: item.data
+            });
+          }
+        } catch (e) {
+          writerError = e;
+          hasError = true; // Dừng luôn các worker mạng
+        } finally {
+          isWriting = false;
+        }
+      };
+
       // Định nghĩa 1 Worker
       const worker = async () => {
         while (currentIndex < totalChunks && !hasError) {
@@ -124,8 +173,13 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
               const result = await fetchChunkOnStream(transport, downloadKeyStr, chunkIndex, signatureHex);
               if (!result.ok) throw new Error(`Server báo lỗi: ${result.error}`);
 
-              // Gán trực tiếp vào mảng theo đúng index (không cần sắp xếp lại)
-              chunksData[chunkIndex] = result.data;
+              // Xử lý ghi dữ liệu (Không block network)
+              if (writable) {
+                writeQueue.push({ chunkIndex, data: result.data });
+                processWriteQueue(); // Kích hoạt ghi nhưng KHÔNG await
+              } else {
+                chunksData[chunkIndex] = result.data;
+              }
               success = true;
               break;
             } catch (err: any) {
@@ -161,18 +215,23 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
       t2.close();
     }
 
-    onProgress?.("Đang ghép file và lưu xuống máy...");
-    const blob = new Blob(chunksData as BlobPart[]);
-    const url = window.URL.createObjectURL(blob);
+    if (writable) {
+      onProgress?.("Đang đóng tệp (flush xuống đĩa)...");
+      await writable.close();
+    } else {
+      onProgress?.("Đang ghép file và lưu xuống máy...");
+      const blob = new Blob(chunksData as BlobPart[]);
+      const url = window.URL.createObjectURL(blob);
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileInfo.name || `downloaded-${fileKey}`;
-    document.body.appendChild(a);
-    a.click();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileInfo.name || `downloaded-${fileKey}`;
+      document.body.appendChild(a);
+      a.click();
 
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }
 
     const endTime = Date.now();
     console.log(`⏱️ Tổng thời gian download: ${((endTime - startTime) / 1000).toFixed(2)}s`);
