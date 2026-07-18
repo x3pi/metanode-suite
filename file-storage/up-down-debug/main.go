@@ -47,6 +47,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/meta-node-blockchain/meta-node/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
+	"golang.org/x/net/http2"
 )
 
 func calculateNextPowerOfTwo(n int) int {
@@ -185,10 +186,16 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Đảm bảo hàm cancel được gọi khi main thoát
-	client, err := ethclient.Dial(config.RpcUrl)
-	if err != nil {
-		log.Fatalf("Lỗi kết nối đến Ethereum client: %v", err)
+	
+	// Sử dụng rpc.DialOptions để bỏ qua xác minh SSL cho Websocket
+	wsDialer := websocket.Dialer{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
+	rpcWsClient, err := rpc.DialOptions(ctx, config.RpcUrl, rpc.WithWebsocketDialer(wsDialer))
+	if err != nil {
+		log.Fatalf("Lỗi kết nối RPC WebSocket: %v", err)
+	}
+	client := ethclient.NewClient(rpcWsClient)
 	defer client.Close()
 	fmt.Println("✅ Đã kết nối đến Ethereum client.")
 	go startKeepAlive(ctx, client)
@@ -214,14 +221,18 @@ func main() {
 	ls := listener.NewEventListener(instanceWS)
 	ls.Start()
 	// --- Default HTTP Client for testing bottleneck ---
-	// customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	// customTransport.MaxIdleConns = 1000
 	// customTransport.MaxIdleConnsPerHost = 1000
 	// customTransport.MaxConnsPerHost = 1000
 	// customTransport.IdleConnTimeout = 90 * time.Second
 
+	// Bắt buộc kích hoạt HTTP/2 (rất quan trọng khi dùng InsecureSkipVerify)
+	http2.ConfigureTransport(customTransport)
+
 	httpClient := &http.Client{
-		// Transport: customTransport, // Tạm thời dùng DefaultTransport
+		Transport: customTransport,
 		Timeout:   2 * time.Minute,
 	}
 	rpcClient, err := rpc.DialHTTPWithClient(config.HttpUrl, httpClient)
@@ -250,43 +261,43 @@ func main() {
 		totalRounds := *rounds
 		var sumMbps float64
 		var successRounds int
-		
+
 		for r := 1; r <= totalRounds; r++ {
 			fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 			fmt.Printf("🔄 DOWNLOAD ROUND %d / %d\n", r, totalRounds)
 			startChunk := time.Now()
 			log.Printf("🚀 Bắt đầu Download lúc: %v với %d workers", startChunk.Format("15:04:05.000"), *workers)
-			
+
 			contentLen, durBlockchain, durQUIC, err := DownloadFile(client, privateKey, instanceHttp, fileKey, *workers)
 			if err != nil {
 				log.Printf("❌ Lỗi trong quá trình tải xuống ở round %d: %v", r, err)
 				continue
 			}
-			
+
 			sentTime := time.Now()
 			totalDuration := sentTime.Sub(startChunk)
-			
+
 			totalMbps := (float64(contentLen) / (1024 * 1024)) / totalDuration.Seconds()
 			quicMbps := (float64(contentLen) / (1024 * 1024)) / durQUIC.Seconds()
 			sumMbps += totalMbps
 			successRounds++
-			
+
 			// Format giống hệt Upload
 			logMsg := fmt.Sprintf("[Download] [Round %d/%d] 📥 Download hoàn tất. Tổng thời gian: %vs (mất %vs cho Blockchain, %vs cho chunk download). Tốc độ tổng: %.2f MB/s (Tốc độ kéo chunks: %.2f MB/s)",
 				r, totalRounds, totalDuration.Seconds(), durBlockchain.Seconds(), durQUIC.Seconds(), totalMbps, quicMbps)
-			
+
 			fmt.Println("\n" + logMsg)
-			
+
 			downLogger, _ := loggerfile.NewFileLogger("DownloadBenchmark.log")
 			downLogger.Info(logMsg)
 		}
-		
+
 		if totalRounds > 1 && successRounds > 0 {
 			avgMbps := sumMbps / float64(successRounds)
 			fmt.Printf("\n📊 KẾT QUẢ BENCHMARK DOWNLOAD (%d rounds)\n", successRounds)
 			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 			fmt.Printf("⚡ Tốc độ TỔNG trung bình: %.2f MB/s\n", avgMbps)
-			
+
 			downLogger, _ := loggerfile.NewFileLogger("DownloadBenchmark.log")
 			downLogger.Info("📊 BENCHMARK SUMMARY [Download]: %d rounds, avg=%.2f MB/s", successRounds, avgMbps)
 		}
@@ -341,7 +352,7 @@ func main() {
 
 			totalElapsedSecs := sentTime.Sub(startChunk).Seconds()
 			mbps := (float64(contentLen) / (1024 * 1024)) / totalElapsedSecs
-			
+
 			chunkUploadSecs := chunkUploadDuration.Seconds()
 			chunkUploadMbps := (float64(contentLen) / (1024 * 1024)) / chunkUploadSecs
 
@@ -725,7 +736,7 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 // DownloadFile là một hàm độc lập để tải tệp bằng fileKey của nó. Trả về: kích thước tệp, thời gian Blockchain, thời gian QUIC download, lỗi.
 func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fileKey [32]byte, workers int) (uint64, time.Duration, time.Duration, error) {
 	fileKeyHex := hex.EncodeToString(fileKey[:])
-	
+
 	// Khởi tạo logger để lưu kết quả ra file DownloadBenchmark.log
 	downLogger, _ := loggerfile.NewFileLogger("DownloadBenchmark.log")
 	downLogger.Info("========================================")
@@ -747,7 +758,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 		fileInfo.Name, fileInfo.ContentLen, fileInfo.MerkleRoot, fileInfo.TotalChunks)
 	fmt.Print(msgInfo)
 	downLogger.Info(msgInfo)
-	
+
 	msgGetInfoTime := fmt.Sprintf("⏱️ Thời gian lấy GetFileInfo: %v", durGetInfo)
 	fmt.Println(msgGetInfoTime)
 	downLogger.Info(msgGetInfoTime)
@@ -886,7 +897,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 				log.Printf("Lỗi ghi chunk %d ra ổ đĩa: %v", i, err)
 				return
 			}
-			
+
 			mu.Lock()
 			downloadedCount++
 			mu.Unlock()
@@ -895,7 +906,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 		}(i)
 	}
 	wg.Wait()
-	
+
 	durDownload := time.Since(tDownload)
 	mbps := (float64(fileInfo.ContentLen) / 1024 / 1024) / durDownload.Seconds()
 	msgDownload := fmt.Sprintf("⏱️ Thời gian tải xuống song song %d chunks mạng QUIC: %v (Tốc độ mạng: %.2f MB/s)", fileInfo.TotalChunks, durDownload, mbps)
@@ -917,7 +928,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 	msgMerge := fmt.Sprintf("⏱️ Thời gian ghép chunk và ghi đĩa: %v", durMerge)
 	fmt.Println(msgMerge)
 	downLogger.Info(msgMerge)
-	
+
 	msgSuccess := fmt.Sprintf("🎉 Tệp đã được lưu thành công với tên '%s'", outputFileName)
 	fmt.Println("\n" + msgSuccess)
 	// downLogger.Info(msgSuccess) -> Không cần vì ta đã gộp log ở trên main()
