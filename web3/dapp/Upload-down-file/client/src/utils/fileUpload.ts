@@ -1,13 +1,10 @@
-import { createPublicClient, createWalletClient, http, type Address, type Hex, decodeEventLog } from "viem";
+import { createPublicClient, createWalletClient, http, type Address, type Hex, decodeEventLog, bytesToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { contracts, privateKey } from "../constants/contracts";
 import { chain991 } from "../constants/customChain";
-import { buildMerkleTreePadded, getMerkleProofPadded } from "./merkle";
+import { buildMerkleTreeFromLeaves, getMerkleProofPadded } from "./merkle";
 import type { Abi } from "viem";
-
-const CHUNK_SIZE = 250 * 1024; // 1MB chunks (adjust as needed)
-
-// Create clients
+const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 const publicClient = createPublicClient({
   chain: chain991,
   transport: http(),
@@ -133,60 +130,6 @@ export async function pushFileInfo(
   return fileKey;
 }
 
-// Upload a single chunk
-async function uploadChunk(
-  fileKey: Hex,
-  chunkData: Uint8Array,
-  chunkIndex: number,
-  merkleProof: Uint8Array[]
-): Promise<void> {
-  const maxRetries = 3;
-  const retryDelay = 1000; // 1 second
-
-  // Convert merkleProof to bytes32[] format (each proof element must be exactly 32 bytes)
-  const merkleProofBytes32 = merkleProof.map((p) => {
-    // Ensure each proof is exactly 32 bytes
-    const proof32 = new Uint8Array(32);
-    proof32.set(p.slice(0, 32), 0);
-    return `0x${Array.from(proof32).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
-  });
-
-  // Convert chunkData to hex string for bytes type
-  const chunkDataHex = `0x${Array.from(chunkData).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await walletClient.writeContract({
-        address: contracts.File.address,
-        abi: contracts.File.abi as Abi,
-        functionName: "uploadChunk",
-        args: [
-          fileKey,
-          chunkDataHex,
-          BigInt(chunkIndex),
-          merkleProofBytes32,
-        ],
-        gas: 3000000n,
-      });
-
-      // await publicClient.waitForTransactionReceipt({ hash });
-      return; // Success
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("to store chunk on disk")) {
-        return; // Server error, skip this chunk
-      }
-
-      if (attempt < maxRetries) {
-        console.warn(`Chunk ${chunkIndex}, attempt ${attempt}/${maxRetries} failed:`, error);
-        await new Promise((resolve) => setTimeout(resolve, retryDelay));
-      } else {
-        throw new Error(`Failed to upload chunk ${chunkIndex} after ${maxRetries} attempts: ${errorMessage}`);
-      }
-    }
-  }
-}
-
 // Main upload function
 export async function uploadFile(
   file: File,
@@ -196,20 +139,34 @@ export async function uploadFile(
   try {
     onProgress?.({ stage: "preparing" });
 
-    // 1. Read file and split into chunks
-    const fileData = new Uint8Array(await file.arrayBuffer());
-    const contentLen = BigInt(fileData.length);
-    const totalChunks = BigInt(Math.ceil(fileData.length / CHUNK_SIZE));
+    // 1. Calculate file info
+    const contentLen = BigInt(file.size);
+    const totalChunks = BigInt(Math.ceil(file.size / CHUNK_SIZE));
     console.log("totalChunks", totalChunks);
-    // 2. Build Merkle tree
-    const chunks: Uint8Array[] = [];
-    for (let i = 0; i < totalChunks; i++) {
-      const start = Number(i) * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, fileData.length);
-      chunks.push(fileData.slice(start, end));
-    }
 
-    const { paddedLeaves, merkleRoot } = buildMerkleTreePadded(chunks);
+    // 2. Build Merkle tree using Worker to avoid blocking UI and saving RAM
+    const leaves = await new Promise<Uint8Array[]>((resolve, reject) => {
+      const worker = new Worker(new URL("./merkle.worker.ts", import.meta.url), { type: "module" });
+      worker.onmessage = (e) => {
+        if (e.data.type === "progress") {
+          // Can emit progress for hashing if needed
+          // onProgress?.({ stage: "preparing", currentChunk: e.data.progress, totalChunks: 100 });
+        } else if (e.data.type === "done") {
+          worker.terminate();
+          resolve(e.data.leaves);
+        } else if (e.data.type === "error") {
+          worker.terminate();
+          reject(new Error(e.data.error));
+        }
+      };
+      worker.onerror = (err) => {
+        worker.terminate();
+        reject(err);
+      };
+      worker.postMessage({ file, CHUNK_SIZE });
+    });
+
+    const { paddedLeaves, merkleRoot } = buildMerkleTreeFromLeaves(leaves);
     const merkleRootHex = `0x${Array.from(merkleRoot).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
 
     // 3. Prepare file info
@@ -231,31 +188,86 @@ export async function uploadFile(
     // 4. Push file info
     const fileKey = await pushFileInfo(info, onProgress);
 
-    // 5. Upload chunks in parallel (with concurrency limit)
-    const concurrencyLimit = 50;
-    let currentChunkIndex = 0;
+    // 5. Upload chunks in parallel using Web Workers
+    const concurrencyLimit = 10; // Giới hạn 10 luồng CPU vật lý
+    let uploadedCount = 0;
+    let nextChunkIndex = 0;
+    let hasError = false;
+    let activeWorkers = 0;
 
-    const uploadChunkWithIndex = async (index: number) => {
-      const chunk = chunks[index];
-      const proof = getMerkleProofPadded(paddedLeaves, index);
-      await uploadChunk(fileKey, chunk, index, proof);
-      currentChunkIndex++;
-      onProgress?.({
-        stage: "uploading",
-        fileKey,
-        currentChunk: currentChunkIndex,
-        totalChunks: Number(totalChunks),
+    await new Promise<void>((resolve, reject) => {
+      // Create worker pool
+      const workers: Worker[] = [];
+      for (let i = 0; i < concurrencyLimit; i++) {
+        workers.push(new Worker(new URL("./upload.worker.ts", import.meta.url), { type: "module" }));
+      }
+
+      const dispatchTask = async (worker: Worker) => {
+        if (hasError) return;
+        if (nextChunkIndex >= Number(totalChunks)) {
+          if (activeWorkers === 0) resolve();
+          return;
+        }
+
+        const index = nextChunkIndex++;
+        activeWorkers++;
+
+        try {
+          // Read just this chunk into memory lazily
+          const start = index * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, file.size);
+          const chunkBlob = file.slice(start, end);
+          const chunkBuffer = await chunkBlob.arrayBuffer();
+          const chunkData = new Uint8Array(chunkBuffer);
+
+          const proof = getMerkleProofPadded(paddedLeaves, index);
+
+          worker.postMessage({
+            id: index,
+            fileKey,
+            chunkData: chunkData,
+            chunkIndex: index,
+            merkleProof: proof,
+          });
+        } catch (err) {
+          hasError = true;
+          reject(err);
+        }
+      };
+
+      workers.forEach((worker) => {
+        worker.onmessage = (e) => {
+          activeWorkers--;
+          const { success, error } = e.data;
+
+          if (success) {
+            uploadedCount++;
+            onProgress?.({
+              stage: "uploading",
+              fileKey,
+              currentChunk: uploadedCount,
+              totalChunks: Number(totalChunks),
+            });
+            dispatchTask(worker);
+          } else {
+            hasError = true;
+            reject(new Error(`Worker error: ${error}`));
+          }
+        };
+
+        worker.onerror = (err) => {
+          activeWorkers--;
+          hasError = true;
+          reject(err);
+        };
+
+        // Start first tasks
+        dispatchTask(worker);
       });
-    };
+    });
 
-    // Process chunks in batches
-    for (let i = 0; i < chunks.length; i += concurrencyLimit) {
-      const batch = chunks.slice(i, i + concurrencyLimit);
-      const batchPromises = batch.map((_, batchIndex) =>
-        uploadChunkWithIndex(i + batchIndex)
-      );
-      await Promise.all(batchPromises);
-    }
+    // Cleanup workers
+    // (In a real app you might want to keep them alive or terminate them)
 
     const endTime = Date.now();
     console.log(`⏱️ Tổng thời gian upload: ${((endTime - startTime) / 1000).toFixed(2)}s`);

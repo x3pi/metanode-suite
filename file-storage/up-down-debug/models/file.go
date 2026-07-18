@@ -52,7 +52,6 @@ type DownloadChunkRequest struct {
 }
 
 type DownloadResponse struct {
-	Status          string  `json:"status"`
-	Message         string  `json:"message"`
-	ChunkDataBase64 *string `json:"chunk_data_base64,omitempty"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
 }

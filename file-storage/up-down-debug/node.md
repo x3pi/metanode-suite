@@ -6,8 +6,11 @@ go run main.go -envfile=".env.2" -download="MÃ_KEY"
 
 
 
-go run . -envfile .env.1 -size 0.1 -workers 20 -tcp=true -rounds 3
+-mode=http: (Mặc định trước đây) Chạy qua HTTP chuẩn của Ethereum (tạo ETH Transaction và gọi method uploadChunk thông thường).
+-mode=tcp: Gửi Transaction qua giao thức TCP (sử dụng connection pool như ban nãy).
+-mode=http-bls: (Chế độ bạn vừa yêu cầu) Tạo giao dịch và ký bằng BLS (khóa thiết bị/MetaNode), đóng gói vào Protobuf TransactionWithDeviceKey rồi gọi trực tiếp method
 
+go run . -envfile .env.1 -size 0.1 -workers 5 -rounds 3 -mode=http-bls
+go run . -envfile .env.1 -size 0.01 -workers 1 -rounds 3 -mode=tcp
 
-go run . -envfile .env.1 -download c6dc526e94939b209f99a3dabbef9189661d971f0ac3b8db7e96be2252a86eda
-go run . -envfile .env.1 -download 90cff7c908458aa6059bbea5c31fed6e598fe4cc9e1d8b954b7bf3fe608facad
+go run . -envfile .env.1 -download 50327e26b095ddbca7de24503052b22b80d3c19002feab18b2a4672a80e68f3a -workers 20 -rounds 1

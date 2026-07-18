@@ -92,7 +92,30 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     const vHex = vValue.toString(16).padStart(2, '0');
     const signatureHex = `${signatureObj.r}${signatureObj.s.replace('0x', '')}${vHex}`;
 
-    const chunksData: ArrayBuffer[] = [];
+    const suggestedName = fileInfo.name || `downloaded-${fileKey}`;
+    let fileHandle: any = null;
+    let writable: any = null;
+    let chunksData: ArrayBuffer[] = [];
+    const useFileSystemAccess = 'showSaveFilePicker' in window;
+
+    if (useFileSystemAccess) {
+      try {
+        fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName,
+        });
+        writable = await fileHandle.createWritable();
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          onProgress?.("Đã hủy tải xuống.");
+          return;
+        }
+        console.warn('showSaveFilePicker error, falling back to Blob:', err);
+      }
+    }
+
+    if (!writable) {
+      chunksData = new Array<ArrayBuffer>(totalChunks);
+    }
 
     onProgress?.("Đang khởi tạo kết nối WebTransport...");
     const { getWtOptions, fetchChunkOnStream } = await import('./wtTransport');
@@ -104,64 +127,111 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
 
     try {
       // Tải song song (Concurrency limit để tránh quá tải)
-      const CONCURRENCY_LIMIT = 20;
-      for (let i = 0; i < totalChunks; i += CONCURRENCY_LIMIT) {
-        const batch = [];
-        for (let j = 0; j < CONCURRENCY_LIMIT && i + j < totalChunks; j++) {
-          const chunkIndex = i + j;
+      // Dùng Worker Pool thực thụ (Xoay vòng liên tục) thay vì Batching
+      const CONCURRENCY_LIMIT = 10;
+      let currentIndex = 0;
+      let hasError = false; // Cờ báo lỗi để dừng các worker khác
+
+      // === TẠO HÀNG ĐỢI GHI Ổ CỨNG (Disk Write Queue) ===
+      const writeQueue: { chunkIndex: number; data: ArrayBuffer }[] = [];
+      let isWriting = false;
+      let writerError: any = null;
+
+      const processWriteQueue = async () => {
+        if (isWriting || !writable) return;
+        isWriting = true;
+        try {
+          while (writeQueue.length > 0) {
+            const item = writeQueue.shift();
+            if (!item) break;
+            await writable.write({
+              type: "write",
+              position: item.chunkIndex * 1024 * 1024,
+              data: item.data
+            });
+          }
+        } catch (e) {
+          writerError = e;
+          hasError = true; // Dừng luôn các worker mạng
+        } finally {
+          isWriting = false;
+        }
+      };
+
+      // Định nghĩa 1 Worker
+      const worker = async () => {
+        while (currentIndex < totalChunks && !hasError) {
+          const chunkIndex = currentIndex++; // Lấy task tiếp theo và tăng biến đếm ngay lập tức
           const transport = chunkIndex % 2 === 0 ? t1 : t2;
 
-          batch.push((async () => {
-            let lastError: any;
-            const MAX_RETRIES = 3;
+          let lastError: any;
+          const MAX_RETRIES = 3;
+          let success = false;
 
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-              try {
-                // transport được lấy dựa theo chunkIndex (t1 hoặc t2)
-                const result = await fetchChunkOnStream(transport, downloadKeyStr, chunkIndex, signatureHex);
-                if (!result.ok) {
-                  throw new Error(`Server báo lỗi: ${result.error}`);
-                }
-                return { index: chunkIndex, data: result.data };
-              } catch (err: any) {
-                lastError = err;
-                console.warn(`[Retry ${attempt}/${MAX_RETRIES}] Lỗi tải chunk ${chunkIndex}:`, err);
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+              const result = await fetchChunkOnStream(transport, downloadKeyStr, chunkIndex, signatureHex);
+              if (!result.ok) throw new Error(`Server báo lỗi: ${result.error}`);
 
-                if (attempt < MAX_RETRIES) {
-                  // Đợi 1 chút trước khi thử lại (tăng dần thời gian chờ)
-                  await new Promise(res => setTimeout(res, 1000 * attempt));
-                }
+              // Xử lý ghi dữ liệu (Không block network)
+              if (writable) {
+                writeQueue.push({ chunkIndex, data: result.data });
+                processWriteQueue(); // Kích hoạt ghi nhưng KHÔNG await
+              } else {
+                chunksData[chunkIndex] = result.data;
+              }
+              success = true;
+              break;
+            } catch (err: any) {
+              lastError = err;
+              console.warn(`[Retry ${attempt}/${MAX_RETRIES}] Lỗi tải chunk ${chunkIndex}:`, err);
+              if (attempt < MAX_RETRIES) {
+                await new Promise(res => setTimeout(res, 1000 * attempt));
               }
             }
+          }
+          if (!success) {
+            hasError = true;
             throw new Error(`Lỗi tải chunk ${chunkIndex} sau ${MAX_RETRIES} lần thử: ${lastError?.message || String(lastError)}`);
-          })());
-        }
+          }
 
-        onProgress?.(`Đang tải batch chunk ${i + 1} - ${Math.min(i + CONCURRENCY_LIMIT, totalChunks)}/${totalChunks}...`);
-        const batchResults = await Promise.all(batch);
-
-        // Sắp xếp đúng thứ tự chunk
-        for (const res of batchResults.sort((a, b) => a.index - b.index)) {
-          chunksData.push(res.data);
+          // Cập nhật log 
+          if (chunkIndex % 50 === 0) {
+            onProgress?.(`Đang tải... đã xong ${chunkIndex}/${totalChunks} chunks`);
+          }
         }
+      };
+
+      // Khởi chạy 20 workers cùng lúc
+      const workers = [];
+      for (let i = 0; i < CONCURRENCY_LIMIT; i++) {
+        workers.push(worker());
       }
+
+      // Đợi tất cả workers cày xong
+      await Promise.all(workers);
     } finally {
       t1.close();
       t2.close();
     }
 
-    onProgress?.("Đang ghép file và lưu xuống máy...");
-    const blob = new Blob(chunksData as BlobPart[]);
-    const url = window.URL.createObjectURL(blob);
+    if (writable) {
+      onProgress?.("Đang đóng tệp (flush xuống đĩa)...");
+      await writable.close();
+    } else {
+      onProgress?.("Đang ghép file và lưu xuống máy...");
+      const blob = new Blob(chunksData as BlobPart[]);
+      const url = window.URL.createObjectURL(blob);
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileInfo.name || `downloaded-${fileKey}`;
-    document.body.appendChild(a);
-    a.click();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileInfo.name || `downloaded-${fileKey}`;
+      document.body.appendChild(a);
+      a.click();
 
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }
 
     const endTime = Date.now();
     console.log(`⏱️ Tổng thời gian download: ${((endTime - startTime) / 1000).toFixed(2)}s`);

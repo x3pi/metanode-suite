@@ -26,6 +26,7 @@ export default function FileUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFileActive, setIsFileActive] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState<number | null>(null);
 
   // Lưu danh sách các fileKey đã active trong suốt phiên chạy của web
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
@@ -72,6 +73,7 @@ export default function FileUpload() {
       setFile(selectedFile);
       setProgress(null);
       setIsFileActive(false);
+      setElapsedTime(null);
     }
   }, []);
 
@@ -81,12 +83,16 @@ export default function FileUpload() {
     setIsUploading(true);
     setProgress({ stage: "preparing" });
     setIsFileActive(false);
+    setElapsedTime(null);
 
+    const startTime = Date.now();
     try {
       const fileKey = await uploadFile(file, (prog) => {
         setProgress(prog);
       });
       console.log("Upload completed! FileKey:", fileKey);
+      const endTime = Date.now();
+      setElapsedTime((endTime - startTime) / 1000);
     } catch (error: any) {
       console.error("Upload failed:", error);
       setProgress({ stage: "error", error: error.message });
@@ -111,7 +117,7 @@ export default function FileUpload() {
       case "uploading":
         return `Đang upload chunks: ${progress.currentChunk || 0}/${progress.totalChunks || 0}`;
       case "completed":
-        return "Upload hoàn tất!";
+        return elapsedTime ? `Upload hoàn tất trong ${elapsedTime.toFixed(2)} giây!` : "Upload hoàn tất!";
       case "error":
         return `Lỗi: ${progress.error || "Unknown error"}`;
       default:

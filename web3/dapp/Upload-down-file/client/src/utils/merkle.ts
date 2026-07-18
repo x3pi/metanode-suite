@@ -23,7 +23,7 @@ export function buildMerkleTreePadded(
 
   // Hash real chunks
   for (let i = 0; i < numLeaves; i++) {
-    const hash = keccak256(bytesToHex(chunks[i]));
+    const hash = keccak256(chunks[i]); // Pass ByteArray directly
     leaves[i] = hexToBytes(hash);
   }
 
@@ -42,13 +42,57 @@ export function buildMerkleTreePadded(
       const combined = new Uint8Array(treeLevel[i].length + treeLevel[i + 1].length);
       combined.set(treeLevel[i], 0);
       combined.set(treeLevel[i + 1], treeLevel[i].length);
-      const hash = keccak256(bytesToHex(combined));
+      const hash = keccak256(combined); // Pass ByteArray directly
       nextLevel.push(hexToBytes(hash));
     }
     treeLevel = nextLevel;
   }
 
   return { paddedLeaves: leaves, merkleRoot: treeLevel[0] };
+}
+
+// Build Merkle tree from pre-computed leaves (for worker optimization)
+export function buildMerkleTreeFromLeaves(
+  leaves: Uint8Array[]
+): { paddedLeaves: Uint8Array[]; merkleRoot: Uint8Array } {
+  const numLeaves = leaves.length;
+  
+  if (numLeaves === 0) {
+    const emptyHash = keccak256("0x" as `0x${string}`);
+    return { paddedLeaves: [], merkleRoot: hexToBytes(emptyHash) };
+  }
+
+  // 1. Pad leaves to next power of 2
+  const nextPowerOfTwo = calculateNextPowerOfTwo(numLeaves);
+  const paddedLeaves = new Array(nextPowerOfTwo);
+
+  // Copy real leaves
+  for (let i = 0; i < numLeaves; i++) {
+    paddedLeaves[i] = leaves[i];
+  }
+
+  // Pad remaining with empty hash
+  const emptyHash = keccak256("0x" as `0x${string}`);
+  const emptyHashBytes = hexToBytes(emptyHash);
+  for (let i = numLeaves; i < nextPowerOfTwo; i++) {
+    paddedLeaves[i] = emptyHashBytes;
+  }
+
+  // 2. Build tree
+  let treeLevel = paddedLeaves;
+  while (treeLevel.length > 1) {
+    const nextLevel: Uint8Array[] = [];
+    for (let i = 0; i < treeLevel.length; i += 2) {
+      const combined = new Uint8Array(treeLevel[i].length + treeLevel[i + 1].length);
+      combined.set(treeLevel[i], 0);
+      combined.set(treeLevel[i + 1], treeLevel[i].length);
+      const hash = keccak256(combined); // Pass ByteArray directly
+      nextLevel.push(hexToBytes(hash));
+    }
+    treeLevel = nextLevel;
+  }
+
+  return { paddedLeaves: paddedLeaves, merkleRoot: treeLevel[0] };
 }
 
 // Get Merkle proof for a leaf in padded tree
@@ -81,7 +125,7 @@ export function getMerkleProofPadded(
       const combined = new Uint8Array(treeLevel[i].length + treeLevel[i + 1].length);
       combined.set(treeLevel[i], 0);
       combined.set(treeLevel[i + 1], treeLevel[i].length);
-      const hash = keccak256(bytesToHex(combined));
+      const hash = keccak256(combined);
       nextLevel.push(hexToBytes(hash));
     }
 

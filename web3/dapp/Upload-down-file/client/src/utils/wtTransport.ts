@@ -79,14 +79,12 @@ export async function readResponseFrame(
   }
 
   const payloadLen = new DataView(bytes.buffer).getUint32(0, false);
-  const payload = bytes.slice(4, 4 + payloadLen);
+  if (bytes.length < 4 + payloadLen) return { ok: false, error: "Thiếu dữ liệu" };
 
-  if (payload.length < 2) return { ok: false, error: "Payload quá ngắn để parse JSON header" };
+  const jsonLen = new DataView(bytes.buffer).getUint16(4, false);
+  if (bytes.length < 6 + jsonLen) return { ok: false, error: "JSON header bị cắt cụt" };
 
-  const jsonLen = new DataView(payload.buffer, payload.byteOffset).getUint16(0, false);
-  if (payload.length < 2 + jsonLen) return { ok: false, error: "JSON header bị cắt cụt" };
-
-  const jsonBytes = payload.slice(2, 2 + jsonLen);
+  const jsonBytes = bytes.subarray(6, 6 + jsonLen);
   const jsonStr = new TextDecoder().decode(jsonBytes);
 
   let header: any;
@@ -100,11 +98,10 @@ export async function readResponseFrame(
     return { ok: false, error: header.message || "Unknown server error" };
   }
 
-  // ArrayBuffer cần copy vì slice trả về view trên cùng buffer
-  const rawData = payload.slice(2 + jsonLen).buffer.slice(
-    payload.byteOffset + 2 + jsonLen,
-    payload.byteOffset + payloadLen
-  );
+  // Extract raw chunk directly from the original buffer to avoid multiple copies
+  // payload starts at 4, json header ends at 4 + 2 + jsonLen = 6 + jsonLen
+  // chunk data ends at 4 + payloadLen
+  const rawData = bytes.buffer.slice(bytes.byteOffset + 6 + jsonLen, bytes.byteOffset + 4 + payloadLen);
 
   return { ok: true, id: header.id, command: header.command, data: rawData };
 }
@@ -122,9 +119,9 @@ export function getWtOptions() {
       {
         algorithm: "sha-256",
         value: new Uint8Array([
-          0xc8, 0xbc, 0x28, 0x6c, 0x24, 0x77, 0x2a, 0xab, 0xa5, 0x14, 0x35, 0x04,
-          0xd6, 0xd4, 0xaa, 0x7b, 0xec, 0x2f, 0x50, 0x77, 0x6e, 0x8b, 0x5d, 0x6b,
-          0x23, 0xf6, 0xb5, 0xfc, 0x30, 0x9d, 0xc4, 0xd5
+          0x3a, 0xd2, 0x0f, 0x88, 0x31, 0xe0, 0xcb, 0xad, 0xec, 0x23, 0xdf, 0x86,
+          0xf4, 0xa7, 0x3c, 0x91, 0x74, 0x5b, 0x39, 0x6b, 0xc0, 0x3a, 0x68, 0x76,
+          0xc7, 0xb9, 0x0a, 0xc4, 0x51, 0x41, 0xcb, 0x95
         ]),
       },
     ],
