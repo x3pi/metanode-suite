@@ -241,7 +241,7 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, from
 		fromAddress,
 		bytecode,
 		&tx_models.TxOptions{
-			MaxGas:      5000000,
+			MaxGas:      1000000000000000000,
 			MaxGasPrice: 2000000000,
 		},
 	)

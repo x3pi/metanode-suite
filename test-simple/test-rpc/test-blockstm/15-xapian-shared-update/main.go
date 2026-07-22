@@ -214,6 +214,14 @@ func main() {
 	var errs []error
 	var errsMu sync.Mutex
 
+	type RoundSummary struct {
+		Round        int
+		SuccessTx    int
+		TotalSuccess int
+		DBValue      uint64
+	}
+	var summaries []RoundSummary
+
 	start := time.Now()
 	totalSuccess := 0
 
@@ -269,6 +277,7 @@ func main() {
 			errsMu.Unlock()
 		}
 
+		var roundSuccess int
 		if *waitMethod == "receipt" {
 			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách lấy Receipt...")
 			successCount := 0
@@ -317,16 +326,39 @@ func main() {
 			}
 			wgReceipt.Wait()
 			close(donePrint)
-			totalSuccess += successCount
-			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng Receipt trong round %d\n", successCount, len(txHashes), r)
+			roundSuccess = successCount
+			totalSuccess += roundSuccess
+			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng Receipt trong round %d\n", roundSuccess, len(txHashes), r)
 		} else {
 			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách quét Block...")
 			successCount, err := waitForTxHashesByBlock(client, txHashes, startBlock)
 			if err != nil {
 				fmt.Printf("❌ Lỗi khi chờ block: %v\n", err)
 			}
-			totalSuccess += successCount
-			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng quét Block trong round %d\n", successCount, len(txHashes), r)
+			roundSuccess = successCount
+			totalSuccess += roundSuccess
+			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng quét Block trong round %d\n", roundSuccess, len(txHashes), r)
+		}
+
+		roundActual, err := getSharedDataFromDB(client, contractAddr, parsedABI)
+		if err != nil {
+			fmt.Printf("❌ Lỗi getSharedDataFromDB() sau round %d: %v\n", r, err)
+		} else {
+			fmt.Printf("\n📊 KẾT QUẢ ROUND %d:\n", r)
+			fmt.Printf("   - Số tx thành công round này : %d\n", roundSuccess)
+			fmt.Printf("   - Tổng tx thành công đến hiện tại: %d\n", totalSuccess)
+			fmt.Printf("   - Giá trị Xapian DB thực tế  : %d\n", roundActual)
+			if uint64(totalSuccess) == roundActual {
+				fmt.Printf("   => ✅ ROUND PASSED\n")
+			} else {
+				fmt.Printf("   => ⚠️ ROUND FAILED (Lệch %d)\n", int(roundActual)-totalSuccess)
+			}
+			summaries = append(summaries, RoundSummary{
+				Round:        r,
+				SuccessTx:    roundSuccess,
+				TotalSuccess: totalSuccess,
+				DBValue:      roundActual,
+			})
 		}
 	}
 
@@ -341,6 +373,20 @@ func main() {
 	fmt.Printf("Giá trị counter cuối cùng lưu trong Xapian DB: %d\n", actual)
 	fmt.Printf("Tổng số lượng tx thành công: %d (trên %d round, mỗi round %d ví)\n", totalSuccess, *rounds, len(testKeys))
 
+	fmt.Println("\n📋 BẢNG TỔNG HỢP CÁC ROUND:")
+	fmt.Println("-------------------------------------------------------------------------")
+	fmt.Printf("%-10s | %-12s | %-14s | %-10s | %-10s\n", "Round", "Tx Success", "Total Success", "DB Value", "Status")
+	fmt.Println("-------------------------------------------------------------------------")
+	for _, s := range summaries {
+		status := "✅ PASSED"
+		if uint64(s.TotalSuccess) != s.DBValue {
+			status = "⚠️ FAILED"
+		}
+		fmt.Printf("%-10d | %-12d | %-14d | %-10d | %-10s\n", s.Round, s.SuccessTx, s.TotalSuccess, s.DBValue, status)
+	}
+	fmt.Println("-------------------------------------------------------------------------")
+
+	fmt.Println("\n🏁 KẾT LUẬN CUỐI CÙNG:")
 	if actual == uint64(totalSuccess) {
 		fmt.Println("🎉 TEST PASSED: BlockSTM xử lý write conflict trên Xapian DB đúng!")
 	} else {

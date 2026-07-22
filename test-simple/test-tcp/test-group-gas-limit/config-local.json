@@ -5,5 +5,8 @@
   "chain_id": 991,
   "nation_id": 1,
   "parent_connection_type": "client",
-  "parent_address": "0x824fef8A3cE4b93C546209CC254D97E5Fee804e0"
+  "parent_address": "0xC6E6474A8DEAD25B0e75b1aeA5d35FA19f69588a",
+  "wallet_1":"0x5e582475a504998c5631e12a5a2585d2b1911812",
+  "wallet_2":"0x781e6ec6ebdca11be4b53865a34c0c7f10b6da6e"
+
 }

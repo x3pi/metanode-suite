@@ -56,6 +56,7 @@ func main() {
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
 	rounds := flag.Int("rounds", 1, "Số round muốn test")
+	waitMethod := flag.String("wait-method", "block", "Phương thức chờ giao dịch: 'block' hoặc 'receipt'")
 	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
 	keysFile := flag.String("keys", "../../../../test_tps/gen_spam_keys/generated_keys.json", "Đường dẫn file chứa private keys")
 	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
@@ -139,6 +140,12 @@ func main() {
 	}
 	fmt.Println("✅ InitializeDoc thành công!\n")
 
+	header, err := client.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		log.Fatalf("❌ Lỗi lấy Header: %v", err)
+	}
+	startBlock := header.Number.Uint64()
+
 	var wg sync.WaitGroup
 	var errs []error
 	var errsMu sync.Mutex
@@ -192,22 +199,66 @@ func main() {
 			errsMu.Unlock()
 		}
 
-		fmt.Println("⏳ Chờ các giao dịch được confirm...")
-		roundSuccess := 0
-		for i, hash := range txHashes {
-			if hash == (common.Hash{}) {
-				continue
+		var roundSuccess int
+		if *waitMethod == "receipt" {
+			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách lấy Receipt...")
+			successCount := 0
+			var wgReceipt sync.WaitGroup
+			var mu sync.Mutex
+			
+			donePrint := make(chan struct{})
+			go func() {
+				ticker := time.NewTicker(3 * time.Second)
+				defer ticker.Stop()
+				startTime := time.Now()
+				for {
+					select {
+					case <-ticker.C:
+						mu.Lock()
+						current := successCount
+						mu.Unlock()
+						fmt.Printf("   [⏳ Waiting Receipt] Đã confirm %d/%d txs... (Thời gian chờ: %v)\n", current, len(txHashes), time.Since(startTime).Round(time.Second))
+					case <-donePrint:
+						return
+					}
+				}
+			}()
+
+			// Giới hạn concurrency để không ddos sập Node RPC
+			sem := make(chan struct{}, 50)
+			
+			for _, h := range txHashes {
+				if h == (common.Hash{}) {
+					continue
+				}
+				wgReceipt.Add(1)
+				go func(txHash common.Hash) {
+					defer wgReceipt.Done()
+					sem <- struct{}{} // Acquire token
+					defer func() { <-sem }() // Release token
+					
+					receipt, err := waitReceipt(client, txHash)
+					if err == nil && receipt != nil && receipt.Status == 1 {
+						mu.Lock()
+						successCount++
+						mu.Unlock()
+					}
+				}(h)
 			}
-			receipt, err := waitReceipt(client, hash)
+			wgReceipt.Wait()
+			close(donePrint)
+			roundSuccess = successCount
+			totalSuccess += roundSuccess
+			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng Receipt trong round %d\n", roundSuccess, len(txHashes), r)
+		} else {
+			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách quét Block...")
+			successCount, err := waitForTxHashesByBlock(client, txHashes, startBlock)
 			if err != nil {
-				fmt.Printf("❌ Round %d - Wallet %d chờ receipt thất bại: %v\n", r, i, err)
-			} else if receipt.Status != 1 {
-				fmt.Printf("❌ Round %d - Wallet %d Tx bị revert!\n", r, i)
-			} else {
-				fmt.Printf("✅ Round %d - Wallet %d Tx %s confirmed trong block %d\n", r, i, hash.Hex()[:10]+"...", receipt.BlockNumber.Uint64())
-				roundSuccess++
-				totalSuccess++
+				fmt.Printf("❌ Lỗi khi chờ block: %v\n", err)
 			}
+			roundSuccess = successCount
+			totalSuccess += roundSuccess
+			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng quét Block trong round %d\n", roundSuccess, len(txHashes), r)
 		}
 
 		// Verify that from0 incremented correctly for this round
@@ -380,4 +431,79 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
+}
+
+func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, startBlock uint64) (int, error) {
+	pending := make(map[common.Hash]bool)
+	for _, h := range txHashes {
+		if h != (common.Hash{}) {
+			pending[h] = true
+		}
+	}
+
+	if len(pending) == 0 {
+		return 0, nil
+	}
+
+	lastChecked := startBlock
+	totalSuccess := 0
+	totalTxs := len(pending)
+
+	fmt.Printf("   [Info] Đang chờ %d giao dịch từ block %d...\n", totalTxs, lastChecked)
+
+	startTime := time.Now()
+	lastLogTime := time.Now()
+	var currentLatestBlock uint64 = lastChecked
+
+	for len(pending) > 0 {
+		header, err := client.HeaderByNumber(context.Background(), nil)
+		if err != nil {
+			fmt.Printf("   [Error] HeaderByNumber lỗi: %v. Sẽ thử lại sau...\n", err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		latestBlock := header.Number.Uint64()
+		currentLatestBlock = latestBlock
+
+
+		for b := lastChecked; b <= latestBlock; b++ {
+			var block *types.Block
+			var err error
+			for retry := 0; retry < 3; retry++ {
+				block, err = client.BlockByNumber(context.Background(), big.NewInt(int64(b)))
+				if err == nil {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+			if err != nil {
+				fmt.Printf("   [Error] Không thể lấy block %d: %v. Dừng việc quét các block tiếp theo và sẽ thử lại!\n", b, err)
+				break
+			}
+
+			txs := block.Transactions()
+			foundInBlock := 0
+			for _, tx := range txs {
+				if pending[tx.Hash()] {
+					delete(pending, tx.Hash())
+					totalSuccess++
+					foundInBlock++
+				}
+			}
+			if foundInBlock > 0 {
+				fmt.Printf("   [Info] Block %d chứa %d giao dịch của round này (còn lại: %d)\n", b, foundInBlock, len(pending))
+			}
+			lastChecked = b + 1
+		}
+
+		if len(pending) > 0 {
+			if time.Since(lastLogTime) > 3*time.Second {
+				fmt.Printf("   [⏳ Waiting] Đã confirm %d/%d txs... (Đang check tới block %d, Thời gian chờ: %v)\n", totalSuccess, totalTxs, currentLatestBlock, time.Since(startTime).Round(time.Second))
+				lastLogTime = time.Now()
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	return totalSuccess, nil
 }

@@ -26,6 +26,7 @@ import (
 
 	"context"
 	"crypto/ecdsa"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -54,8 +55,8 @@ type AccountInfo struct {
 }
 
 // ABI definitions
-const bytecodeHex = "6080604052348015600e575f5ffd5b506102a18061001c5f395ff3fe608060405234801561000f575f5ffd5b506004361061003f575f3560e01c80633ccc05221461004357806354fe9fd714610073578063cc8a55e2146100a3575b5f5ffd5b61005d600480360381019061005891906101ba565b6100bf565b60405161006a91906101fd565b60405180910390f35b61008d600480360381019061008891906101ba565b610104565b60405161009a91906101fd565b60405180910390f35b6100bd60048036038101906100b89190610240565b610118565b005b5f5f5f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b5f602052805f5260405f205f915090505481565b805f5f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f208190555050565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61018982610160565b9050919050565b6101998161017f565b81146101a3575f5ffd5b50565b5f813590506101b481610190565b92915050565b5f602082840312156101cf576101ce61015c565b5b5f6101dc848285016101a6565b91505092915050565b5f819050919050565b6101f7816101e5565b82525050565b5f6020820190506102105f8301846101ee565b92915050565b61021f816101e5565b8114610229575f5ffd5b50565b5f8135905061023a81610216565b92915050565b5f602082840312156102555761025461015c565b5b5f6102628482850161022c565b9150509291505056fea264697066735822122060ccde915bc46853e9554ef38a5243f689e643d9cdfc22887eeb4f938129cf1864736f6c63430008230033"
-const abiString = `[{"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"getValue","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"val","type":"uint256"}],"name":"updateState","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"values","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]`
+const bytecodeHex = "6080604052348015600e575f5ffd5b506103728061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610055575f3560e01c80633ccc05221461005957806354fe9fd71461008957806371acc738146100b9578063915491d5146100d5578063cc8a55e2146100f3575b5f5ffd5b610073600480360381019061006e919061022b565b61010f565b604051610080919061026e565b60405180910390f35b6100a3600480360381019061009e919061022b565b610154565b6040516100b0919061026e565b60405180910390f35b6100d360048036038101906100ce91906102b1565b610168565b005b6100dd610183565b6040516100ea919061026e565b60405180910390f35b61010d600480360381019061010891906102b1565b610189565b005b5f5f5f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b5f602052805f5260405f205f915090505481565b8060015f8282546101799190610309565b9250508190555050565b60015481565b805f5f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f208190555050565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6101fa826101d1565b9050919050565b61020a816101f0565b8114610214575f5ffd5b50565b5f8135905061022581610201565b92915050565b5f602082840312156102405761023f6101cd565b5b5f61024d84828501610217565b91505092915050565b5f819050919050565b61026881610256565b82525050565b5f6020820190506102815f83018461025f565b92915050565b61029081610256565b811461029a575f5ffd5b50565b5f813590506102ab81610287565b92915050565b5f602082840312156102c6576102c56101cd565b5b5f6102d38482850161029d565b91505092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f61031382610256565b915061031e83610256565b9250828201905080821115610336576103356102dc565b5b9291505056fea26469706673582212207759144d79faef10279cc6aba9a51bd1e4edd2a1843d55ce0ee34141d197e86464736f6c63430008230033"
+const abiString = `[{"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"getValue","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"sharedValue","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"val","type":"uint256"}],"name":"updateState","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"val","type":"uint256"}],"name":"updateStateConflict","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"values","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]`
 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	for {
@@ -374,6 +375,9 @@ func sendTelegramAlert(message string, testName string) {
 }
 
 func main() {
+	// Xóa cờ lỗi cũ nếu có để tránh script tự dừng ngay lập tức
+	os.Remove("/tmp/MTN_CHAIN_ERROR_STOP")
+
 	os.MkdirAll("reports", 0755)
 	reportFilename := fmt.Sprintf("reports/tps_report_%s.md", time.Now().Format("20060102_150405"))
 	cleanupReports()
@@ -396,6 +400,7 @@ func main() {
 		targetNode  int
 		trace       bool
 		tpsTarget   int
+		conflict    bool
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -416,6 +421,7 @@ func main() {
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
 	flag.BoolVar(&trace, "trace", true, "Enable fetching block traces at the end of the round")
 	flag.IntVar(&tpsTarget, "tps-target", 0, "Target TPS for paced injection (0 = disable pacing)")
+	flag.BoolVar(&conflict, "conflict", false, "Enable contract conflict mode (all TXs write to the same state)")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
@@ -673,7 +679,14 @@ func main() {
 		log.Fatalf("❌ Lỗi parse ABI: %v", err)
 	}
 
-	callData, err := parsedABI.Pack("updateState", big.NewInt(1))
+	var callData []byte
+	if conflict {
+		fmt.Println("  ⚠️  Conflict Mode ENABLED: All transactions will write to the same state.")
+		callData, err = parsedABI.Pack("updateStateConflict", big.NewInt(1))
+	} else {
+		fmt.Println("  ✅ No Conflict Mode: Each transaction writes to a unique state.")
+		callData, err = parsedABI.Pack("updateState", big.NewInt(1))
+	}
 	if err != nil {
 		log.Fatalf("❌ Lỗi pack ABI: %v", err)
 	}
@@ -953,8 +966,8 @@ func main() {
 		// ── Re-fetch nonces + rebuild TXs for rounds > 1 ──
 		if round > 1 {
 			// Wait for chain to fully process previous round before re-fetching nonces
-			fmt.Printf("  ⏳ Waiting 20s for chain to finalize previous round...\n")
-			time.Sleep(20 * time.Second)
+			fmt.Printf("  ⏳ Waiting 3s for chain to finalize previous round...\n")
+			time.Sleep(3 * time.Second)
 			fmt.Printf("  🔍 Re-fetching nonces for %d accounts (pool: %d nodes)...\n", len(toSend), len(rpcPool))
 			oldNonceMap := nonceMap
 			nonceMap = make(map[string]uint64)

@@ -1,4 +1,4 @@
-
+Hình như các block trong các rpc sẻ k có tx giống nhau là transaction là 0 hoặc nill là do lỗi gì ? cần check lại
 
 
 WARNING

@@ -46,6 +46,8 @@ go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys
 go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys.json -count=20000 -rounds=5 -verify=true
 ```
 
+go run main.go --config config-multi.json --count 50000 --batch 2000 -rounds=5 --conflict=true
+
 ## 4. Hoạt động của Script
 Khi bạn chạy lệnh trên, script sẽ:
 1. Dùng Account 0 để Deploy Smart Contract tên là `ParallelTest.sol` lên mạng thông qua RPC.

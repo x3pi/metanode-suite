@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 contract ParallelTest {
     mapping(address => uint256) public values;
+    uint256 public sharedValue;
 
     function getValue(address user) public view returns (uint256) {
         return values[user];
@@ -10,5 +11,9 @@ contract ParallelTest {
 
     function updateState(uint256 val) public {
         values[msg.sender] = val;
+    }
+
+    function updateStateConflict(uint256 val) public {
+        sharedValue += val;
     }
 }

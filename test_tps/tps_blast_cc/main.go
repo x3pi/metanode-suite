@@ -678,8 +678,8 @@ func main() {
 
 		// Sign with BLS key
 		var accPKey p_common.PrivateKey
-			copy(accPKey[:], privKeyBytes)
-			internalTx.SetSign(accPKey)
+		copy(accPKey[:], privKeyBytes)
+		internalTx.SetSign(accPKey)
 
 		bTx, err := internalTx.Marshal()
 		if err != nil {
@@ -974,8 +974,8 @@ func main() {
 					nonce, chainId,
 				)
 				var accPKey p_common.PrivateKey
-			copy(accPKey[:], privKeyBytes)
-			internalTx.SetSign(accPKey)
+				copy(accPKey[:], privKeyBytes)
+				internalTx.SetSign(accPKey)
 				bTx, err := internalTx.Marshal()
 				if err != nil {
 					rebuildErrors++
@@ -1321,7 +1321,13 @@ func main() {
 					go func(blockNum uint64) {
 						defer wg.Done()
 						blk, err := rpcClient.GetBlockByNumber(blockNum)
-	if err != nil { fmt.Printf("DEBUG: Block %d failed to fetch: %v\n", blockNum, err) } else { if blk == nil { fmt.Printf("DEBUG: Block %d is nil\n", blockNum) } }
+						if err != nil {
+							fmt.Printf("DEBUG: Block %d failed to fetch: %v\n", blockNum, err)
+						} else {
+							if blk == nil {
+								fmt.Printf("DEBUG: Block %d is nil\n", blockNum)
+							}
+						}
 						ch <- blockResult{bn: blockNum, blk: blk, err: err}
 					}(bn)
 				}
@@ -1625,7 +1631,7 @@ func main() {
 				totalOnChainExecTime = time.Duration(totalRealUs) * time.Microsecond
 			}
 		}
-		
+
 		waitAndNetworkDelay := totalDuration - blastDuration - totalOnChainExecTime
 		if waitAndNetworkDelay < 0 {
 			waitAndNetworkDelay = 0
@@ -1710,7 +1716,7 @@ func main() {
 						n := float64(len(traces))
 						sb.WriteString(fmt.Sprintf("\n  🔍 BOTTLENECK ANALYSIS (Average per Block)\n"))
 						sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 75)))
-						
+
 						type stat struct {
 							name  string
 							avgMs float64
@@ -1727,16 +1733,16 @@ func main() {
 							{"GCPause", totalGCPause / n / 1000.0, "Dừng dọn rác Golang (STW)"},
 							{"ClientBatch", totalClientBatch / n / 1000.0, "Hàng đợi chờ Execution Go"},
 						}
-						
+
 						sort.Slice(stats, func(i, j int) bool {
 							return stats[i].avgMs > stats[j].avgMs
 						})
-						
+
 						var baseMs float64 = (totalWaitGo + totalWaitRust + totalTotal) / n / 1000.0
 						if baseMs == 0 {
 							baseMs = 1
 						}
-						
+
 						for i, s := range stats {
 							if i >= 4 && s.avgMs < 5.0 {
 								break // only show top bottlenecks
@@ -1754,7 +1760,7 @@ func main() {
 							sb.WriteString(fmt.Sprintf("  %s %-12s : %8.1f ms (%5.1f%%) | %s\n", icon, s.name, s.avgMs, percent, s.desc))
 						}
 						sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 75)))
-						
+
 						top := stats[0]
 						sb.WriteString(fmt.Sprintf("  💡 Gợi ý tối ưu:\n"))
 						if top.name == "ProcessTX" && top.avgMs > 500 {
