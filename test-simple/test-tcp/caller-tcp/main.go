@@ -241,7 +241,7 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, from
 		fromAddress,
 		bytecode,
 		&tx_models.TxOptions{
-			MaxGas:      1000000000000000000,
+			MaxGas:      1000000000000,
 			MaxGasPrice: 2000000000,
 		},
 	)
@@ -348,9 +348,13 @@ func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contractAddress common.Address, fromAddress common.Address, payloadData []byte, amount *big.Int, methodName string) {
 	fmt.Printf("▶️  Chạy TCP SendTransaction (WRITE) cho hàm/hành động %s...\n", methodName)
 
-	var options *tx_models.TxOptions
+	// Cố tình set MaxGas cực lớn để vi phạm MAX_GROUP_GAS
+	options := &tx_models.TxOptions{
+		MaxGas:      1000000000000,
+		MaxGasPrice: 2000000000,
+	}
 	if amount != nil {
-		options = &tx_models.TxOptions{Amount: amount}
+		options.Amount = amount
 	}
 
 	receipt, err := tx_helper.SendTransaction(

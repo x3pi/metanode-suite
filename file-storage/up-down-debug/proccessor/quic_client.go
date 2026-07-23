@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	RUST_SERVER_1_ADDR_QUIC = "192.168.1.233:7081"
-	RUST_SERVER_2_ADDR_QUIC = "192.168.1.233:7082"
-	// RUST_SERVER_1_ADDR_QUIC = "206.189.152.114:7081"
-	// RUST_SERVER_2_ADDR_QUIC = "157.245.202.80:7082"
+	// RUST_SERVER_1_ADDR_QUIC = "192.168.1.233:7081"
+	// RUST_SERVER_2_ADDR_QUIC = "192.168.1.233:7082"
+	RUST_SERVER_1_ADDR_QUIC = "206.189.152.114:7081"
+	RUST_SERVER_2_ADDR_QUIC = "157.245.202.80:7082"
 )
 
 // writeFrameWithLength gửi data với 4-byte big-endian length prefix (match tokio_util::LengthDelimitedCodec)
@@ -161,7 +161,7 @@ func RequestChunkFromRustServerQuic(
 		log.Printf("❌ [Chunk %d] Đọc frame 2 FAILED: %v", chunkIndex, err)
 		return nil, fmt.Errorf("lỗi khi đọc chunk data: %v", err)
 	}
-	
+
 	return chunkData, nil
 }
 

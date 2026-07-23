@@ -5,4 +5,4 @@
 # Tạo file chính xác 10 MB
 ./create_file.sh --size-mb 10 my_custom_file.txt
 
-/create_file.sh --size-mb 2 file_2mb.txt
+./create_file.sh --size-mb 2 file_2mb.txt
