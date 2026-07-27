@@ -965,21 +965,51 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			var conn quic.Connection
-			if int(i)%2 == 0 {
-				conn = conn1
-			} else {
-				conn = conn2
+			var chunkData []byte
+			var err error
+			const maxRetries = 3
+
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				var conn quic.Connection
+				if int(i)%2 == 0 {
+					conn = conn1
+				} else {
+					conn = conn2
+				}
+				chunkData, err = processor.RequestChunkFromRustServerQuic(conn, fileKeyHex, downloadKeyHex, int(i), sign)
+				if err == nil {
+					break // Tải thành công
+				}
+				
+				log.Printf("⚠️ Lỗi tải chunk %d (lần %d/%d): %v", i, attempt, maxRetries, err)
+				
+				// Nếu kết nối bị timeout hoặc bị đóng bởi QUIC, ta tạo một kết nối khẩn cấp cục bộ để cứu nguy cho Chunk này
+				if strings.Contains(strings.ToLower(err.Error()), "timeout") || strings.Contains(strings.ToLower(err.Error()), "closed") {
+					addr := processor.RUST_SERVER_1_ADDR_QUIC
+					if int(i)%2 != 0 {
+						addr = processor.RUST_SERVER_2_ADDR_QUIC
+					}
+					log.Printf("🔄 Tạo kết nối phục hồi cho chunk %d đến %s", i, addr)
+					if newConn, errConn := processor.CreateQuicConnection(addr); errConn == nil {
+						chunkData, err = processor.RequestChunkFromRustServerQuic(newConn, fileKeyHex, downloadKeyHex, int(i), sign)
+						if err == nil {
+							break // Phục hồi thành công
+						}
+					}
+				}
+				
+				time.Sleep(200 * time.Millisecond) // Đổi sang 200ms để không bị chờ quá lâu
 			}
-			chunkData, err := processor.RequestChunkFromRustServerQuic(conn, fileKeyHex, downloadKeyHex, int(i), sign)
+
 			if err != nil {
-				log.Printf("Lỗi tải chunk %d: %v", i, err)
-				return // ✅ chỉ return trống
+				log.Printf("❌ Bỏ cuộc tải chunk %d sau %d lần thử: %v", i, maxRetries, err)
+				return 
 			}
+
 			offset := int64(i * config.ChunkSize)
-			_, err = outFile.WriteAt(chunkData, offset)
-			if err != nil {
-				log.Printf("Lỗi ghi chunk %d ra ổ đĩa: %v", i, err)
+			_, writeErr := outFile.WriteAt(chunkData, offset)
+			if writeErr != nil {
+				log.Printf("Lỗi ghi chunk %d ra ổ đĩa: %v", i, writeErr)
 				return
 			}
 
