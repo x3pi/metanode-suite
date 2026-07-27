@@ -24,8 +24,16 @@ import (
 
 	"bufio"
 
+	"context"
+	"crypto/ecdsa"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
@@ -44,6 +52,56 @@ type AccountInfo struct {
 	Index      int    `json:"index"`
 	PrivateKey string `json:"private_key"`
 	Address    string `json:"address"`
+}
+
+// ABI definitions
+const bytecodeHex = "6080604052348015600e575f5ffd5b506103728061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610055575f3560e01c80633ccc05221461005957806354fe9fd71461008957806371acc738146100b9578063915491d5146100d5578063cc8a55e2146100f3575b5f5ffd5b610073600480360381019061006e919061022b565b61010f565b604051610080919061026e565b60405180910390f35b6100a3600480360381019061009e919061022b565b610154565b6040516100b0919061026e565b60405180910390f35b6100d360048036038101906100ce91906102b1565b610168565b005b6100dd610183565b6040516100ea919061026e565b60405180910390f35b61010d600480360381019061010891906102b1565b610189565b005b5f5f5f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b5f602052805f5260405f205f915090505481565b8060015f8282546101799190610309565b9250508190555050565b60015481565b805f5f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f208190555050565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6101fa826101d1565b9050919050565b61020a816101f0565b8114610214575f5ffd5b50565b5f8135905061022581610201565b92915050565b5f602082840312156102405761023f6101cd565b5b5f61024d84828501610217565b91505092915050565b5f819050919050565b61026881610256565b82525050565b5f6020820190506102815f83018461025f565b92915050565b61029081610256565b811461029a575f5ffd5b50565b5f813590506102ab81610287565b92915050565b5f602082840312156102c6576102c56101cd565b5b5f6102d38482850161029d565b91505092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f61031382610256565b915061031e83610256565b9250828201905080821115610336576103356102dc565b5b9291505056fea26469706673582212207759144d79faef10279cc6aba9a51bd1e4edd2a1843d55ce0ee34141d197e86464736f6c63430008230033"
+const abiString = `[{"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"getValue","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"sharedValue","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"val","type":"uint256"}],"name":"updateState","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"val","type":"uint256"}],"name":"updateStateConflict","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"values","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]`
+
+func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	for {
+		receipt, err := client.TransactionReceipt(context.Background(), txHash)
+		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+			return receipt, nil
+		}
+		if err != nil && err.Error() != "not found" {
+			return nil, err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, bytecode []byte) (*common.Address, error) {
+	nonce, err := client.PendingNonceAt(context.Background(), from)
+	if err != nil {
+		return nil, err
+	}
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		gasPrice = big.NewInt(1000000000)
+	}
+	gasLimit, err := client.EstimateGas(context.Background(), ethereum.CallMsg{From: from, Data: bytecode})
+	if err != nil {
+		gasLimit = 5000000
+	} else {
+		gasLimit += 50000
+	}
+	tx := types.NewContractCreation(nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+		return nil, err
+	}
+	receipt, err := waitReceipt(client, signedTx.Hash())
+	if err != nil {
+		return nil, err
+	}
+	if receipt.Status != 1 {
+		return nil, fmt.Errorf("deploy reverted")
+	}
+	return &receipt.ContractAddress, nil
 }
 
 func ts() string {
@@ -317,6 +375,9 @@ func sendTelegramAlert(message string, testName string) {
 }
 
 func main() {
+	// Xóa cờ lỗi cũ nếu có để tránh script tự dừng ngay lập tức
+	os.Remove("/tmp/MTN_CHAIN_ERROR_STOP")
+
 	os.MkdirAll("reports", 0755)
 	reportFilename := fmt.Sprintf("reports/tps_report_%s.md", time.Now().Format("20060102_150405"))
 	cleanupReports()
@@ -339,6 +400,7 @@ func main() {
 		targetNode  int
 		trace       bool
 		tpsTarget   int
+		conflict    bool
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -359,12 +421,13 @@ func main() {
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
 	flag.BoolVar(&trace, "trace", true, "Enable fetching block traces at the end of the round")
 	flag.IntVar(&tpsTarget, "tps-target", 0, "Target TPS for paced injection (0 = disable pacing)")
+	flag.BoolVar(&conflict, "conflict", false, "Enable contract conflict mode (all TXs write to the same state)")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
 
 	fmt.Println("═══════════════════════════════════════════════════")
-	fmt.Println("  🔥 TPS BLAST — Parallel Native Self-Transfers")
+	fmt.Println("  🔥 TPS BLAST — Parallel Smart Contract Calls")
 	fmt.Println("═══════════════════════════════════════════════════")
 
 	// Load config
@@ -608,9 +671,53 @@ func main() {
 	}
 
 	amount, _ := new(big.Int).SetString(amountWei, 10)
+	_ = amount
+
+	// Prepare ABI
+	parsedABI, err := abi.JSON(strings.NewReader(abiString))
+	if err != nil {
+		log.Fatalf("❌ Lỗi parse ABI: %v", err)
+	}
+
+	var callData []byte
+	if conflict {
+		fmt.Println("  ⚠️  Conflict Mode ENABLED: All transactions will write to the same state.")
+		callData, err = parsedABI.Pack("updateStateConflict", big.NewInt(1))
+	} else {
+		fmt.Println("  ✅ No Conflict Mode: Each transaction writes to a unique state.")
+		callData, err = parsedABI.Pack("updateState", big.NewInt(1))
+	}
+	if err != nil {
+		log.Fatalf("❌ Lỗi pack ABI: %v", err)
+	}
+
+	bytecode, err := hexutil.Decode("0x" + bytecodeHex)
+	if err != nil {
+		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
+	}
+
+	// Deploy contract using first account
+	ethClient, err := ethclient.Dial(rpcPool[0].Endpoint)
+	if err != nil {
+		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+	}
+
+	pk0Bytes, _ := hex.DecodeString(accounts[0].PrivateKey)
+	pk0, _ := crypto.ToECDSA(pk0Bytes)
+	from0 := crypto.PubkeyToAddress(pk0.PublicKey)
+
+	fmt.Println("  🚀 Deploying contract with Account 0 via RPC...")
+	contractAddr, err := deployContract(ethClient, pk0, int64(chainId), from0, bytecode)
+	if err != nil {
+		log.Fatalf("❌ Deploy thất bại: %v", err)
+	}
+	fmt.Printf("  📌 Contract deployed at: %s\n\n", contractAddr.Hex())
+
+	// Force nonce refresh for account 0 since it just deployed a contract
+	nonceMap[accounts[0].Address] = nonceMap[accounts[0].Address] + 1
 
 	// Pre-build all TXs
-	txTypeName := "Native parallel"
+	txTypeName := "Smart Contract Call"
 	fmt.Printf("\n📦 Pre-building %d %s TXs...\n", len(toSend), txTypeName)
 	buildStart := time.Now()
 
@@ -641,9 +748,9 @@ func main() {
 
 		// Generate a unique dummy address so each sender sends to an untouched recipient
 		// This makes verification perfectly isolated and guarantees the balance must equal txAmount.
-		dummyKey, _ := crypto.GenerateKey()
-		targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
-		bCallData = []byte{}
+		targetContract = *contractAddr
+		bCallData = callData
+		txAmount := big.NewInt(0) // Contract call amount is 0
 
 		// Get nonce for this account
 		nonce, ok := nonceMap[acc.Address]
@@ -659,7 +766,7 @@ func main() {
 			continue
 		}
 
-		txAmount := amount
+		// txAmount := amount (handled above)
 
 		internalTx := transaction.NewTransaction(
 			fromAddr,
@@ -678,8 +785,8 @@ func main() {
 
 		// Sign with BLS key
 		var accPKey p_common.PrivateKey
-			copy(accPKey[:], privKeyBytes)
-			internalTx.SetSign(accPKey)
+		copy(accPKey[:], privKeyBytes)
+		internalTx.SetSign(accPKey)
 
 		bTx, err := internalTx.Marshal()
 		if err != nil {
@@ -690,6 +797,9 @@ func main() {
 		txHash := internalTx.ToEthTransaction().Hash()
 		txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
 		txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
+
+		rawHash := crypto.Keccak256Hash(bTx)
+		txHashMap.Store(strings.ToLower(rawHash.Hex()), acc.Address)
 
 		allTxs = append(allTxs, rawTx{
 			bytes:  bTx,
@@ -945,9 +1055,9 @@ func main() {
 				var targetContract common.Address
 				var bCallData []byte
 
-				dummyKey, _ := crypto.GenerateKey()
-				targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
-				bCallData = []byte{}
+				targetContract = *contractAddr
+				bCallData = callData
+				txAmount := big.NewInt(0) // Contract call amount is 0
 
 				nonce, ok := nonceMap[acc.Address]
 				nonceMap[acc.Address] = nonce + 1 // Increment for duplicate uses
@@ -961,7 +1071,7 @@ func main() {
 					continue
 				}
 
-				txAmount := amount
+				// txAmount := amount (handled above)
 
 				internalTx := transaction.NewTransaction(
 					fromAddr, targetContract, txAmount,
@@ -971,8 +1081,8 @@ func main() {
 					nonce, chainId,
 				)
 				var accPKey p_common.PrivateKey
-			copy(accPKey[:], privKeyBytes)
-			internalTx.SetSign(accPKey)
+				copy(accPKey[:], privKeyBytes)
+				internalTx.SetSign(accPKey)
 				bTx, err := internalTx.Marshal()
 				if err != nil {
 					rebuildErrors++
@@ -981,6 +1091,8 @@ func main() {
 				txHash := internalTx.ToEthTransaction().Hash()
 				txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
 				txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
+				rawHash := crypto.Keccak256Hash(bTx)
+				txHashMap.Store(strings.ToLower(rawHash.Hex()), acc.Address)
 
 				allTxs = append(allTxs, rawTx{
 					bytes:  bTx,
@@ -1136,7 +1248,7 @@ func main() {
 
 		// Build map of expected tx hashes to correctly count only our TXs
 		expectedTxHashes := make(map[string]bool)
-		hashMapping := make(map[string]string)
+		hashMapping := make(map[string][]string)
 		for _, tx := range allTxs {
 			ethHashLower := strings.ToLower(tx.txHash.Hex())
 			expectedTxHashes[ethHashLower] = true
@@ -1147,8 +1259,13 @@ func main() {
 				pbHashLower := strings.ToLower(pbHash.Hex())
 				expectedTxHashes[pbHashLower] = true
 
-				hashMapping[ethHashLower] = pbHashLower
-				hashMapping[pbHashLower] = ethHashLower
+				rawHash := crypto.Keccak256Hash(tx.bytes)
+				rawHashLower := strings.ToLower(rawHash.Hex())
+				expectedTxHashes[rawHashLower] = true
+
+				hashMapping[ethHashLower] = []string{pbHashLower, rawHashLower}
+				hashMapping[pbHashLower] = []string{ethHashLower, rawHashLower}
+				hashMapping[rawHashLower] = []string{ethHashLower, pbHashLower}
 			}
 		}
 
@@ -1311,6 +1428,13 @@ func main() {
 					go func(blockNum uint64) {
 						defer wg.Done()
 						blk, err := rpcClient.GetBlockByNumber(blockNum)
+						if err != nil {
+							fmt.Printf("DEBUG: Block %d failed to fetch: %v\n", blockNum, err)
+						} else {
+							if blk == nil {
+								fmt.Printf("DEBUG: Block %d is nil\n", blockNum)
+							}
+						}
 						ch <- blockResult{bn: blockNum, blk: blk, err: err}
 					}(bn)
 				}
@@ -1351,11 +1475,14 @@ func main() {
 						if expectedTxHashes[txHashLower] {
 							newTxsCount++
 							delete(expectedTxHashes, txHashLower)
-							if otherHash, exists := hashMapping[txHashLower]; exists {
-								delete(expectedTxHashes, otherHash)
+							if otherHashes, exists := hashMapping[txHashLower]; exists {
+								for _, otherHash := range otherHashes {
+									delete(expectedTxHashes, otherHash)
+								}
 							}
 						}
 					}
+
 					if newTxsCount > 0 {
 						blkTime := time.UnixMilli(int64(blk.Timestamp))
 						if !seenAnyTx {
@@ -1533,8 +1660,8 @@ func main() {
 				traces, err := rpcClient.GetBlockTraces(endBlock, endBlock)
 				if err == nil && len(traces) > 0 {
 					t := traces[0]
-					if t.TotalBlockDurationUs > 0 {
-						onChainDuration = time.Duration(t.TotalBlockDurationUs) * time.Microsecond
+					if t.TotalExecutionUs > 0 {
+						onChainDuration = time.Duration(t.TotalExecutionUs) * time.Microsecond
 						txCountForTps := t.TxCount
 						if txCountForTps <= 0 {
 							txCountForTps = int(totalTxsInBlocks)
@@ -1605,13 +1732,13 @@ func main() {
 			if tracesErr == nil {
 				var totalRealUs float64
 				for _, t := range traces {
-					realTotalUs := float64(t.WaitGoUs) + float64(t.WaitRustUs) + float64(t.ProcessTxsDurationUs) + float64(t.TotalBlockDurationUs)
+					realTotalUs := float64(0) + float64(0) + float64(t.EvmExecutionDurationUs) + float64(t.TotalExecutionUs)
 					totalRealUs += realTotalUs
 				}
 				totalOnChainExecTime = time.Duration(totalRealUs) * time.Microsecond
 			}
 		}
-		
+
 		waitAndNetworkDelay := totalDuration - blastDuration - totalOnChainExecTime
 		if waitAndNetworkDelay < 0 {
 			waitAndNetworkDelay = 0
@@ -1656,47 +1783,47 @@ func main() {
 
 					for _, t := range traces {
 						// Calculate real total including all phases + wait times (End-to-End Node Latency)
-						realTotalUs := float64(t.WaitGoUs) +
-							float64(t.WaitRustUs) +
-							float64(t.ProcessTxsDurationUs) +
-							float64(t.TotalBlockDurationUs)
+						realTotalUs := float64(0) +
+							float64(0) +
+							float64(t.EvmExecutionDurationUs) +
+							float64(t.TotalExecutionUs)
 
-						totalWaitGo += float64(t.WaitGoUs)
-						totalWaitRust += float64(t.WaitRustUs)
-						totalConsensus += float64(t.ConsensusDurationUs)
-						totalRustFFI += float64(t.RustDeliveryFFIDurationUs)
-						totalClientBatch += float64(t.ClientBatchProcessingUs)
-						totalProcessTX += float64(t.ProcessTxsDurationUs)
-						totalCalcRoots += float64(t.Phase1TotalDurationUs)
-						totalBlockData += float64(t.BlockDataDurationUs)
-						totalMapping += float64(t.MappingDurationUs)
-						totalCommitMem += float64(t.CommitMemoryDurationUs)
-						totalSaveDB += float64(t.SaveDBDurationUs)
-						totalTotal += float64(t.TotalBlockDurationUs)
-						totalGCPause += float64(t.GCPauseUs)
+						totalWaitGo += float64(0)
+						totalWaitRust += float64(0)
+						totalConsensus += float64(0)
+						totalRustFFI += float64(0)
+						totalClientBatch += float64(0)
+						totalProcessTX += float64(t.EvmExecutionDurationUs)
+						totalCalcRoots += float64(0)
+						totalBlockData += float64(0)
+						totalMapping += float64(0)
+						totalCommitMem += float64(0)
+						totalSaveDB += float64(t.CommitDurationUs)
+						totalTotal += float64(t.TotalExecutionUs)
+						totalGCPause += float64(0)
 
 						sb.WriteString(fmt.Sprintf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
 							t.BlockNumber, t.TxCount,
-							float64(t.WaitGoUs)/1000.0,
-							float64(t.WaitRustUs)/1000.0,
-							float64(t.ConsensusDurationUs)/1000.0,
-							float64(t.RustDeliveryFFIDurationUs)/1000.0,
-							float64(t.ClientBatchProcessingUs)/1000.0,
-							float64(t.ProcessTxsDurationUs)/1000.0,
-							float64(t.Phase1TotalDurationUs)/1000.0, // calc roots
-							float64(t.BlockDataDurationUs)/1000.0,
-							float64(t.MappingDurationUs)/1000.0,
-							float64(t.CommitMemoryDurationUs)/1000.0,
-							float64(t.SaveDBDurationUs)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(t.EvmExecutionDurationUs)/1000.0,
+							float64(0)/1000.0, // calc roots
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(0)/1000.0,
+							float64(t.CommitDurationUs)/1000.0,
 							realTotalUs/1000.0,
-							float64(t.GCPauseUs)/1000.0))
+							float64(0)/1000.0))
 					}
 
 					if len(traces) > 0 {
 						n := float64(len(traces))
 						sb.WriteString(fmt.Sprintf("\n  🔍 BOTTLENECK ANALYSIS (Average per Block)\n"))
 						sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 75)))
-						
+
 						type stat struct {
 							name  string
 							avgMs float64
@@ -1713,16 +1840,16 @@ func main() {
 							{"GCPause", totalGCPause / n / 1000.0, "Dừng dọn rác Golang (STW)"},
 							{"ClientBatch", totalClientBatch / n / 1000.0, "Hàng đợi chờ Execution Go"},
 						}
-						
+
 						sort.Slice(stats, func(i, j int) bool {
 							return stats[i].avgMs > stats[j].avgMs
 						})
-						
+
 						var baseMs float64 = (totalWaitGo + totalWaitRust + totalTotal) / n / 1000.0
 						if baseMs == 0 {
 							baseMs = 1
 						}
-						
+
 						for i, s := range stats {
 							if i >= 4 && s.avgMs < 5.0 {
 								break // only show top bottlenecks
@@ -1740,7 +1867,7 @@ func main() {
 							sb.WriteString(fmt.Sprintf("  %s %-12s : %8.1f ms (%5.1f%%) | %s\n", icon, s.name, s.avgMs, percent, s.desc))
 						}
 						sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 75)))
-						
+
 						top := stats[0]
 						sb.WriteString(fmt.Sprintf("  💡 Gợi ý tối ưu:\n"))
 						if top.name == "ProcessTX" && top.avgMs > 500 {

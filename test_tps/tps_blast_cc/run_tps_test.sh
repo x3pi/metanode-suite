@@ -74,14 +74,14 @@ if [ "$RESET" = true ]; then
   echo "👉 Bước 1-3: Đã loại bỏ do chuyển sang Rust (Mock RPC không cần pre-fund ví trong genesis)."
 
   echo "👉 Bước 4: Deploy & Reset lại toàn bộ cụm node (Xóa dữ liệu cũ)..."
-  cd ~/chain-n/metanode/deploy/ansible
+  cd ../../../metanode/deploy/ansible
   ./ansible_deploy.sh --reset-all
 else
   echo "ℹ️  Bỏ qua sinh ví và deploy (Giữ nguyên dữ liệu blockchain hiện tại)."
 fi
 
 echo "👉 Bước 5: Chạy test TPS với các tùy chỉnh..."
-cd ~/chain-n/metanode-suite/test_tps/tps_blast_cc
+cd ../../../metanode-suite/test_tps/tps_blast_cc
 # Cập nhật cấu hình IP/Proxy
 ../../scripts/update-ip/update-ip.sh || true
 

@@ -131,11 +131,8 @@ func testBlsRegistrationHTTP(
 	if errHex == nil && len(decoded) >= 48 {
 		blsPubKey = decoded
 	} else {
-		err = accountABI.UnpackIntoInterface(&blsPubKey, "getPublickeyBls", blsPubKeyResult)
-		if err != nil {
-			fmt.Printf("❌ Lỗi Decode getPublickeyBls: %v\n", err)
-			return
-		}
+		fmt.Printf("❌ Lỗi Decode getPublickeyBls: không thể giải mã hex %v\n", errHex)
+		return
 	}
 
 	serverBlsPubKey := "0x" + hex.EncodeToString(blsPubKey)

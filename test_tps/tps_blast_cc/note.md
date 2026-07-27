@@ -45,6 +45,10 @@ go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amou
 go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --amount 1
 ```
 
+```bash
+./run_tps_test.sh 50000 --rounds 3 --load_balance true --batch 20000 --tps-target 50000 --epoch-wait 0 --config config-multi.json
+```
+
 ### 2. Chạy tải song song với cơ chế Epoch Wait (Mặc định 10 phút / 600 giây):
 ```bash
 go run main.go --count 10000 --epoch-wait 600 --target-node 0

@@ -157,3 +157,30 @@ if [ -f "$FILE6" ]; then
 else
     echo "Warning: $FILE6 not found." >&2
 fi
+# 7. Update $SUITE_DIR/test_tps/tps_contract/config-multi.json
+FILE7="$SUITE_DIR/test_tps/tps_contract/config-multi.json"
+if [ -f "$FILE7" ]; then
+    echo "Updating $FILE7 using Nodes (excluding node 4)..."
+    
+    new_parent=$(jq -r '.tcp_nodes.m0' "$RPC_NODES_FILE")
+    new_rpc_0=$(jq -r '.nodes.m0 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    new_conn_1=$(jq -r '.tcp_nodes.m1' "$RPC_NODES_FILE")
+    new_rpc_1=$(jq -r '.nodes.m1 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    new_conn_2=$(jq -r '.tcp_nodes.m2' "$RPC_NODES_FILE")
+    new_rpc_2=$(jq -r '.nodes.m2 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    new_conn_3=$(jq -r '.tcp_nodes.m3' "$RPC_NODES_FILE")
+    new_rpc_3=$(jq -r '.nodes.m3 | sub("^https?://"; "")' "$RPC_NODES_FILE")
+
+    jq --arg p "$new_parent" \
+       --arg r0 "$new_rpc_0" \
+       --arg c1 "$new_conn_1" \
+       --arg r1 "$new_rpc_1" \
+       --arg c2 "$new_conn_2" \
+       --arg r2 "$new_rpc_2" \
+       --arg c3 "$new_conn_3" \
+       --arg r3 "$new_rpc_3" \
+       '.parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3' \
+       "$FILE7" > "${FILE7}.tmp" && mv "${FILE7}.tmp" "$FILE7"
+else
+    echo "Warning: $FILE7 not found." >&2
+fi

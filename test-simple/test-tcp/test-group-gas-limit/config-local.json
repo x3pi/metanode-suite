@@ -1,0 +1,12 @@
+{
+  "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
+  "version": "0.0.1.0",
+  "parent_connection_address": "192.168.1.234:4200",
+  "chain_id": 991,
+  "nation_id": 1,
+  "parent_connection_type": "client",
+  "parent_address": "0xC6E6474A8DEAD25B0e75b1aeA5d35FA19f69588a",
+  "wallet_1":"0x5e582475a504998c5631e12a5a2585d2b1911812",
+  "wallet_2":"0x781e6ec6ebdca11be4b53865a34c0c7f10b6da6e"
+
+}

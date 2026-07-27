@@ -501,13 +501,11 @@ func main() {
 				fundingStats[fromAddrStr].ExpectedDeduct.Add(fundingStats[fromAddrStr].ExpectedDeduct, transferAmount)
 
 				ethTx := tx.ToEthTransaction()
-				var trackHash string
 				if ethTx != nil {
-					trackHash = ethTx.Hash().Hex()
-				} else {
-					logger.Error("Faild to convert eth tx %s", tx.Hash())
+					expectedFundTxHashes[strings.ToLower(ethTx.Hash().Hex())] = true
 				}
-				expectedFundTxHashes[strings.ToLower(trackHash)] = true
+				expectedFundTxHashes[strings.ToLower(tx.Hash().Hex())] = true
+				trackHash := tx.Hash().Hex()
 
 				if workerSuccess%1000 == 0 || len(expectedFundTxHashes) == numWallets {
 					fmt.Printf("   ✅ Đã gửi tx chuyển tiền %d/%d (Last Tx: %s)\n", len(expectedFundTxHashes), numWallets, trackHash)
