@@ -659,6 +659,17 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 					return nil
 				} else {
 					fmt.Printf("   ❌ Tx THẤT BẠI (Revert)\n")
+
+					// Lấy raw JSON receipt để đọc field revertReason do chuẩn go-ethereum không hỗ trợ sẵn
+					var raw map[string]interface{}
+					errRaw := client.Client().CallContext(context.Background(), &raw, "eth_getTransactionReceipt", signedTx.Hash())
+					if errRaw == nil && raw != nil {
+						if reason, ok := raw["revertReason"].(string); ok {
+							fmt.Printf("      - Lỗi cụ thể (Revert Reason): %s\n", reason)
+							return fmt.Errorf("Tx Reverted: %s", reason)
+						}
+					}
+
 					return fmt.Errorf("Tx Reverted")
 				}
 			}
