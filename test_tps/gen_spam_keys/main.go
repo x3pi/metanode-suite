@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/meta-node-blockchain/meta-node/pkg/bls"
+	"tool-test/pkg/bls"
 )
 
 // KeyInfo represents a generated key pair
