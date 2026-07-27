@@ -13,7 +13,7 @@ go run main.go -envfile=".env.2" -download="MÃ_KEY"
 go run main.go -clients=5 -mode=http-bls -envfile=.env.1 -workers=5
 
 # startClient đến startClient + clientsCount - 1
-go run main.go -startClient=0 -clients=5 -download=0956ada26830a29bcf5286a9e6ced35aa7b917f9901e295a2e5e889bd0261bdf -envfile=.env.1 -workers=5
+go run main.go -startClient=0 -clients=5 -download=981ef5da35b6f6ac56fde7a33fe36d7673a7d036210a6dfdd90edf6f8ddbbc49 -envfile=.env.1 -workers=5
 
 #  public=true : cho phép người khác tải file
 go run main.go -clients=5 -mode=http-bls -envfile=.env.1 -workers=5 -public=true
