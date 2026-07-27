@@ -18,7 +18,17 @@ import (
 // Global log directory configuration
 var globalLogDir = "logs"
 
-const defaultMaxLogReadBytes int64 = 4 * 1024 * 1024 // 4MB
+// Global epoch tracking for log directories
+var (
+	globalEpochMu sync.RWMutex
+	globalEpoch   uint64 = 0
+)
+
+const (
+	defaultMaxLogReadBytes int64 = 4 * 1024 * 1024   // 4MB
+	DefaultMaxLogFileSize  int64 = 200 * 1024 * 1024 // 200MB — rotate khi vượt quá
+	DefaultMaxLogFiles     int   = 5                 // Giữ tối đa 5 file log cũ (.1 → .5)
+)
 
 // SetGlobalLogDir sets the global log directory
 func SetGlobalLogDir(logDir string) {
@@ -28,6 +38,21 @@ func SetGlobalLogDir(logDir string) {
 // GetGlobalLogDir returns the current global log directory
 func GetGlobalLogDir() string {
 	return globalLogDir
+}
+
+// SetGlobalEpoch cập nhật epoch hiện tại cho log system
+// Gọi khi epoch transition xảy ra
+func SetGlobalEpoch(epoch uint64) {
+	globalEpochMu.Lock()
+	defer globalEpochMu.Unlock()
+	globalEpoch = epoch
+}
+
+// GetGlobalEpoch trả về epoch hiện tại
+func GetGlobalEpoch() uint64 {
+	globalEpochMu.RLock()
+	defer globalEpochMu.RUnlock()
+	return globalEpoch
 }
 
 // resolveLogRoot prepares the absolute path for the log root directory.
@@ -46,35 +71,12 @@ func resolveLogRoot(root string) (string, error) {
 	return absRoot, nil
 }
 
-// normalizeDateToPath converts an input date string (e.g. 2025-11-13 or 2025/11/13)
-// to the directory hierarchy used by the logger (YYYY/MM/DD).
-func normalizeDateToPath(date string) (string, error) {
-	date = strings.TrimSpace(date)
-	if date == "" {
-		return "", errors.New("date must not be empty")
-	}
-
-	replacer := strings.NewReplacer("\\", "/", "_", "-", ".", "-", " ", "")
-	normalized := replacer.Replace(date)
-	normalized = strings.Trim(normalized, "/-")
-
-	if len(normalized) == 8 && strings.Count(normalized, "-") == 0 && strings.Count(normalized, "/") == 0 {
-		// Format like 20251113
-		normalized = fmt.Sprintf("%s-%s-%s", normalized[0:4], normalized[4:6], normalized[6:8])
-	} else {
-		normalized = strings.ReplaceAll(normalized, "/", "-")
-	}
-
-	if strings.Count(normalized, "-") != 2 {
-		return "", fmt.Errorf("invalid date format %q", date)
-	}
-
-	parsed, err := time.Parse("2006-01-02", normalized)
-	if err != nil {
-		return "", fmt.Errorf("invalid date value %q: %w", date, err)
-	}
-
-	return filepath.Join(parsed.Format("2006"), parsed.Format("01"), parsed.Format("02")), nil
+// normalizeEpochToPath converts an epoch string (e.g. "2") to the epoch directory name ("epoch_2").
+// Nếu epoch rỗng, sử dụng epoch hiện tại từ GetGlobalEpoch().
+func normalizeEpochToPath(epoch string) (string, error) {
+	// Unified node logging: logs are no longer split by epoch directories.
+	// We return an empty string so the root directory is used directly.
+	return "", nil
 }
 
 func ensureWithinRoot(root, target string) error {
@@ -88,23 +90,20 @@ func ensureWithinRoot(root, target string) error {
 	return nil
 }
 
-// ListLogFiles liệt kê danh sách file log tại ngày tương ứng.
+// ListLogFiles liệt kê danh sách file log tại epoch tương ứng.
 // - root: thư mục gốc chứa logs, mặc định lấy từ globalLogDir nếu bỏ trống.
-// - date: định dạng hỗ trợ YYYY-MM-DD, YYYY/MM/DD hoặc YYYYMMDD. Nếu rỗng thì liệt kê trực tiếp tại root.
-func ListLogFiles(root, date string) ([]string, error) {
+// - epoch: số epoch (vd: "0", "2", "epoch_2"). Nếu rỗng thì dùng epoch hiện tại.
+func ListLogFiles(root, epoch string) ([]string, error) {
 	absRoot, err := resolveLogRoot(root)
 	if err != nil {
 		return nil, err
 	}
 
-	targetDir := absRoot
-	if strings.TrimSpace(date) != "" {
-		datePath, err := normalizeDateToPath(date)
-		if err != nil {
-			return nil, err
-		}
-		targetDir = filepath.Join(targetDir, datePath)
+	epochPath, err := normalizeEpochToPath(epoch)
+	if err != nil {
+		return nil, err
 	}
+	targetDir := filepath.Join(absRoot, epochPath)
 
 	if err := ensureWithinRoot(absRoot, targetDir); err != nil {
 		return nil, err
@@ -126,10 +125,10 @@ func ListLogFiles(root, date string) ([]string, error) {
 	return files, nil
 }
 
-// ReadLogFile đọc nội dung file log theo ngày.
+// ReadLogFile đọc nội dung file log theo epoch.
 // Nếu file lớn hơn maxBytes, chỉ đọc phần cuối file (theo maxBytes) và loại bỏ dòng đầu bị cắt dở.
-func ReadLogFile(root, date, fileName string, maxBytes int64) (string, error) {
-	fullPath, err := ResolveLogFilePath(root, date, fileName)
+func ReadLogFile(root, epoch, fileName string, maxBytes int64) (string, error) {
+	fullPath, err := ResolveLogFilePath(root, epoch, fileName)
 	if err != nil {
 		return "", err
 	}
@@ -174,8 +173,8 @@ func ReadLogFile(root, date, fileName string, maxBytes int64) (string, error) {
 	return string(data), nil
 }
 
-// ResolveLogFilePath trả về đường dẫn tuyệt đối tới file log theo ngày.
-func ResolveLogFilePath(root, date, fileName string) (string, error) {
+// ResolveLogFilePath trả về đường dẫn tuyệt đối tới file log theo epoch.
+func ResolveLogFilePath(root, epoch, fileName string) (string, error) {
 	fileName = strings.TrimSpace(fileName)
 	if fileName == "" {
 		return "", errors.New("fileName must not be empty")
@@ -189,14 +188,11 @@ func ResolveLogFilePath(root, date, fileName string) (string, error) {
 		return "", err
 	}
 
-	targetDir := absRoot
-	if strings.TrimSpace(date) != "" {
-		datePath, err := normalizeDateToPath(date)
-		if err != nil {
-			return "", err
-		}
-		targetDir = filepath.Join(targetDir, datePath)
+	epochPath, err := normalizeEpochToPath(epoch)
+	if err != nil {
+		return "", err
 	}
+	targetDir := filepath.Join(absRoot, epochPath)
 
 	if err := ensureWithinRoot(absRoot, targetDir); err != nil {
 		return "", err
@@ -209,21 +205,38 @@ func ResolveLogFilePath(root, date, fileName string) (string, error) {
 	return fullPath, nil
 }
 
+// ============================================================================
+// FileLogger — ghi log vào file với auto size-based rotation
+// ============================================================================
+
 // FileLogger struct quản lý ghi log vào file
 type FileLogger struct {
-	file    *os.File
-	entries []LogEntry
-	mutex   sync.Mutex
+	file         *os.File
+	filePath     string // Full path đến file log hiện tại
+	baseName     string // Tên file gốc (vd: "App.log")
+	epochDir     string // Thư mục epoch hiện tại
+	entries      []LogEntry
+	mutex        sync.Mutex
+	maxFileSize  int64 // Kích thước tối đa trước khi rotate (bytes)
+	maxLogFiles  int   // Số file cũ tối đa giữ lại
+	bytesWritten int64 // Số bytes đã ghi từ lần rotate cuối
+}
+
+// getEpochDir trả về tên thư mục epoch hiện tại: "epoch_N"
+func getEpochDir() string {
+	// Unified node logging: no epoch directory.
+	return ""
 }
 
 // NewFileLogger tạo mới một FileLogger
+// Log được tổ chức theo epoch: logs/epoch_N/App.log
+// Tự động rotate khi file vượt quá 50MB
 func NewFileLogger(filePath string) (*FileLogger, error) {
-	// Tự động tạo cấu trúc thư mục theo ngày
 	logDir := globalLogDir
-	dateDir := time.Now().Format("2006/01/02")
-	fullPath := filepath.Join(logDir, dateDir, filePath)
+	epochDir := getEpochDir()
+	fullPath := filepath.Join(logDir, epochDir, filePath)
 
-	// Tạo thư mục logs theo ngày nếu chưa tồn tại
+	// Tạo thư mục logs theo epoch nếu chưa tồn tại
 	dir := filepath.Dir(fullPath)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err := os.MkdirAll(dir, os.ModePerm)
@@ -236,10 +249,47 @@ func NewFileLogger(filePath string) (*FileLogger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
+
+	// Lấy kích thước file hiện tại
+	var currentSize int64
+	if info, err := file.Stat(); err == nil {
+		currentSize = info.Size()
+	}
+
 	return &FileLogger{
-		file:    file,
-		entries: make([]LogEntry, 0),
+		file:         file,
+		filePath:     fullPath,
+		baseName:     filePath,
+		epochDir:     epochDir,
+		entries:      make([]LogEntry, 0),
+		maxFileSize:  DefaultMaxLogFileSize,
+		maxLogFiles:  DefaultMaxLogFiles,
+		bytesWritten: currentSize,
 	}, nil
+}
+
+// SetMaxFileSize cấu hình kích thước tối đa file log (bytes)
+func (fl *FileLogger) SetMaxFileSize(size int64) {
+	if fl == nil {
+		return
+	}
+	fl.mutex.Lock()
+	defer fl.mutex.Unlock()
+	if size > 0 {
+		fl.maxFileSize = size
+	}
+}
+
+// SetMaxLogFiles cấu hình số file log cũ tối đa giữ lại
+func (fl *FileLogger) SetMaxLogFiles(n int) {
+	if fl == nil {
+		return
+	}
+	fl.mutex.Lock()
+	defer fl.mutex.Unlock()
+	if n > 0 {
+		fl.maxLogFiles = n
+	}
 }
 
 // File trả về *os.File gốc để có thể dùng làm output cho logger chuẩn.
@@ -248,6 +298,55 @@ func (fl *FileLogger) File() *os.File {
 		return nil
 	}
 	return fl.file
+}
+
+// checkAndRotate kiểm tra kích thước file và rotate nếu cần
+// Phải gọi khi đã giữ fl.mutex
+func (fl *FileLogger) checkAndRotate() {
+	if fl.maxFileSize <= 0 || fl.bytesWritten < fl.maxFileSize {
+		return
+	}
+
+	// Rotate: App.log → App.log.1, App.log.1 → App.log.2, ...
+	fl.rotateLocked()
+}
+
+// rotateLocked thực hiện rotation — đổi tên file cũ và tạo file mới
+// Phải gọi khi đã giữ fl.mutex
+func (fl *FileLogger) rotateLocked() {
+	// Đóng file hiện tại
+	fl.file.Close()
+
+	// Xóa file cũ nhất nếu vượt quá số lượng
+	for i := fl.maxLogFiles; i >= 1; i-- {
+		oldPath := fmt.Sprintf("%s.%d", fl.filePath, i)
+		if i == fl.maxLogFiles {
+			// Xóa file cũ nhất
+			os.Remove(oldPath)
+		} else {
+			// Đổi tên: .1 → .2, .2 → .3, ...
+			newPath := fmt.Sprintf("%s.%d", fl.filePath, i+1)
+			os.Rename(oldPath, newPath)
+		}
+	}
+
+	// Đổi tên file hiện tại → .1
+	rotatedPath := fmt.Sprintf("%s.1", fl.filePath)
+	os.Rename(fl.filePath, rotatedPath)
+
+	// Tạo file mới
+	newFile, err := os.OpenFile(fl.filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("🔄 [LOG-ROTATE] Error creating new log file: %v", err)
+		// Fallback: mở lại file cũ
+		newFile, _ = os.OpenFile(rotatedPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	}
+
+	fl.file = newFile
+	fl.bytesWritten = 0
+
+	log.Printf("🔄 [LOG-ROTATE] Rotated %s (max %dMB, keeping %d old files)",
+		fl.baseName, fl.maxFileSize/(1024*1024), fl.maxLogFiles)
 }
 
 // Log ghi một message đơn giản vào file
@@ -262,9 +361,12 @@ func (fl *FileLogger) Log(message string) {
 
 	timestamp := time.Now().Format(time.RFC3339)
 	logMessage := fmt.Sprintf("%s: %s\n", timestamp, message)
-	if _, err := fl.file.WriteString(logMessage); err != nil {
+	n, err := fl.file.WriteString(logMessage)
+	if err != nil {
 		log.Printf("Failed to write log message: %v", err)
 	}
+	fl.bytesWritten += int64(n)
+	fl.checkAndRotate()
 }
 
 // Info ghi một message định dạng vào file
@@ -279,9 +381,12 @@ func (fl *FileLogger) Info(message interface{}, a ...interface{}) {
 
 	timestamp := time.Now().Format(time.RFC3339)
 	logMessage := fmt.Sprintf("%s: %s\n", timestamp, fmt.Sprintf(fmt.Sprint(message), a...))
-	if _, err := fl.file.WriteString(logMessage); err != nil {
+	n, err := fl.file.WriteString(logMessage)
+	if err != nil {
 		log.Printf("Failed to write log message: %v", err)
 	}
+	fl.bytesWritten += int64(n)
+	fl.checkAndRotate()
 }
 
 // LogEntry lưu trữ một mục log chi tiết
@@ -316,11 +421,14 @@ func (fl *FileLogger) Flush() {
 	}
 
 	data = append(data, '\n')
-	if _, err := fl.file.Write(data); err != nil {
+	n, err := fl.file.Write(data)
+	if err != nil {
 		log.Printf("Error writing to file: %v", err)
 		return
 	}
+	fl.bytesWritten += int64(n)
 	fl.entries = fl.entries[:0] // Xóa dữ liệu sau khi ghi
+	fl.checkAndRotate()
 }
 
 // FlushPeriodically thực hiện Flush theo chu kỳ

@@ -21,7 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/event"
-	"github.com/meta-node-blockchain/meta-node/pkg/loggerfile"
+	"tool-test/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
 )
 
