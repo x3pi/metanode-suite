@@ -263,7 +263,10 @@ func (client *Client) SendTransactionWithDeviceKeySync(
 	}
 
 	if cmd == command.TransactionSuccess {
-		return transaction.Hash(), nil
+		body := respMsg.Body()
+		if len(body) > 0 {
+			return common.BytesToHash(body), nil
+		}
 	}
 
 	return common.Hash{}, fmt.Errorf("unexpected command: %s", cmd)

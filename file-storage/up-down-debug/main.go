@@ -186,7 +186,7 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Đảm bảo hàm cancel được gọi khi main thoát
-	
+
 	// Sử dụng rpc.DialOptions để bỏ qua xác minh SSL cho Websocket
 	wsDialer := websocket.Dialer{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -211,6 +211,14 @@ func main() {
 	}
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 	fmt.Printf("Sử dụng tài khoản: %s\n", fromAddress.Hex())
+
+	// Lấy số dư ngay lúc khởi chạy
+	initialBalance, err := client.BalanceAt(context.Background(), fromAddress, nil)
+	if err != nil {
+		log.Fatalf("Lỗi lấy số dư tài khoản: %v", err)
+	}
+	ethInitialBalance := new(big.Float).Quo(new(big.Float).SetInt(initialBalance), big.NewFloat(1e15))
+	fmt.Printf("💰 Số dư lúc khởi chạy: %s wei (%.6f ETH)\n", initialBalance.String(), ethInitialBalance)
 
 	// --- 3. Tải hoặc khởi tạo contract ---
 	contractAddress := common.HexToAddress(config.ContractAddressHex)
@@ -432,7 +440,7 @@ func uploadFileGetInputData(client *ethclient.Client, privateKey *ecdsa.PrivateK
 	if err != nil {
 		log.Fatalf("Failed to calculate price: %v", err)
 	}
-	fmt.Printf("Required payment: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e18)
+	fmt.Printf("Required payment: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e15)
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
@@ -440,7 +448,15 @@ func uploadFileGetInputData(client *ethclient.Client, privateKey *ecdsa.PrivateK
 	}
 	auth.GasLimit = uint64(3_000_000_0000000)
 	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
+	logger.Info("Gas price", auth.GasPrice)
 	auth.Value = requiredPayment // Gửi kèm thanh toán
+
+	balanceBefore, err := client.BalanceAt(context.Background(), fromAddress, nil)
+	if err != nil {
+		log.Fatalf("Failed to get balance before: %v", err)
+	}
+	ethBalanceBefore := new(big.Float).Quo(new(big.Float).SetInt(balanceBefore), big.NewFloat(1e15))
+	fmt.Printf("💰 Số dư ban đầu trước khi PushFileInfo: %s wei (%.6f ETH)\n", balanceBefore.String(), ethBalanceBefore)
 
 	tx, err := instance.PushFileInfo(auth, info)
 	if err != nil {
@@ -453,6 +469,14 @@ func uploadFileGetInputData(client *ethclient.Client, privateKey *ecdsa.PrivateK
 		log.Fatalf("Failed to wait for tx: %v", err)
 	}
 	log.Printf("PushFileInfo tx %v mined in block %d with status %d", tx.Hash(), receipt.BlockNumber.Uint64(), receipt.Status)
+
+	balanceAfter, err := client.BalanceAt(context.Background(), fromAddress, nil)
+	if err != nil {
+		log.Fatalf("Failed to get balance after: %v", err)
+	}
+	cost := new(big.Int).Sub(balanceBefore, balanceAfter)
+	ethCost := new(big.Float).Quo(new(big.Float).SetInt(cost), big.NewFloat(1e15))
+	fmt.Printf("💸 Tổng chi phí (gas + phí lưu trữ): %s wei (%.6f ETH)\n", cost.String(), ethCost)
 	var fileKey [32]byte
 	for _, v := range receipt.Logs {
 		if parsed, err := instance.ParseFileAdded(*v); err == nil {
@@ -552,18 +576,27 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 		log.Fatalf("Failed to get chain ID: %v", err)
 	}
 
+	balanceBefore, err := client.BalanceAt(context.Background(), fromAddress, nil)
+	if err != nil {
+		log.Fatalf("Failed to get balance before: %v", err)
+	}
+	ethBalanceBefore := new(big.Float).Quo(new(big.Float).SetInt(balanceBefore), big.NewFloat(1e15))
+	fmt.Printf("💰 Số dư ban đầu trước khi PushFileInfo: %s wei (%.6f ETH)\n", balanceBefore.String(), ethBalanceBefore)
+
 	requiredPayment, err := instance.CalculatePrice(&bind.CallOpts{}, big.NewInt(int64(totalChunks)))
 	if err != nil {
 		log.Fatalf("Failed to calculate price: %v", err)
 	}
-	fmt.Printf("Required payment: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e18)
+	fmt.Printf("Required payment: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e15)
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
 		log.Fatalf("Failed to create transactor: %v", err)
 	}
 	auth.GasLimit = uint64(3_000_000_0000000)
-	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
+	// auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
+	auth.GasPrice = big.NewInt(10000)
+	logger.Info("Gas price", auth.GasPrice)
 	auth.Value = requiredPayment // Gửi kèm thanh toán
 
 	tx, err := instance.PushFileInfo(auth, info)
@@ -577,6 +610,14 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 		log.Fatalf("Failed to wait for tx: %v", err)
 	}
 	log.Printf("PushFileInfo tx %v mined in block %d with receipt %v, tx %v", tx.Hash(), receipt.BlockNumber.Uint64(), receipt, tx)
+
+	balanceAfter, err := client.BalanceAt(context.Background(), fromAddress, nil)
+	if err != nil {
+		log.Fatalf("Failed to get balance after: %v", err)
+	}
+	cost := new(big.Int).Sub(balanceBefore, balanceAfter)
+	ethCost := new(big.Float).Quo(new(big.Float).SetInt(cost), big.NewFloat(1e15))
+	fmt.Printf("💸 Tổng chi phí (gas + phí lưu trữ): %s wei (%.6f ETH)\n", cost.String(), ethCost)
 	var fileKey [32]byte
 	for _, v := range receipt.Logs {
 		if parsed, err := instance.ParseFileAdded(*v); err == nil {
@@ -779,7 +820,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("lỗi tính toán giá: %v", err)
 	}
-	fmt.Printf("Yêu cầu thanh toán để tải xuống: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e18)
+	fmt.Printf("Yêu cầu thanh toán để tải xuống: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e15)
 
 	auth.GasLimit = uint64(3_000_000)
 	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())

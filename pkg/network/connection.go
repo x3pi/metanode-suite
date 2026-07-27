@@ -865,7 +865,7 @@ func (c *Connection) readLoop(tcpConn net.Conn, requestChan chan<- network.Reque
 			return
 		}
 		rcmd := msgProto.GetHeader().GetCommand()
-		if rcmd != "block_data_topic" && rcmd != "Ping" && rcmd != "Pong" && rcmd != "KeepAlive" && rcmd != "GetTransactionReceipt" && rcmd != "TransactionReceipt"&& rcmd != "Receipt" && rcmd != "InitConnection" && rcmd != "AccountState" && rcmd != "TransactionSuccess" && rcmd != "TransactionSuccess" {
+		if rcmd != "block_data_topic" && rcmd != "Ping" && rcmd != "Pong" && rcmd != "KeepAlive" && rcmd != "GetTransactionReceipt" && rcmd != "TransactionReceipt" && rcmd != "Receipt" && rcmd != "InitConnection" && rcmd != "AccountState" && rcmd != "TransactionSuccess" && rcmd != "TransactionSuccess" {
 			logger.Info(
 				"readLoop %s: received command %s (%d bytes body)",
 				remoteAddr,
