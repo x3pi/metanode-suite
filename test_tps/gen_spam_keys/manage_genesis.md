@@ -32,5 +32,11 @@ Script cần truyền vào 3 tham số: lệnh cần chạy (`add` hoặc `remov
 ./manage_genesis.py remove ../../../metanode/deploy/systemd/genesis.json generated_keys.json.test
 ```
 
-## Lưu ý hiệu năng
-Script sử dụng Python Dictionary/Set để tra cứu, độ phức tạp là `O(N)`, cho phép xử lý các danh sách có kích thước lớn (chẳng hạn 50,000 keys hoặc hơn) một cách nhanh chóng chỉ trong vài giây.
+
+# simple-chain
+
+```bash
+python3 /home/abc/nhat/consensus-chain/metanode-suite/test_tps/gen_spam_keys/manage_genesis.py add \
+  /home/abc/nhat/mtn-simple-2025/cmd/simple_chain/genesis.json \
+  /home/abc/nhat/consensus-chain/metanode-suite/test_tps/gen_spam_keys/generated_keys.json.test
+```bash

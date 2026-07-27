@@ -60,7 +60,7 @@ type Info struct {
 
 // FileContractMetaData contains all meta data concerning the FileContract contract.
 var FileContractMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[],\"stateMutability\":\"payable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"chunkIndex\",\"type\":\"uint256\"}],\"name\":\"ChunkUploaded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"DownloadKeyConfirmed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"DownloadKeyGenerated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"FileActivated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"indexed\":false,\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"}],\"name\":\"FileAdded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"FileDeleted\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"FileLocked\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"FundsWithdrawn\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"payer\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"downloadCount\",\"type\":\"uint256\"}],\"name\":\"PaymentReceived\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"storageServer\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"currentConfirmations\",\"type\":\"uint256\"}],\"name\":\"StorageConfirmed\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_owner\",\"type\":\"address\"}],\"name\":\"addOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_server\",\"type\":\"address\"}],\"name\":\"addStorageServer\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_validator\",\"type\":\"address\"}],\"name\":\"addValidator\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"numChunks\",\"type\":\"uint256\"}],\"name\":\"calculatePrice\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"confirmFileActive\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"}],\"name\":\"confirmServerDownload\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"deleteFile\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"start\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"limit\",\"type\":\"uint256\"}],\"name\":\"downloadFile\",\"outputs\":[{\"internalType\":\"bytes[]\",\"name\":\"\",\"type\":\"bytes[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getContractBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"}],\"name\":\"getDownloadSessionInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"address[]\",\"name\":\"confirmations\",\"type\":\"address[]\"},{\"internalType\":\"bool\",\"name\":\"isConfirmed\",\"type\":\"bool\"}],\"internalType\":\"structDownloadSession\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"getFileInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string[]\",\"name\":\"names\",\"type\":\"string[]\"}],\"name\":\"getFileKeyFromName\",\"outputs\":[{\"internalType\":\"bytes32[]\",\"name\":\"\",\"type\":\"bytes32[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"getFileProgress\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"lastChunkHash\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"processedChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint256\",\"name\":\"processedLength\",\"type\":\"uint256\"}],\"internalType\":\"structFileProgress\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32[]\",\"name\":\"fileKeys\",\"type\":\"bytes32[]\"}],\"name\":\"getFilesInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo[]\",\"name\":\"infos\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getOwnerList\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getStorageServerList\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getValidatorList\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_address\",\"type\":\"address\"}],\"name\":\"isOwner\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_address\",\"type\":\"address\"}],\"name\":\"isStorageServer\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_address\",\"type\":\"address\"}],\"name\":\"isValidator\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"lockFile\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"mDownloadKeyToSession\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"bool\",\"name\":\"isConfirmed\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"mKeyToFileInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo\",\"name\":\"info\",\"type\":\"tuple\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"lastChunkHash\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"processedChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint256\",\"name\":\"processedLength\",\"type\":\"uint256\"}],\"internalType\":\"structFileProgress\",\"name\":\"progress\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"name\":\"mNameToFileKey\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"ownerList\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"owners\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"downloadTimes\",\"type\":\"uint256\"}],\"name\":\"payForDownload\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"pricePerChunk\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo\",\"name\":\"info\",\"type\":\"tuple\"}],\"name\":\"pushFileInfo\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_owner\",\"type\":\"address\"}],\"name\":\"removeOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_server\",\"type\":\"address\"}],\"name\":\"removeStorageServer\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_validator\",\"type\":\"address\"}],\"name\":\"removeValidator\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"_newExpireTime\",\"type\":\"uint64\"}],\"name\":\"renewTime\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"service\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_newPrice\",\"type\":\"uint256\"}],\"name\":\"setPricePerChunk\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"storageServerList\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"storageServers\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"bytes\",\"name\":\"chunkData\",\"type\":\"bytes\"},{\"internalType\":\"uint256\",\"name\":\"chunkIndex\",\"type\":\"uint256\"},{\"internalType\":\"bytes32[]\",\"name\":\"merkleProof\",\"type\":\"bytes32[]\"}],\"name\":\"uploadChunk\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"validatorList\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"validators\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"withdrawAmount\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"withdrawFunds\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"target\",\"type\":\"address\"}],\"name\":\"AddressEmptyCode\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"implementation\",\"type\":\"address\"}],\"name\":\"ERC1967InvalidImplementation\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"ERC1967NonPayable\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"FailedCall\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidInitialization\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NotInitializing\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"UUPSUnauthorizedCallContext\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"slot\",\"type\":\"bytes32\"}],\"name\":\"UUPSUnsupportedProxiableUUID\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"chunkIndex\",\"type\":\"uint256\"}],\"name\":\"ChunkUploaded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"DownloadKeyConfirmed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"DownloadKeyGenerated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"FileActivated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"indexed\":false,\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"}],\"name\":\"FileAdded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"FileDeleted\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"FileLocked\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"FundsWithdrawn\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint64\",\"name\":\"version\",\"type\":\"uint64\"}],\"name\":\"Initialized\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"payer\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"downloadCount\",\"type\":\"uint256\"}],\"name\":\"PaymentReceived\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"storageServer\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"currentConfirmations\",\"type\":\"uint256\"}],\"name\":\"StorageConfirmed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"implementation\",\"type\":\"address\"}],\"name\":\"Upgraded\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"UPGRADE_INTERFACE_VERSION\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_owner\",\"type\":\"address\"}],\"name\":\"addOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_server\",\"type\":\"address\"}],\"name\":\"addStorageServer\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_validator\",\"type\":\"address\"}],\"name\":\"addValidator\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"numChunks\",\"type\":\"uint256\"}],\"name\":\"calculatePrice\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"confirmFileActive\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"}],\"name\":\"confirmServerDownload\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"deleteFile\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"start\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"limit\",\"type\":\"uint256\"}],\"name\":\"downloadFile\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getContractBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"downloadKey\",\"type\":\"bytes32\"}],\"name\":\"getDownloadSessionInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"address[]\",\"name\":\"confirmations\",\"type\":\"address[]\"},{\"internalType\":\"bool\",\"name\":\"isConfirmed\",\"type\":\"bool\"}],\"internalType\":\"structDownloadSession\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"getFileInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string[]\",\"name\":\"names\",\"type\":\"string[]\"}],\"name\":\"getFileKeyFromName\",\"outputs\":[{\"internalType\":\"bytes32[]\",\"name\":\"\",\"type\":\"bytes32[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"getFileProgress\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"lastChunkHash\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"processedChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint256\",\"name\":\"processedLength\",\"type\":\"uint256\"}],\"internalType\":\"structFileProgress\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32[]\",\"name\":\"fileKeys\",\"type\":\"bytes32[]\"}],\"name\":\"getFilesInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo[]\",\"name\":\"infos\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getOwnerList\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getRustServerAddresses\",\"outputs\":[{\"internalType\":\"string[]\",\"name\":\"\",\"type\":\"string[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getStorageServerList\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getValidatorList\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"initialize\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_address\",\"type\":\"address\"}],\"name\":\"isOwner\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_address\",\"type\":\"address\"}],\"name\":\"isStorageServer\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_address\",\"type\":\"address\"}],\"name\":\"isValidator\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"name\":\"lockFile\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"mDownloadKeyToSession\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"bool\",\"name\":\"isConfirmed\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"mKeyToFileInfo\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo\",\"name\":\"info\",\"type\":\"tuple\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"lastChunkHash\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"processedChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint256\",\"name\":\"processedLength\",\"type\":\"uint256\"}],\"internalType\":\"structFileProgress\",\"name\":\"progress\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"name\":\"mNameToFileKey\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"ownerList\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"owners\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"downloadTimes\",\"type\":\"uint256\"}],\"name\":\"payForDownload\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"pricePerChunk\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"proxiableUUID\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32\",\"name\":\"merkleRoot\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"contentLen\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"totalChunks\",\"type\":\"uint64\"},{\"internalType\":\"uint64\",\"name\":\"expireTime\",\"type\":\"uint64\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"ext\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentDisposition\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"contentID\",\"type\":\"string\"},{\"internalType\":\"enumFileStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"internalType\":\"structInfo\",\"name\":\"info\",\"type\":\"tuple\"}],\"name\":\"pushFileInfo\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"}],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_owner\",\"type\":\"address\"}],\"name\":\"removeOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_server\",\"type\":\"address\"}],\"name\":\"removeStorageServer\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_validator\",\"type\":\"address\"}],\"name\":\"removeValidator\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"uint64\",\"name\":\"_newExpireTime\",\"type\":\"uint64\"}],\"name\":\"renewTime\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"rustServerAddresses\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"service\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_newPrice\",\"type\":\"uint256\"}],\"name\":\"setPricePerChunk\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string[]\",\"name\":\"_addresses\",\"type\":\"string[]\"}],\"name\":\"setRustServerAddresses\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"storageServerList\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"storageServers\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newImplementation\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"name\":\"upgradeToAndCall\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"bytes\",\"name\":\"chunkData\",\"type\":\"bytes\"},{\"internalType\":\"uint256\",\"name\":\"chunkIndex\",\"type\":\"uint256\"},{\"internalType\":\"bytes32[]\",\"name\":\"merkleProof\",\"type\":\"bytes32[]\"}],\"name\":\"uploadChunk\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"validatorList\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"validators\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"withdrawAmount\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileKey\",\"type\":\"bytes32\"},{\"internalType\":\"bool\",\"name\":\"status\",\"type\":\"bool\"}],\"name\":\"setPublicStatus\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
 }
 
 // FileContractABI is the input ABI used to generate the binding from.
@@ -209,6 +209,37 @@ func (_FileContract *FileContractTransactorRaw) Transact(opts *bind.TransactOpts
 	return _FileContract.Contract.contract.Transact(opts, method, params...)
 }
 
+// UPGRADEINTERFACEVERSION is a free data retrieval call binding the contract method 0xad3cb1cc.
+//
+// Solidity: function UPGRADE_INTERFACE_VERSION() view returns(string)
+func (_FileContract *FileContractCaller) UPGRADEINTERFACEVERSION(opts *bind.CallOpts) (string, error) {
+	var out []interface{}
+	err := _FileContract.contract.Call(opts, &out, "UPGRADE_INTERFACE_VERSION")
+
+	if err != nil {
+		return *new(string), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(string)).(*string)
+
+	return out0, err
+
+}
+
+// UPGRADEINTERFACEVERSION is a free data retrieval call binding the contract method 0xad3cb1cc.
+//
+// Solidity: function UPGRADE_INTERFACE_VERSION() view returns(string)
+func (_FileContract *FileContractSession) UPGRADEINTERFACEVERSION() (string, error) {
+	return _FileContract.Contract.UPGRADEINTERFACEVERSION(&_FileContract.CallOpts)
+}
+
+// UPGRADEINTERFACEVERSION is a free data retrieval call binding the contract method 0xad3cb1cc.
+//
+// Solidity: function UPGRADE_INTERFACE_VERSION() view returns(string)
+func (_FileContract *FileContractCallerSession) UPGRADEINTERFACEVERSION() (string, error) {
+	return _FileContract.Contract.UPGRADEINTERFACEVERSION(&_FileContract.CallOpts)
+}
+
 // CalculatePrice is a free data retrieval call binding the contract method 0xae104265.
 //
 // Solidity: function calculatePrice(uint256 numChunks) view returns(uint256)
@@ -238,37 +269,6 @@ func (_FileContract *FileContractSession) CalculatePrice(numChunks *big.Int) (*b
 // Solidity: function calculatePrice(uint256 numChunks) view returns(uint256)
 func (_FileContract *FileContractCallerSession) CalculatePrice(numChunks *big.Int) (*big.Int, error) {
 	return _FileContract.Contract.CalculatePrice(&_FileContract.CallOpts, numChunks)
-}
-
-// DownloadFile is a free data retrieval call binding the contract method 0xfab91940.
-//
-// Solidity: function downloadFile(bytes32 fileKey, uint256 start, uint256 limit) view returns(bytes[])
-func (_FileContract *FileContractCaller) DownloadFile(opts *bind.CallOpts, fileKey [32]byte, start *big.Int, limit *big.Int) ([][]byte, error) {
-	var out []interface{}
-	err := _FileContract.contract.Call(opts, &out, "downloadFile", fileKey, start, limit)
-
-	if err != nil {
-		return *new([][]byte), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new([][]byte)).(*[][]byte)
-
-	return out0, err
-
-}
-
-// DownloadFile is a free data retrieval call binding the contract method 0xfab91940.
-//
-// Solidity: function downloadFile(bytes32 fileKey, uint256 start, uint256 limit) view returns(bytes[])
-func (_FileContract *FileContractSession) DownloadFile(fileKey [32]byte, start *big.Int, limit *big.Int) ([][]byte, error) {
-	return _FileContract.Contract.DownloadFile(&_FileContract.CallOpts, fileKey, start, limit)
-}
-
-// DownloadFile is a free data retrieval call binding the contract method 0xfab91940.
-//
-// Solidity: function downloadFile(bytes32 fileKey, uint256 start, uint256 limit) view returns(bytes[])
-func (_FileContract *FileContractCallerSession) DownloadFile(fileKey [32]byte, start *big.Int, limit *big.Int) ([][]byte, error) {
-	return _FileContract.Contract.DownloadFile(&_FileContract.CallOpts, fileKey, start, limit)
 }
 
 // GetContractBalance is a free data retrieval call binding the contract method 0x6f9fb98a.
@@ -339,7 +339,7 @@ func (_FileContract *FileContractCallerSession) GetDownloadSessionInfo(downloadK
 func (_FileContract *FileContractCaller) GetFileInfo(opts *bind.CallOpts, fileKey [32]byte) (Info, error) {
 	var out []interface{}
 	err := _FileContract.contract.Call(opts, &out, "getFileInfo", fileKey)
-	
+
 	if err != nil {
 		return *new(Info), err
 	}
@@ -486,6 +486,37 @@ func (_FileContract *FileContractSession) GetOwnerList() ([]common.Address, erro
 // Solidity: function getOwnerList() view returns(address[])
 func (_FileContract *FileContractCallerSession) GetOwnerList() ([]common.Address, error) {
 	return _FileContract.Contract.GetOwnerList(&_FileContract.CallOpts)
+}
+
+// GetRustServerAddresses is a free data retrieval call binding the contract method 0xe47cb675.
+//
+// Solidity: function getRustServerAddresses() view returns(string[])
+func (_FileContract *FileContractCaller) GetRustServerAddresses(opts *bind.CallOpts) ([]string, error) {
+	var out []interface{}
+	err := _FileContract.contract.Call(opts, &out, "getRustServerAddresses")
+
+	if err != nil {
+		return *new([]string), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new([]string)).(*[]string)
+
+	return out0, err
+
+}
+
+// GetRustServerAddresses is a free data retrieval call binding the contract method 0xe47cb675.
+//
+// Solidity: function getRustServerAddresses() view returns(string[])
+func (_FileContract *FileContractSession) GetRustServerAddresses() ([]string, error) {
+	return _FileContract.Contract.GetRustServerAddresses(&_FileContract.CallOpts)
+}
+
+// GetRustServerAddresses is a free data retrieval call binding the contract method 0xe47cb675.
+//
+// Solidity: function getRustServerAddresses() view returns(string[])
+func (_FileContract *FileContractCallerSession) GetRustServerAddresses() ([]string, error) {
+	return _FileContract.Contract.GetRustServerAddresses(&_FileContract.CallOpts)
 }
 
 // GetStorageServerList is a free data retrieval call binding the contract method 0x992b0106.
@@ -769,37 +800,6 @@ func (_FileContract *FileContractCallerSession) MNameToFileKey(arg0 string) ([32
 	return _FileContract.Contract.MNameToFileKey(&_FileContract.CallOpts, arg0)
 }
 
-// Owner is a free data retrieval call binding the contract method 0x8da5cb5b.
-//
-// Solidity: function owner() view returns(address)
-func (_FileContract *FileContractCaller) Owner(opts *bind.CallOpts) (common.Address, error) {
-	var out []interface{}
-	err := _FileContract.contract.Call(opts, &out, "owner")
-
-	if err != nil {
-		return *new(common.Address), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
-
-	return out0, err
-
-}
-
-// Owner is a free data retrieval call binding the contract method 0x8da5cb5b.
-//
-// Solidity: function owner() view returns(address)
-func (_FileContract *FileContractSession) Owner() (common.Address, error) {
-	return _FileContract.Contract.Owner(&_FileContract.CallOpts)
-}
-
-// Owner is a free data retrieval call binding the contract method 0x8da5cb5b.
-//
-// Solidity: function owner() view returns(address)
-func (_FileContract *FileContractCallerSession) Owner() (common.Address, error) {
-	return _FileContract.Contract.Owner(&_FileContract.CallOpts)
-}
-
 // OwnerList is a free data retrieval call binding the contract method 0xdef79ab5.
 //
 // Solidity: function ownerList(uint256 ) view returns(address)
@@ -891,6 +891,68 @@ func (_FileContract *FileContractSession) PricePerChunk() (*big.Int, error) {
 // Solidity: function pricePerChunk() view returns(uint256)
 func (_FileContract *FileContractCallerSession) PricePerChunk() (*big.Int, error) {
 	return _FileContract.Contract.PricePerChunk(&_FileContract.CallOpts)
+}
+
+// ProxiableUUID is a free data retrieval call binding the contract method 0x52d1902d.
+//
+// Solidity: function proxiableUUID() view returns(bytes32)
+func (_FileContract *FileContractCaller) ProxiableUUID(opts *bind.CallOpts) ([32]byte, error) {
+	var out []interface{}
+	err := _FileContract.contract.Call(opts, &out, "proxiableUUID")
+
+	if err != nil {
+		return *new([32]byte), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new([32]byte)).(*[32]byte)
+
+	return out0, err
+
+}
+
+// ProxiableUUID is a free data retrieval call binding the contract method 0x52d1902d.
+//
+// Solidity: function proxiableUUID() view returns(bytes32)
+func (_FileContract *FileContractSession) ProxiableUUID() ([32]byte, error) {
+	return _FileContract.Contract.ProxiableUUID(&_FileContract.CallOpts)
+}
+
+// ProxiableUUID is a free data retrieval call binding the contract method 0x52d1902d.
+//
+// Solidity: function proxiableUUID() view returns(bytes32)
+func (_FileContract *FileContractCallerSession) ProxiableUUID() ([32]byte, error) {
+	return _FileContract.Contract.ProxiableUUID(&_FileContract.CallOpts)
+}
+
+// RustServerAddresses is a free data retrieval call binding the contract method 0x704138ec.
+//
+// Solidity: function rustServerAddresses(uint256 ) view returns(string)
+func (_FileContract *FileContractCaller) RustServerAddresses(opts *bind.CallOpts, arg0 *big.Int) (string, error) {
+	var out []interface{}
+	err := _FileContract.contract.Call(opts, &out, "rustServerAddresses", arg0)
+
+	if err != nil {
+		return *new(string), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(string)).(*string)
+
+	return out0, err
+
+}
+
+// RustServerAddresses is a free data retrieval call binding the contract method 0x704138ec.
+//
+// Solidity: function rustServerAddresses(uint256 ) view returns(string)
+func (_FileContract *FileContractSession) RustServerAddresses(arg0 *big.Int) (string, error) {
+	return _FileContract.Contract.RustServerAddresses(&_FileContract.CallOpts, arg0)
+}
+
+// RustServerAddresses is a free data retrieval call binding the contract method 0x704138ec.
+//
+// Solidity: function rustServerAddresses(uint256 ) view returns(string)
+func (_FileContract *FileContractCallerSession) RustServerAddresses(arg0 *big.Int) (string, error) {
+	return _FileContract.Contract.RustServerAddresses(&_FileContract.CallOpts, arg0)
 }
 
 // Service is a free data retrieval call binding the contract method 0xd598d4c9.
@@ -1174,6 +1236,48 @@ func (_FileContract *FileContractTransactorSession) DeleteFile(fileKey [32]byte)
 	return _FileContract.Contract.DeleteFile(&_FileContract.TransactOpts, fileKey)
 }
 
+// DownloadFile is a paid mutator transaction binding the contract method 0xfab91940.
+//
+// Solidity: function downloadFile(bytes32 fileKey, uint256 start, uint256 limit) returns()
+func (_FileContract *FileContractTransactor) DownloadFile(opts *bind.TransactOpts, fileKey [32]byte, start *big.Int, limit *big.Int) (*types.Transaction, error) {
+	return _FileContract.contract.Transact(opts, "downloadFile", fileKey, start, limit)
+}
+
+// DownloadFile is a paid mutator transaction binding the contract method 0xfab91940.
+//
+// Solidity: function downloadFile(bytes32 fileKey, uint256 start, uint256 limit) returns()
+func (_FileContract *FileContractSession) DownloadFile(fileKey [32]byte, start *big.Int, limit *big.Int) (*types.Transaction, error) {
+	return _FileContract.Contract.DownloadFile(&_FileContract.TransactOpts, fileKey, start, limit)
+}
+
+// DownloadFile is a paid mutator transaction binding the contract method 0xfab91940.
+//
+// Solidity: function downloadFile(bytes32 fileKey, uint256 start, uint256 limit) returns()
+func (_FileContract *FileContractTransactorSession) DownloadFile(fileKey [32]byte, start *big.Int, limit *big.Int) (*types.Transaction, error) {
+	return _FileContract.Contract.DownloadFile(&_FileContract.TransactOpts, fileKey, start, limit)
+}
+
+// Initialize is a paid mutator transaction binding the contract method 0x8129fc1c.
+//
+// Solidity: function initialize() returns()
+func (_FileContract *FileContractTransactor) Initialize(opts *bind.TransactOpts) (*types.Transaction, error) {
+	return _FileContract.contract.Transact(opts, "initialize")
+}
+
+// Initialize is a paid mutator transaction binding the contract method 0x8129fc1c.
+//
+// Solidity: function initialize() returns()
+func (_FileContract *FileContractSession) Initialize() (*types.Transaction, error) {
+	return _FileContract.Contract.Initialize(&_FileContract.TransactOpts)
+}
+
+// Initialize is a paid mutator transaction binding the contract method 0x8129fc1c.
+//
+// Solidity: function initialize() returns()
+func (_FileContract *FileContractTransactorSession) Initialize() (*types.Transaction, error) {
+	return _FileContract.Contract.Initialize(&_FileContract.TransactOpts)
+}
+
 // LockFile is a paid mutator transaction binding the contract method 0x9b26b2a8.
 //
 // Solidity: function lockFile(bytes32 fileKey) returns()
@@ -1342,6 +1446,69 @@ func (_FileContract *FileContractTransactorSession) SetPricePerChunk(_newPrice *
 	return _FileContract.Contract.SetPricePerChunk(&_FileContract.TransactOpts, _newPrice)
 }
 
+// SetPublicStatus is a paid mutator transaction binding the contract method 0x5c0a62db.
+//
+// Solidity: function setPublicStatus(bytes32 fileKey, bool status) returns()
+func (_FileContract *FileContractTransactor) SetPublicStatus(opts *bind.TransactOpts, fileKey [32]byte, status bool) (*types.Transaction, error) {
+	return _FileContract.contract.Transact(opts, "setPublicStatus", fileKey, status)
+}
+
+// SetPublicStatus is a paid mutator transaction binding the contract method 0x5c0a62db.
+//
+// Solidity: function setPublicStatus(bytes32 fileKey, bool status) returns()
+func (_FileContract *FileContractSession) SetPublicStatus(fileKey [32]byte, status bool) (*types.Transaction, error) {
+	return _FileContract.Contract.SetPublicStatus(&_FileContract.TransactOpts, fileKey, status)
+}
+
+// SetPublicStatus is a paid mutator transaction binding the contract method 0x5c0a62db.
+//
+// Solidity: function setPublicStatus(bytes32 fileKey, bool status) returns()
+func (_FileContract *FileContractTransactorSession) SetPublicStatus(fileKey [32]byte, status bool) (*types.Transaction, error) {
+	return _FileContract.Contract.SetPublicStatus(&_FileContract.TransactOpts, fileKey, status)
+}
+
+// SetRustServerAddresses is a paid mutator transaction binding the contract method 0x0fe789f8.
+//
+// Solidity: function setRustServerAddresses(string[] _addresses) returns()
+func (_FileContract *FileContractTransactor) SetRustServerAddresses(opts *bind.TransactOpts, _addresses []string) (*types.Transaction, error) {
+	return _FileContract.contract.Transact(opts, "setRustServerAddresses", _addresses)
+}
+
+// SetRustServerAddresses is a paid mutator transaction binding the contract method 0x0fe789f8.
+//
+// Solidity: function setRustServerAddresses(string[] _addresses) returns()
+func (_FileContract *FileContractSession) SetRustServerAddresses(_addresses []string) (*types.Transaction, error) {
+	return _FileContract.Contract.SetRustServerAddresses(&_FileContract.TransactOpts, _addresses)
+}
+
+// SetRustServerAddresses is a paid mutator transaction binding the contract method 0x0fe789f8.
+//
+// Solidity: function setRustServerAddresses(string[] _addresses) returns()
+func (_FileContract *FileContractTransactorSession) SetRustServerAddresses(_addresses []string) (*types.Transaction, error) {
+	return _FileContract.Contract.SetRustServerAddresses(&_FileContract.TransactOpts, _addresses)
+}
+
+// UpgradeToAndCall is a paid mutator transaction binding the contract method 0x4f1ef286.
+//
+// Solidity: function upgradeToAndCall(address newImplementation, bytes data) payable returns()
+func (_FileContract *FileContractTransactor) UpgradeToAndCall(opts *bind.TransactOpts, newImplementation common.Address, data []byte) (*types.Transaction, error) {
+	return _FileContract.contract.Transact(opts, "upgradeToAndCall", newImplementation, data)
+}
+
+// UpgradeToAndCall is a paid mutator transaction binding the contract method 0x4f1ef286.
+//
+// Solidity: function upgradeToAndCall(address newImplementation, bytes data) payable returns()
+func (_FileContract *FileContractSession) UpgradeToAndCall(newImplementation common.Address, data []byte) (*types.Transaction, error) {
+	return _FileContract.Contract.UpgradeToAndCall(&_FileContract.TransactOpts, newImplementation, data)
+}
+
+// UpgradeToAndCall is a paid mutator transaction binding the contract method 0x4f1ef286.
+//
+// Solidity: function upgradeToAndCall(address newImplementation, bytes data) payable returns()
+func (_FileContract *FileContractTransactorSession) UpgradeToAndCall(newImplementation common.Address, data []byte) (*types.Transaction, error) {
+	return _FileContract.Contract.UpgradeToAndCall(&_FileContract.TransactOpts, newImplementation, data)
+}
+
 // UploadChunk is a paid mutator transaction binding the contract method 0xe6d51227.
 //
 // Solidity: function uploadChunk(bytes32 fileKey, bytes chunkData, uint256 chunkIndex, bytes32[] merkleProof) returns()
@@ -1382,27 +1549,6 @@ func (_FileContract *FileContractSession) WithdrawAmount(amount *big.Int) (*type
 // Solidity: function withdrawAmount(uint256 amount) returns()
 func (_FileContract *FileContractTransactorSession) WithdrawAmount(amount *big.Int) (*types.Transaction, error) {
 	return _FileContract.Contract.WithdrawAmount(&_FileContract.TransactOpts, amount)
-}
-
-// WithdrawFunds is a paid mutator transaction binding the contract method 0x24600fc3.
-//
-// Solidity: function withdrawFunds() returns()
-func (_FileContract *FileContractTransactor) WithdrawFunds(opts *bind.TransactOpts) (*types.Transaction, error) {
-	return _FileContract.contract.Transact(opts, "withdrawFunds")
-}
-
-// WithdrawFunds is a paid mutator transaction binding the contract method 0x24600fc3.
-//
-// Solidity: function withdrawFunds() returns()
-func (_FileContract *FileContractSession) WithdrawFunds() (*types.Transaction, error) {
-	return _FileContract.Contract.WithdrawFunds(&_FileContract.TransactOpts)
-}
-
-// WithdrawFunds is a paid mutator transaction binding the contract method 0x24600fc3.
-//
-// Solidity: function withdrawFunds() returns()
-func (_FileContract *FileContractTransactorSession) WithdrawFunds() (*types.Transaction, error) {
-	return _FileContract.Contract.WithdrawFunds(&_FileContract.TransactOpts)
 }
 
 // FileContractChunkUploadedIterator is returned from FilterChunkUploaded and is used to iterate over the raw logs and unpacked data for ChunkUploaded events raised by the FileContract contract.
@@ -2486,6 +2632,140 @@ func (_FileContract *FileContractFilterer) ParseFundsWithdrawn(log types.Log) (*
 	return event, nil
 }
 
+// FileContractInitializedIterator is returned from FilterInitialized and is used to iterate over the raw logs and unpacked data for Initialized events raised by the FileContract contract.
+type FileContractInitializedIterator struct {
+	Event *FileContractInitialized // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *FileContractInitializedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(FileContractInitialized)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(FileContractInitialized)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *FileContractInitializedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *FileContractInitializedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// FileContractInitialized represents a Initialized event raised by the FileContract contract.
+type FileContractInitialized struct {
+	Version uint64
+	Raw     types.Log // Blockchain specific contextual infos
+}
+
+// FilterInitialized is a free log retrieval operation binding the contract event 0xc7f505b2f371ae2175ee4913f4499e1f2633a7b5936321eed1cdaeb6115181d2.
+//
+// Solidity: event Initialized(uint64 version)
+func (_FileContract *FileContractFilterer) FilterInitialized(opts *bind.FilterOpts) (*FileContractInitializedIterator, error) {
+
+	logs, sub, err := _FileContract.contract.FilterLogs(opts, "Initialized")
+	if err != nil {
+		return nil, err
+	}
+	return &FileContractInitializedIterator{contract: _FileContract.contract, event: "Initialized", logs: logs, sub: sub}, nil
+}
+
+// WatchInitialized is a free log subscription operation binding the contract event 0xc7f505b2f371ae2175ee4913f4499e1f2633a7b5936321eed1cdaeb6115181d2.
+//
+// Solidity: event Initialized(uint64 version)
+func (_FileContract *FileContractFilterer) WatchInitialized(opts *bind.WatchOpts, sink chan<- *FileContractInitialized) (event.Subscription, error) {
+
+	logs, sub, err := _FileContract.contract.WatchLogs(opts, "Initialized")
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(FileContractInitialized)
+				if err := _FileContract.contract.UnpackLog(event, "Initialized", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseInitialized is a log parse operation binding the contract event 0xc7f505b2f371ae2175ee4913f4499e1f2633a7b5936321eed1cdaeb6115181d2.
+//
+// Solidity: event Initialized(uint64 version)
+func (_FileContract *FileContractFilterer) ParseInitialized(log types.Log) (*FileContractInitialized, error) {
+	event := new(FileContractInitialized)
+	if err := _FileContract.contract.UnpackLog(event, "Initialized", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
 // FileContractPaymentReceivedIterator is returned from FilterPaymentReceived and is used to iterate over the raw logs and unpacked data for PaymentReceived events raised by the FileContract contract.
 type FileContractPaymentReceivedIterator struct {
 	Event *FileContractPaymentReceived // Event containing the contract specifics and raw log
@@ -2753,6 +3033,150 @@ func (_FileContract *FileContractFilterer) WatchStorageConfirmed(opts *bind.Watc
 func (_FileContract *FileContractFilterer) ParseStorageConfirmed(log types.Log) (*FileContractStorageConfirmed, error) {
 	event := new(FileContractStorageConfirmed)
 	if err := _FileContract.contract.UnpackLog(event, "StorageConfirmed", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// FileContractUpgradedIterator is returned from FilterUpgraded and is used to iterate over the raw logs and unpacked data for Upgraded events raised by the FileContract contract.
+type FileContractUpgradedIterator struct {
+	Event *FileContractUpgraded // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *FileContractUpgradedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(FileContractUpgraded)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(FileContractUpgraded)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *FileContractUpgradedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *FileContractUpgradedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// FileContractUpgraded represents a Upgraded event raised by the FileContract contract.
+type FileContractUpgraded struct {
+	Implementation common.Address
+	Raw            types.Log // Blockchain specific contextual infos
+}
+
+// FilterUpgraded is a free log retrieval operation binding the contract event 0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b.
+//
+// Solidity: event Upgraded(address indexed implementation)
+func (_FileContract *FileContractFilterer) FilterUpgraded(opts *bind.FilterOpts, implementation []common.Address) (*FileContractUpgradedIterator, error) {
+
+	var implementationRule []interface{}
+	for _, implementationItem := range implementation {
+		implementationRule = append(implementationRule, implementationItem)
+	}
+
+	logs, sub, err := _FileContract.contract.FilterLogs(opts, "Upgraded", implementationRule)
+	if err != nil {
+		return nil, err
+	}
+	return &FileContractUpgradedIterator{contract: _FileContract.contract, event: "Upgraded", logs: logs, sub: sub}, nil
+}
+
+// WatchUpgraded is a free log subscription operation binding the contract event 0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b.
+//
+// Solidity: event Upgraded(address indexed implementation)
+func (_FileContract *FileContractFilterer) WatchUpgraded(opts *bind.WatchOpts, sink chan<- *FileContractUpgraded, implementation []common.Address) (event.Subscription, error) {
+
+	var implementationRule []interface{}
+	for _, implementationItem := range implementation {
+		implementationRule = append(implementationRule, implementationItem)
+	}
+
+	logs, sub, err := _FileContract.contract.WatchLogs(opts, "Upgraded", implementationRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(FileContractUpgraded)
+				if err := _FileContract.contract.UnpackLog(event, "Upgraded", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseUpgraded is a log parse operation binding the contract event 0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b.
+//
+// Solidity: event Upgraded(address indexed implementation)
+func (_FileContract *FileContractFilterer) ParseUpgraded(log types.Log) (*FileContractUpgraded, error) {
+	event := new(FileContractUpgraded)
+	if err := _FileContract.contract.UnpackLog(event, "Upgraded", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log

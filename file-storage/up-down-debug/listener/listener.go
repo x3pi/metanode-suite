@@ -69,12 +69,11 @@ func (e *EventListener) ListenForAdmin1Events() {
 				}
 				break eventLoop // Thoát vòng lặp nếu có lỗi
 			case eventLog := <-logs:
-				log.Printf("Nhận sự kiện", eventLog)
+				log.Printf("))))___🎉🎉🎉🎉🎉🎉🎉🎉🎉Nhận được sự kiện FileActivated: FileHash=%x 🎉🎉🎉🎉🎉🎉", eventLog.FileKey)
 				if eventLog.User != common.HexToAddress(config.Address) {
 					continue
 				}
-				log.Printf("))))___🎉🎉🎉🎉🎉🎉🎉🎉🎉Nhận được sự kiện FileActivated: FileHash=%x 🎉🎉🎉🎉🎉🎉", eventLog.FileKey)
-				
+
 				eventTime := time.Now()
 				if valStart, ok := UploadStartTimes.Load(eventLog.FileKey); ok {
 					startTime := valStart.(time.Time)
