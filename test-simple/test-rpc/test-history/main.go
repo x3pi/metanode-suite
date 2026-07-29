@@ -26,10 +26,9 @@ import (
 )
 
 type Config struct {
-	RPCUrl     string   `json:"rpc_url"`
-	RPCUrls    []string `json:"rpc_urls"`
-	PrivateKey string   `json:"private_key"`
-	ChainID    int64    `json:"chain_id"`
+	RPCUrl     string `json:"rpc_url"`
+	PrivateKey string `json:"private_key"`
+	ChainID    int64  `json:"chain_id"`
 }
 
 type SavedCheckpoint struct {
@@ -345,11 +344,13 @@ func sendTxAndWait(fc *FailoverClient, fromAddress common.Address, toAddress com
 			receipt, errReceipt := ethCli.TransactionReceipt(ctxReceipt, signedTx.Hash())
 			cancelReceipt()
 			if errReceipt == nil {
-				if receipt.Status == 1 {
-					blockNum = receipt.BlockNumber.Uint64()
-					return nil
+				if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+					if receipt.Status == 1 {
+						blockNum = receipt.BlockNumber.Uint64()
+						return nil
+					}
+					return fmt.Errorf("Tx Reverted")
 				}
-				return fmt.Errorf("Tx Reverted")
 			} else if errReceipt != ethereum.NotFound {
 				return errReceipt
 			}
@@ -583,152 +584,6 @@ func runHistoryCheck(fc *FailoverClient, fromAddress, toAddress common.Address, 
 	}
 
 	fmt.Println("\n=====================================================")
-	fmt.Println("🚀 BẮT ĐẦU XÁC MINH TRÊN CÁC NODE CÒN LẠI")
-	fmt.Println("=====================================================")
-
-	excludeStr := getExcludedNodes(fc.flagExclude)
-	for _, u := range fc.urls {
-		nodeNum := getNodeNumberFromURL(u)
-		if isExcluded(u, excludeStr) || isExcluded(nodeNum, excludeStr) {
-			fmt.Printf("🚫 Bỏ qua kiểm tra lịch sử trên node %s (Node %s) do đang bị loại trừ...\n", u, nodeNum)
-			continue
-		}
-		fmt.Printf("🔍 Đang kiểm tra node: %s (Node %s)\n", u, nodeNum)
-		tempClient, errDial := dialWithTimeout(u)
-		if errDial != nil {
-			fmt.Printf("   ⚠️ Node %s (Node %s) không thể kết nối (%v). Bỏ qua...\n", u, nodeNum, errDial)
-			continue
-		}
-
-		// Đợi node đồng bộ tới blockB (tối đa 3 phút)
-		synced := false
-		waitStart := time.Now()
-		isAlive := false
-		alertSent := false
-		var lastSeenBlock uint64
-		attempts := 0
-		for time.Since(waitStart) < 3*time.Minute {
-			attempts++
-			ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 15*time.Second)
-			var latestBlockHex string
-			errBlock := tempClient.CallContext(ctxTemp, &latestBlockHex, "eth_blockNumber")
-			cancelTemp()
-
-			if errBlock == nil {
-				isAlive = true
-				latestBlock, _ := hexutil.DecodeUint64(latestBlockHex)
-				lastSeenBlock = latestBlock
-				if latestBlock >= blockB {
-					synced = true
-					break
-				}
-				if attempts%10 == 0 {
-					fmt.Printf("   ⏳ Node %s (Node %s) đang đồng bộ (hiện tại: %d, cần: %d)...\n", u, nodeNum, latestBlock, blockB)
-				}
-			} else {
-				if attempts%10 == 0 {
-					fmt.Printf("   🔌 Node %s (Node %s) chưa phản hồi (%v). Đang thử lại...\n", u, nodeNum, errBlock)
-				}
-				// Thử lại sau 120s mà node vẫn KHÔNG phản hồi thì báo lỗi qua Tele luôn và dừng test
-				if !isAlive && time.Since(waitStart) > 120*time.Second && !alertSent {
-					alertSent = true
-					reason := fmt.Sprintf("🛑 LỖI TIMEOUT: Node %s (Node %s) không phản hồi RPC quá 120s! Lỗi: %v", u, nodeNum, errBlock)
-					// Ghi vào file này thì ci_monitor.py bên ngoài sẽ tự động nhận diện và gửi qua Tele
-					os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
-					appendLocalErrorLog(reason)
-					fmt.Printf("   %s\n", reason)
-					tempClient.Close()
-					return false
-				}
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-
-		if !isAlive {
-			fmt.Printf("   ⚠️ Node %s (Node %s) không phản hồi eth_blockNumber. Bỏ qua...\n", u, nodeNum)
-			tempClient.Close()
-			continue
-		}
-
-		if !synced {
-			reason := fmt.Sprintf("🛑 LỖI: Node %s không đồng bộ tới block %d sau 3 phút (block hiện tại của node: %d)", u, blockB, lastSeenBlock)
-			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
-			appendLocalErrorLog(reason)
-			fmt.Printf("   %s\n", reason)
-			tempClient.Close()
-			return false
-		}
-
-		// Xác minh dữ liệu lịch sử trên node này
-		ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 30*time.Second)
-		var tBalAHex, tBalBHex, tNonceAHex, tNonceBHex string
-		var tAsA, tAsB AccountStateResult
-		
-		err1 := tempClient.CallContext(ctxTemp, &tBalAHex, "eth_getBalance", fromAddress, blockAHex)
-		err2 := tempClient.CallContext(ctxTemp, &tBalBHex, "eth_getBalance", fromAddress, blockBHex)
-		err3 := tempClient.CallContext(ctxTemp, &tNonceAHex, "eth_getTransactionCount", fromAddress, blockAHex)
-		err4 := tempClient.CallContext(ctxTemp, &tNonceBHex, "eth_getTransactionCount", fromAddress, blockBHex)
-		err5 := tempClient.CallContext(ctxTemp, &tAsA, "mtn_getAccountState", fromAddress, blockAHex)
-		err6 := tempClient.CallContext(ctxTemp, &tAsB, "mtn_getAccountState", fromAddress, blockBHex)
-		cancelTemp()
-
-		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil {
-			fmt.Printf("   ⚠️ Node %s (Node %s) gặp lỗi RPC khi query data. Bỏ qua...\n", u, nodeNum)
-			tempClient.Close()
-			continue
-		}
-
-		tBalA, _ := hexutil.DecodeBig(tBalAHex)
-		tBalB, _ := hexutil.DecodeBig(tBalBHex)
-		tNonceA, _ := hexutil.DecodeUint64(tNonceAHex)
-		tNonceB, _ := hexutil.DecodeUint64(tNonceBHex)
-
-		nodeHasError := false
-		var nodeErrDetails []string
-
-		if tBalA.Cmp(balanceA) != 0 {
-			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- balanceA khác: Node=%v vs Chuẩn=%v", tBalA, balanceA))
-			nodeHasError = true
-		}
-		if tBalB.Cmp(balanceB) != 0 {
-			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- balanceB khác: Node=%v vs Chuẩn=%v", tBalB, balanceB))
-			nodeHasError = true
-		}
-		if tNonceA != nonceA {
-			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- nonceA khác: Node=%v vs Chuẩn=%v", tNonceA, nonceA))
-			nodeHasError = true
-		}
-		if tNonceB != nonceB {
-			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- nonceB khác: Node=%v vs Chuẩn=%v", tNonceB, nonceB))
-			nodeHasError = true
-		}
-		if tAsA.Balance != accountStateA.Balance || tAsA.Nonce != accountStateA.Nonce {
-			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- accountStateA khác: Node=%v/%v vs Chuẩn=%v/%v", tAsA.Balance, tAsA.Nonce, accountStateA.Balance, accountStateA.Nonce))
-			nodeHasError = true
-		}
-		if tAsB.Balance != accountStateB.Balance || tAsB.Nonce != accountStateB.Nonce {
-			nodeErrDetails = append(nodeErrDetails, fmt.Sprintf("- accountStateB khác: Node=%v/%v vs Chuẩn=%v/%v", tAsB.Balance, tAsB.Nonce, accountStateB.Balance, accountStateB.Nonce))
-			nodeHasError = true
-		}
-
-		if nodeHasError {
-			var sbNode strings.Builder
-			sbNode.WriteString(fmt.Sprintf("🛑 LỖI LỊCH SỬ STATE TRÊN NODE %s (Node %s):\n", u, nodeNum))
-			sbNode.WriteString(fmt.Sprintf("📍 Địa chỉ ví kiểm tra: %s\n", fromAddress.Hex()))
-			sbNode.WriteString(fmt.Sprintf("📍 Mốc Block A: %d | Block B: %d\n", blockA, blockB))
-			sbNode.WriteString(strings.Join(nodeErrDetails, "\n") + "\n")
-			sbNode.WriteString(generateManualCurlCommands(fc.urls, fromAddress, blockAHex, blockBHex, blockA, blockB))
-			reason := sbNode.String()
-			os.WriteFile("/tmp/MTN_CHAIN_ERROR_STOP", []byte(reason), 0644)
-			appendLocalErrorLog(reason)
-			fmt.Printf("   %s\n", reason)
-			tempClient.Close()
-			return false
-		}
-
-		fmt.Printf("   ✅ Node %s (Node %s) đã xác minh dữ liệu lịch sử hoàn toàn khớp!\n", u, nodeNum)
-		tempClient.Close()
-	}
 
 	if hasError {
 		if stopOnError {
@@ -853,10 +708,8 @@ func getTargetNodeURL(cfg *Config, targetNode string) (string, error) {
 	}
 
 	if port, ok := nodePortMap[targetNode]; ok {
-		for _, url := range cfg.RPCUrls {
-			if strings.Contains(url, ":"+port) || strings.Contains(url, "/"+port) {
-				return url, nil
-			}
+		if strings.Contains(cfg.RPCUrl, ":"+port) || strings.Contains(cfg.RPCUrl, "/"+port) {
+			return cfg.RPCUrl, nil
 		}
 		return fmt.Sprintf("http://127.0.0.1:%s", port), nil
 	}
@@ -893,9 +746,7 @@ func main() {
 
 	// Lấy danh sách rpc_url
 	var urls []string
-	if len(cfg.RPCUrls) > 0 {
-		urls = cfg.RPCUrls
-	} else if cfg.RPCUrl != "" {
+	if cfg.RPCUrl != "" {
 		urls = []string{cfg.RPCUrl}
 	} else {
 		log.Fatalf("Không tìm thấy địa chỉ RPC nào trong cấu hình")

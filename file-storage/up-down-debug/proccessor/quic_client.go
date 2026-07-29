@@ -72,14 +72,20 @@ func CreateQuicConnection(serverAddr string) (quic.Connection, error) {
 		NextProtos:         []string{"file-storage-v1"}, // ✅ ALPN for Android compatibility
 	}
 
+	quicConf := &quic.Config{
+		MaxIdleTimeout:         120 * time.Second,
+		HandshakeIdleTimeout:   30 * time.Second,
+		KeepAlivePeriod:        15 * time.Second,
+	}
+
 	var conn quic.Connection
 	var err error
 	const maxRetries = 3
-	const retryDelay = 200 * time.Millisecond
+	const retryDelay = 500 * time.Millisecond
 
 	for i := 0; i < maxRetries; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		conn, err = quic.DialAddr(ctx, serverAddr, tlsConf, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Tăng lên 30s cho handshake
+		conn, err = quic.DialAddr(ctx, serverAddr, tlsConf, quicConf) // ✅ Dùng cấu hình chống Timeout
 		cancel() // Hủy context
 		if err == nil {
 			log.Printf("✅ Kết nối QUIC thành công đến %s", serverAddr)
