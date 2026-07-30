@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -133,10 +134,10 @@ func main() {
 	// Step 4: Initialize the contract through proxy (DONE IN PROXY CONSTRUCTOR)
 	log.Println("\n[3/5] Initializing contract through proxy (done during proxy deployment)...")
 	/*
-	if err := initializeContract(client, deployerAuth, filesContract); err != nil {
-		log.Fatalf("Failed to initialize contract: %v", err)
-	}
-	log.Println("✅ Contract initialized successfully")
+		if err := initializeContract(client, deployerAuth, filesContract); err != nil {
+			log.Fatalf("Failed to initialize contract: %v", err)
+		}
+		log.Println("✅ Contract initialized successfully")
 	*/
 
 	// Step 5: Set Rust Server Addresses if configured
@@ -366,10 +367,10 @@ func getDeployerAuth(client *ethclient.Client, privateKeyHex string) (*bind.Tran
 	if err != nil {
 		return nil, fmt.Errorf("failed to get nonce: %w", err)
 	}
-	if nonce != 1 {
-		log.Printf("❌ LỖI: Nonce hiện tại của tài khoản %s là %d.", fromAddress.Hex(), nonce)
-		return nil, fmt.Errorf("yêu cầu deploy thất bại: nonce phải là 1 (đang là %d)", nonce)
-	}
+	// if nonce != 1 {
+	// 	log.Printf("❌ LỖI: Nonce hiện tại của tài khoản %s là %d.", fromAddress.Hex(), nonce)
+	// 	return nil, fmt.Errorf("yêu cầu deploy thất bại: nonce phải là 1 (đang là %d)", nonce)
+	// }
 	chainID, err := client.ChainID(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chain ID: %w", err)
@@ -398,10 +399,24 @@ func waitForTransaction(client *ethclient.Client, txHash common.Hash, contractNa
 	for {
 		receipt, err := client.TransactionReceipt(ctx, txHash)
 		if err == nil {
-			if receipt.Status == 1 {
-				return receipt, nil
+			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+				if receipt.Status == 1 {
+					return receipt, nil
+				}
+				
+				// Lấy raw JSON receipt để đọc field revertReason
+				var raw map[string]interface{}
+				errRaw := client.Client().CallContext(ctx, &raw, "eth_getTransactionReceipt", txHash)
+				if errRaw == nil && raw != nil {
+					if reason, ok := raw["revertReason"].(string); ok {
+						return nil, fmt.Errorf("transaction failed with revert reason: %s", reason)
+					}
+				}
+				
+				return nil, fmt.Errorf("transaction failed with status %d", receipt.Status)
 			}
-			return nil, fmt.Errorf("transaction failed with status %d", receipt.Status)
+		} else if err != ethereum.NotFound {
+			return nil, fmt.Errorf("system error checking receipt: %w", err)
 		}
 
 		select {

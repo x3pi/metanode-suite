@@ -3,10 +3,10 @@
  * Các hàm tiện ích để giao tiếp với WebTransport server (wt_server.rs).
  *
  * Frame format (Request → Server):
- *   [4 byte BE uint32 length][JSON bytes]
+ *   [4 byte BE uint32 length][2 byte BE uint16 JSON length][JSON bytes][Optional Raw Chunk Data]
  *
  * Frame format (Response ← Server):
- *   [4 byte BE uint32 length][2 byte BE uint16 JSON length][JSON header bytes][raw chunk bytes]
+ *   [4 byte BE uint32 length][2 byte BE uint16 JSON length][JSON header bytes][Optional Raw chunk bytes]
  */
 import { IS_PRODUCTION } from "../constants/customChain";
 
@@ -17,6 +17,18 @@ export interface WtChunkRequest {
     download_key: string;
     chunk_index: number;
     signature: string;
+  };
+}
+
+export interface WtUploadRequest {
+  id: string;
+  command: "upload_chunk";
+  payload: {
+    file_key: string;
+    chunk_index: number;
+    signature: string;
+    merkle_proof_hashes: string[];
+    merkle_root: string;
   };
 }
 
@@ -37,14 +49,46 @@ export type WtChunkResponse = WtChunkResponseOk | WtChunkResponseErr;
 
 /**
  * Encode một object thành frame nhị phân:
- * [4 byte BE uint32 length][JSON UTF-8 bytes]
+ * [4 byte BE uint32 length] [2 byte BE json length] [JSON UTF-8 bytes] [Optional Raw Data]
  */
-export function encodeFrame(obj: object): Uint8Array {
+export function encodeFrame(obj: object, rawData?: Uint8Array): Uint8Array {
   const json = JSON.stringify(obj);
   const jsonBytes = new TextEncoder().encode(json);
-  const frame = new Uint8Array(4 + jsonBytes.length);
-  new DataView(frame.buffer).setUint32(0, jsonBytes.length, false); // big-endian
-  frame.set(jsonBytes, 4);
+  const dataLen = rawData ? rawData.length : 0;
+  
+  const payloadLen = 2 + jsonBytes.length + dataLen;
+  const frame = new Uint8Array(4 + payloadLen);
+  const view = new DataView(frame.buffer);
+  
+  view.setUint32(0, payloadLen, false); // big-endian payload length
+  view.setUint16(4, jsonBytes.length, false); // big-endian json length
+  
+  frame.set(jsonBytes, 6);
+  if (rawData) {
+    frame.set(rawData, 6 + jsonBytes.length);
+  }
+  
+  return frame;
+}
+
+/**
+ * Tối ưu hóa cực độ (Zero-copy cho dữ liệu lớn):
+ * Encode riêng phần Header (4 byte Payload Len + 2 byte JSON Len + JSON Bytes).
+ * Trả về Header buffer để ghi trước, sau đó chunk data (1MB) sẽ được ghi thẳng vào luồng
+ * mà không cần phải cấp phát mảng bộ nhớ mới và copy.
+ */
+export function encodeHeaderOnly(obj: object, dataLen: number): Uint8Array {
+  const json = JSON.stringify(obj);
+  const jsonBytes = new TextEncoder().encode(json);
+  
+  const payloadLen = 2 + jsonBytes.length + dataLen;
+  const frame = new Uint8Array(4 + 2 + jsonBytes.length);
+  const view = new DataView(frame.buffer);
+  
+  view.setUint32(0, payloadLen, false); // big-endian payload length
+  view.setUint16(4, jsonBytes.length, false); // big-endian json length
+  
+  frame.set(jsonBytes, 6);
   return frame;
 }
 
@@ -119,9 +163,9 @@ export function getWtOptions() {
       {
         algorithm: "sha-256",
         value: new Uint8Array([
-          0x3a, 0xd2, 0x0f, 0x88, 0x31, 0xe0, 0xcb, 0xad, 0xec, 0x23, 0xdf, 0x86,
-          0xf4, 0xa7, 0x3c, 0x91, 0x74, 0x5b, 0x39, 0x6b, 0xc0, 0x3a, 0x68, 0x76,
-          0xc7, 0xb9, 0x0a, 0xc4, 0x51, 0x41, 0xcb, 0x95
+          0x5e, 0xc2, 0xee, 0x18, 0x16, 0x17, 0x36, 0xf5, 0xa2, 0xc3, 0xc4, 0xfe,
+          0xd4, 0xc9, 0xd0, 0x5b, 0xff, 0x23, 0xc2, 0x47, 0x76, 0xeb, 0x46, 0x86,
+          0x58, 0x2a, 0xda, 0x86, 0xd9, 0x13, 0x73, 0xd1
         ]),
       },
     ],
@@ -174,4 +218,42 @@ export async function fetchChunkViaWt(
   }
 }
 
+export async function pushChunkOnStream(
+  transport: WebTransport,
+  fileKey: string,
+  chunkIndex: number,
+  chunkData: Uint8Array,
+  signature: string,
+  merkleProofHashes: string[],
+  merkleRoot: string
+): Promise<WtChunkResponse> {
+  const stream = await transport.createBidirectionalStream();
+  const writer = stream.writable.getWriter();
+  const reader = stream.readable.getReader();
 
+  try {
+    const request: WtUploadRequest = {
+      id: crypto.randomUUID(),
+      command: "upload_chunk",
+      payload: { 
+        file_key: fileKey, 
+        chunk_index: chunkIndex, 
+        signature,
+        merkle_proof_hashes: merkleProofHashes,
+        merkle_root: merkleRoot
+      },
+    };
+
+    // Tối ưu Zero-copy: Ghi Header trước, Chunk sau
+    const header = encodeHeaderOnly(request, chunkData.length);
+    await writer.write(header);
+    await writer.write(chunkData); // Ghi thẳng chunk 1MB không tốn RAM copy
+    await writer.close();
+    writer.releaseLock();
+
+    const result = await readResponseFrame(reader);
+    return result;
+  } finally {
+    reader.releaseLock();
+  }
+}

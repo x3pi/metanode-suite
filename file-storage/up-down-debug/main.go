@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/big"
@@ -26,26 +29,19 @@ import (
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
 
-	tx_models "tool-test/pkg/client-tcp/models"
-	"tool-test/pkg/client-tcp/utils/tx_helper"
-	mt_common "tool-test/pkg/common"
 	"tool-test/pkg/logger"
-	pb "tool-test/pkg/proto"
-	mt_transaction "tool-test/pkg/transaction"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"google.golang.org/protobuf/proto"
+
+	"tool-test/pkg/loggerfile"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"tool-test/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
 	"golang.org/x/net/http2"
 )
@@ -55,6 +51,52 @@ func calculateNextPowerOfTwo(n int) int {
 		return 1
 	}
 	return int(math.Pow(2, math.Ceil(math.Log2(float64(n)))))
+}
+
+type UploadChunkPayload struct {
+	ContractAddress   string   `json:"contract_address"`
+	FileKey           string   `json:"file_key"`
+	ChunkIndex        int      `json:"chunk_index"`
+	Signature         string   `json:"signature"`
+	MerkleProofHashes []string `json:"merkle_proof_hashes"`
+	MerkleRoot        string   `json:"merkle_root"`
+}
+type Command struct {
+	Command string      `json:"command"`
+	Payload interface{} `json:"payload"`
+}
+type GenericResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+func writeFrameWithLength(stream quic.Stream, data []byte) error {
+	length := uint32(len(data))
+	lengthBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lengthBuf, length)
+	if _, err := stream.Write(lengthBuf); err != nil {
+		return err
+	}
+	if _, err := stream.Write(data); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readFrameWithLength(stream quic.Stream) ([]byte, error) {
+	lengthBuf := make([]byte, 4)
+	if _, err := io.ReadFull(stream, lengthBuf); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(lengthBuf)
+	if length > 8*1024*1024 {
+		return nil, fmt.Errorf("frame quá lớn: %d", length)
+	}
+	data := make([]byte, length)
+	if _, err := io.ReadFull(stream, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // buildMerkleTreePadded xây dựng cây tương thích với logic xác minh `index >> level`
@@ -391,145 +433,6 @@ func main() {
 
 	log.Println("--- Nhận được tín hiệu dừng.. ---")
 }
-func uploadFileGetInputData(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fromAddress common.Address) ([32]byte, string) {
-	fileData, err := os.ReadFile(config.FilePath)
-	if err != nil {
-		log.Fatalf("Failed to read file: %v", err)
-	}
-	fileName := filepath.Base(config.FilePath)
-	fileExt := filepath.Ext(fileName)
-	contentLen := uint64(len(fileData))
-	totalChunks := (contentLen + config.ChunkSize - 1) / config.ChunkSize
-	fmt.Println("Building PADDED Merkle Tree (compatible with server logic)...")
-	var chunks [][]byte
-	for i := uint64(0); i < totalChunks; i++ {
-		start := i * config.ChunkSize
-		end := start + config.ChunkSize
-		if end > contentLen {
-			end = contentLen
-		}
-		chunkData := fileData[start:end]
-		chunks = append(chunks, chunkData)
-	}
-	// 3. Lấy Merkle Root
-	paddedLeaves, merkleRoot := buildMerkleTreePadded(chunks)
-	var merkleRoot32 [32]byte
-	copy(merkleRoot32[:], merkleRoot)
-
-	fmt.Printf("Uploading File:\n  Name: %s\n  Size: %d bytes\n  Total Chunks: %d\n  Merkle Root: %x\n",
-		fileName, contentLen, totalChunks, merkleRoot32)
-
-	info := contract.Info{
-		Owner:              fromAddress,
-		MerkleRoot:         merkleRoot32,
-		ContentLen:         contentLen,
-		TotalChunks:        totalChunks,
-		ExpireTime:         uint64(time.Now().Add(365 * 24 * time.Hour).Unix()),
-		Name:               fileName,
-		Ext:                fileExt,
-		ContentDisposition: "inline",
-		ContentID:          fmt.Sprintf("%x", merkleRoot32),
-	}
-	log.Printf("File info prepared: %+v\n", info)
-	chainID, err := client.ChainID(context.Background())
-	if err != nil {
-		log.Fatalf("Failed to get chain ID: %v", err)
-	}
-
-	requiredPayment, err := instance.CalculatePrice(&bind.CallOpts{}, big.NewInt(int64(totalChunks)))
-	if err != nil {
-		log.Fatalf("Failed to calculate price: %v", err)
-	}
-	fmt.Printf("Required payment: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e15)
-
-	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
-	if err != nil {
-		log.Fatalf("Failed to create transactor: %v", err)
-	}
-	auth.GasLimit = uint64(3_000_000_0000000)
-	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
-	logger.Info("Gas price", auth.GasPrice)
-	auth.Value = requiredPayment // Gửi kèm thanh toán
-
-	balanceBefore, err := client.BalanceAt(context.Background(), fromAddress, nil)
-	if err != nil {
-		log.Fatalf("Failed to get balance before: %v", err)
-	}
-	ethBalanceBefore := new(big.Float).Quo(new(big.Float).SetInt(balanceBefore), big.NewFloat(1e15))
-	fmt.Printf("💰 Số dư ban đầu trước khi PushFileInfo: %s wei (%.6f ETH)\n", balanceBefore.String(), ethBalanceBefore)
-
-	tx, err := instance.PushFileInfo(auth, info)
-	if err != nil {
-		log.Fatalf("Failed to call PushFileInfo: %v", err)
-	}
-
-	fmt.Println("Waiting for PushFileInfo tx to be mined...")
-	receipt, err := bind.WaitMined(context.Background(), client, tx)
-	if err != nil {
-		log.Fatalf("Failed to wait for tx: %v", err)
-	}
-	log.Printf("PushFileInfo tx %v mined in block %d with status %d", tx.Hash(), receipt.BlockNumber.Uint64(), receipt.Status)
-
-	balanceAfter, err := client.BalanceAt(context.Background(), fromAddress, nil)
-	if err != nil {
-		log.Fatalf("Failed to get balance after: %v", err)
-	}
-	cost := new(big.Int).Sub(balanceBefore, balanceAfter)
-	ethCost := new(big.Float).Quo(new(big.Float).SetInt(cost), big.NewFloat(1e15))
-	fmt.Printf("💸 Tổng chi phí (gas + phí lưu trữ): %s wei (%.6f ETH)\n", cost.String(), ethCost)
-	var fileKey [32]byte
-	for _, v := range receipt.Logs {
-		if parsed, err := instance.ParseFileAdded(*v); err == nil {
-			fileKey = parsed.FileKey
-			fmt.Printf("FileKey successfully retrieved: %x\n", fileKey)
-			break
-		}
-	}
-	if fileKey == [32]byte{} {
-		log.Fatal("FileKey not found in logs")
-	}
-
-	// 🔥 Lấy ABI để encode inputData
-	contractABI, err := contract.FileContractMetaData.GetAbi()
-	if err != nil {
-		log.Fatalf("Failed to get contract ABI: %v", err)
-	}
-
-	// 🔥 Tạo InputData cho từng chunk
-	fmt.Println("\n🔍 Generating InputData for each chunk...")
-	for i := uint64(0); i < totalChunks; i++ {
-		start := i * config.ChunkSize
-		end := start + config.ChunkSize
-		if end > contentLen {
-			end = contentLen
-		}
-		chunk := fileData[start:end]
-		proofBytes := getMerkleProofPadded(paddedLeaves, int(i))
-
-		// Encode inputData cho UploadChunk
-		inputData, err := contractABI.Pack("uploadChunk", fileKey, chunk, big.NewInt(int64(i)), proofBytes)
-		if err != nil {
-			log.Printf("❌ Failed to encode chunk %d: %v", i, err)
-			continue
-		}
-
-		fmt.Printf("\n📦 Chunk %d InputData:\n", i)
-		fmt.Printf("   Length: %d bytes\n", len(inputData))
-
-		// Lưu inputData của từng chunk vào file riêng
-		filename := fmt.Sprintf("upload_chunk_%d_inputdata.txt", i)
-		err = os.WriteFile(filename, []byte(hex.EncodeToString(inputData)), 0644)
-		if err != nil {
-			log.Printf("⚠️  Failed to write chunk %d inputData to file: %v", i, err)
-		} else {
-			fmt.Printf("   ✅ Saved to: %s\n", filename)
-		}
-	}
-
-	fmt.Printf("\n🎉 All InputData generated for %d chunks!\n", totalChunks)
-	return fileKey, fileName
-}
-
 func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateKey *ecdsa.PrivateKey, instance *contract.FileContract, fromAddress common.Address, mode string, numWorkers int, tcpClient *client_tcp.Client, tcpCfg *tcp_config.ClientConfig, contractABI *abi.ABI) ([32]byte, string, uint64, time.Duration) {
 	fileData, err := os.ReadFile(config.FilePath)
 	if err != nil {
@@ -638,13 +541,41 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 
 	chunkUploadStartTime := time.Now()
 
+	// --- Lấy địa chỉ Rust servers ---
+	rustServers, err := instance.GetRustServerAddresses(&bind.CallOpts{})
+	if err != nil || len(rustServers) < 2 {
+		log.Fatalf("Lỗi lấy danh sách Rust Servers từ contract: %v", err)
+	}
+	fmt.Printf("🌐 Rust Servers: %v\n", rustServers)
+
+	// --- Kết nối QUIC ---
+	conn1, err := processor.CreateQuicConnection(rustServers[0])
+	if err != nil {
+		log.Fatalf("Lỗi kết nối QUIC server 1: %v", err)
+	}
+	conn2, err := processor.CreateQuicConnection(rustServers[1])
+	if err != nil {
+		log.Fatalf("Lỗi kết nối QUIC server 2: %v", err)
+	}
+
+	// --- Tạo chữ ký (Signature) ---
+	fileKeyStr := hex.EncodeToString(fileKey[:])
+	merkleRootStr := hex.EncodeToString(merkleRoot32[:])
+	messageToSign := fileKeyStr + merkleRootStr
+	hash := crypto.Keccak256Hash([]byte(fmt.Sprintf("0x00")), []byte(messageToSign))
+	signatureBytes, err := crypto.Sign(hash.Bytes(), privateKey)
+	if err != nil {
+		log.Fatalf("Lỗi ký signature: %v", err)
+	}
+	signatureStr := hex.EncodeToString(signatureBytes)
+
 	for i := uint64(0); i < totalChunks; i++ {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(i uint64) {
 			defer wg.Done()
 			defer func() { <-sem }() // Đảm bảo semaphore được giải phóng
-			// --- Bước 1: Chuẩn bị dữ liệu (chỉ làm 1 lần) ---
+			// --- Bước 1: Chuẩn bị dữ liệu ---
 			start := i * config.ChunkSize
 			end := start + config.ChunkSize
 			if end > contentLen {
@@ -654,110 +585,76 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 
 			// Tạo Merkle Proof
 			proofBytes := getMerkleProofPadded(paddedLeaves, int(i))
-
-			inputData, err := contractABI.Pack("uploadChunk", fileKey, chunk, big.NewInt(int64(i)), proofBytes)
-			if err != nil {
-				log.Printf("❌ Failed to encode chunk %d: %v", i, err)
-				countErr++
-				return
+			merkleProofHexStrings := make([]string, len(proofBytes))
+			for j, h := range proofBytes {
+				merkleProofHexStrings[j] = hex.EncodeToString(h[:])
 			}
 
 			// --- Bước 2: Logic Thử lại (Retry) ---
-			const maxRetries = 3               // Thử lại tối đa 3 lần
-			const retryDelay = 1 * time.Second // Chờ 3 giây giữa các lần thử
+			const maxRetries = 3
+			const retryDelay = 1 * time.Second
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				startChunk := time.Now()
 
-				switch mode {
-				case "http-bls":
-					logger.Info("🚀 [Chunk %d -k %s] up (HTTP BLS)...", i, hex.EncodeToString(fileKey[:]))
-					callData := mt_transaction.NewCallData(inputData)
-					var payload []byte
-					payload, err = callData.Marshal()
-					if err != nil {
-						log.Printf("❌ Failed to marshal calldata for chunk %d: %v", i, err)
-						countErr++
-						return
-					}
-					tx := mt_transaction.NewTransactionWithoutNonce(
-						fromAddress,
-						common.HexToAddress(config.ContractAddressHex),
-						big.NewInt(0),
-						5_000_000,
-						20_000_000_000,
-						uint64(time.Now().Unix()+300),
-						payload,
-						[][]byte{},
-						common.Hash{},
-						common.Hash{},
-						uint64(config.ChainId),
-					)
-					blsPrivBytes, _ := hex.DecodeString(strings.TrimPrefix(config.PrivateKeyBLS, "0x"))
-					tx.SetSign(mt_common.PrivateKeyFromBytes(blsPrivBytes))
+				logger.Info("🚀 [Chunk %d -k %s] up (QUIC)...", i, fileKeyStr)
 
-					txWithDeviceKey := &pb.TransactionWithDeviceKey{
-						Transaction: tx.Proto().(*pb.Transaction),
-						DeviceKey:   []byte{},
-					}
-					bTx, errMarshal := proto.Marshal(txWithDeviceKey)
-					if errMarshal != nil {
-						log.Printf("❌ Failed to marshal tx: %v", errMarshal)
-						return
-					}
+				var conn quic.Connection
+				if i%2 == 0 {
+					conn = conn1
+				} else {
+					conn = conn2
+				}
 
-					var txHashStr string
-					errTCP := clientHttp.Client().CallContext(context.Background(), &txHashStr, "mtn_sendRawTransactionWithDeviceKey", hexutil.Bytes(bTx))
-					if errTCP == nil {
-						txHash := common.HexToHash(txHashStr)
-						sentTime := time.Now()
-						logger.Info("📤 [Chunk %d -k %s] up xong HTTP BLS: tx=%s (mất %s để gửi)",
-							i, hex.EncodeToString(fileKey[:]), txHash.Hex(), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
-						return
+				stream, errStream := conn.OpenStreamSync(context.Background())
+				if errStream == nil {
+					payload := UploadChunkPayload{
+						ContractAddress:   config.ContractAddressHex,
+						FileKey:           fileKeyStr,
+						ChunkIndex:        int(i),
+						Signature:         signatureStr,
+						MerkleProofHashes: merkleProofHexStrings,
+						MerkleRoot:        merkleRootStr,
 					}
-					err = errTCP
+					command := Command{Command: "UploadChunk", Payload: payload}
+					jsonData, _ := json.Marshal(command)
+					jsonData = append(jsonData, '\n')
 
-				case "tcp":
-					logger.Info("🚀 [Chunk %d -k %s] up (TCP)...", i, hex.EncodeToString(fileKey[:]))
-					txHash, errTCP := tx_helper.SendTransactionAsync(
-						"uploadChunk",
-						tcpClient,
-						tcpCfg,
-						common.HexToAddress(config.ContractAddressHex),
-						fromAddress,
-						inputData,
-						&tx_models.TxOptions{
-							MaxGas:      5_000_000,
-							MaxGasPrice: 20_000_000_000,
-						},
-					)
-					if errTCP == nil {
-						sentTime := time.Now()
-						logger.Info("📤 [Chunk %d -k %s] up xong TCP: tx=%s (mất %s để gửi)",
-							i, hex.EncodeToString(fileKey[:]), txHash.Hex(), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
-						return
-					}
-					err = errTCP
-
-				default: // "http"
-					logger.Info("🚀 [Chunk %d -k %s] up (HTTP)...", i, hex.EncodeToString(fileKey[:]))
-					var txRPC *types.Transaction
-					txRPC, err = instance.UploadChunk(auth, fileKey, chunk, big.NewInt(int64(i)), proofBytes)
-					if err == nil {
-						// THÀNH CÔNG
-						sentTime := time.Now()
-						if txRPC != nil {
-							logger.Info("📤 [Chunk %d -k %s] up xong HTTP: tx=%s (mất %s để gửi)",
-								i, hex.EncodeToString(fileKey[:]), txRPC.Hash().Hex(), sentTime.Format("15:04:05.000"), sentTime.Sub(startChunk))
+					stream.SetWriteDeadline(time.Now().Add(120 * time.Second))
+					if errWrite := writeFrameWithLength(stream, jsonData); errWrite == nil {
+						if errWrite2 := writeFrameWithLength(stream, chunk); errWrite2 == nil {
+							stream.SetReadDeadline(time.Now().Add(120 * time.Second))
+							responseData, errRead := readFrameWithLength(stream)
+							if errRead == nil {
+								var response GenericResponse
+								if errUnmarshal := json.Unmarshal(responseData, &response); errUnmarshal == nil {
+									if response.Status == "SUCCESS" || response.Status == "COMPLETED" {
+										sentTime := time.Now()
+										logger.Info("📤 [Chunk %d -k %s] up xong QUIC (mất %s để gửi)",
+											i, fileKeyStr, sentTime.Sub(startChunk))
+										stream.Close()
+										return // Thành công
+									} else {
+										err = fmt.Errorf("server báo lỗi: %s", response.Message)
+									}
+								} else {
+									err = errUnmarshal
+								}
+							} else {
+								err = errRead
+							}
+						} else {
+							err = errWrite2
 						}
-						return // Thoát khỏi goroutine (thành công)
+					} else {
+						err = errWrite
 					}
+					stream.Close()
+				} else {
+					err = errStream
 				}
 
 				// THẤT BẠI
-				if err != nil && strings.Contains(err.Error(), "to store chunk on disk") {
-					return
-				}
-				log.Printf("⚠️ [Chunk %d, Thử %d/%d] Lỗi UploadChunk: %v", i, attempt, maxRetries, err)
+				log.Printf("⚠️ [Chunk %d, Thử %d/%d] Lỗi UploadChunk QUIC: %v", i, attempt, maxRetries, err)
 				if attempt < maxRetries {
 					log.Printf("... [Chunk %d] Sẽ thử lại sau %v...", i, retryDelay)
 					time.Sleep(retryDelay)
@@ -927,7 +824,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 			} else {
 				conn = conn2
 			}
-			chunkData, err := processor.RequestChunkFromRustServerQuic(conn, fileKeyHex, downloadKeyHex, int(i), sign)
+			chunkData, err := processor.RequestChunkFromRustServerQuic(conn, config.ContractAddressHex, fileKeyHex, downloadKeyHex, int(i), sign)
 			if err != nil {
 				log.Printf("Lỗi tải chunk %d: %v", i, err)
 				return // ✅ chỉ return trống

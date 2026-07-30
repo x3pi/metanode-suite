@@ -976,7 +976,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 				} else {
 					conn = conn2
 				}
-				chunkData, err = processor.RequestChunkFromRustServerQuic(conn, fileKeyHex, downloadKeyHex, int(i), sign)
+				chunkData, err = processor.RequestChunkFromRustServerQuic(conn, config.ContractAddressHex, fileKeyHex, downloadKeyHex, int(i), sign)
 				if err == nil {
 					break // Tải thành công
 				}
@@ -991,7 +991,7 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 					}
 					log.Printf("🔄 Tạo kết nối phục hồi cho chunk %d đến %s", i, addr)
 					if newConn, errConn := processor.CreateQuicConnection(addr); errConn == nil {
-						chunkData, err = processor.RequestChunkFromRustServerQuic(newConn, fileKeyHex, downloadKeyHex, int(i), sign)
+						chunkData, err = processor.RequestChunkFromRustServerQuic(newConn, config.ContractAddressHex, fileKeyHex, downloadKeyHex, int(i), sign)
 						if err == nil {
 							break // Phục hồi thành công
 						}

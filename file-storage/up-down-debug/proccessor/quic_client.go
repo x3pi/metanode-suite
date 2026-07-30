@@ -17,7 +17,7 @@ import (
 
 var (
 	RUST_SERVER_1_ADDR_QUIC = "192.168.1.234:7081"
-	RUST_SERVER_2_ADDR_QUIC = "192.168.1.233:7082"
+	RUST_SERVER_2_ADDR_QUIC = "192.168.1.234:7082"
 	// RUST_SERVER_1_ADDR_QUIC = "206.189.152.114:7081"
 	// RUST_SERVER_2_ADDR_QUIC = "157.245.202.80:7082"
 )
@@ -73,9 +73,9 @@ func CreateQuicConnection(serverAddr string) (quic.Connection, error) {
 	}
 
 	quicConf := &quic.Config{
-		MaxIdleTimeout:         120 * time.Second,
-		HandshakeIdleTimeout:   30 * time.Second,
-		KeepAlivePeriod:        15 * time.Second,
+		MaxIdleTimeout:       120 * time.Second,
+		HandshakeIdleTimeout: 30 * time.Second,
+		KeepAlivePeriod:      15 * time.Second,
 	}
 
 	var conn quic.Connection
@@ -85,8 +85,8 @@ func CreateQuicConnection(serverAddr string) (quic.Connection, error) {
 
 	for i := 0; i < maxRetries; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Tăng lên 30s cho handshake
-		conn, err = quic.DialAddr(ctx, serverAddr, tlsConf, quicConf) // ✅ Dùng cấu hình chống Timeout
-		cancel() // Hủy context
+		conn, err = quic.DialAddr(ctx, serverAddr, tlsConf, quicConf)            // ✅ Dùng cấu hình chống Timeout
+		cancel()                                                                 // Hủy context
 		if err == nil {
 			log.Printf("✅ Kết nối QUIC thành công đến %s", serverAddr)
 			return conn, nil // Thành công, trả về kết nối
@@ -104,6 +104,7 @@ func CreateQuicConnection(serverAddr string) (quic.Connection, error) {
 // RequestChunkFromRustServerQuic yêu cầu chunk qua QUIC
 func RequestChunkFromRustServerQuic(
 	conn quic.Connection,
+	contractAddress string,
 	fileKey string,
 	downloadKey string,
 	chunkIndex int, sign string) ([]byte, error) {
@@ -119,10 +120,11 @@ func RequestChunkFromRustServerQuic(
 	request := models.DownloadChunkRequest{
 		Command: "DownloadChunkRequest",
 		Payload: models.DownloadChunkPayload{
-			FileKey:     fileKey,
-			DownloadKey: downloadKey,
-			ChunkIndex:  chunkIndex,
-			Signature:   sign,
+			ContractAddress: contractAddress,
+			FileKey:         fileKey,
+			DownloadKey:     downloadKey,
+			ChunkIndex:      chunkIndex,
+			Signature:       sign,
 		},
 	}
 	// Encode JSON và gửi với length prefix

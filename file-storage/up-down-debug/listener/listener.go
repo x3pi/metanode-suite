@@ -224,7 +224,7 @@ func downloadFile(instance *contract.FileContract, fileKey [32]byte) {
 			}
 			// --- Hết phần cập nhật ---
 
-			chunkData, err := processor.RequestChunkFromRustServerQuic(conn, fileKeyHex, downloadKeyHex, int(chunkIndex), sign)
+			chunkData, err := processor.RequestChunkFromRustServerQuic(conn, config.ContractAddressHex, fileKeyHex, downloadKeyHex, int(chunkIndex), sign)
 			if err != nil {
 				// Sửa: Không dùng log.Fatalf trong goroutine
 				log.Printf("Lỗi tải chunk %d (sử dụng pool index %d): %v", chunkIndex, poolIndex, err)

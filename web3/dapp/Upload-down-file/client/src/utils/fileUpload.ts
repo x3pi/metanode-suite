@@ -1,9 +1,10 @@
-import { createPublicClient, createWalletClient, http, type Address, type Hex, decodeEventLog, bytesToHex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, createWalletClient, http, type Address, type Hex, decodeEventLog, bytesToHex, keccak256, stringToHex } from "viem";
+import { privateKeyToAccount, sign } from "viem/accounts";
 import { contracts, privateKey } from "../constants/contracts";
-import { chain991 } from "../constants/customChain";
+import { chain991, DOWNLOAD_SERVER_1, DOWNLOAD_SERVER_2 } from "../constants/customChain";
 import { buildMerkleTreeFromLeaves, getMerkleProofPadded } from "./merkle";
 import type { Abi } from "viem";
+
 const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 const publicClient = createPublicClient({
   chain: chain991,
@@ -58,22 +59,18 @@ export async function pushFileInfo(
   const requiredPayment = await calculatePrice(info.totalChunks);
   console.log(`Required payment: ${requiredPayment.toString()} wei`);
 
-  // Ensure all BigInt values are properly converted and status is included
   const fileInfoStruct = {
     owner: account.address,
     merkleRoot: info.merkleRoot,
-    contentLen: Number(info.contentLen), // Convert to number for uint64
-    totalChunks: Number(info.totalChunks), // Convert to number for uint64
-    expireTime: Number(info.expireTime), // Convert to number for uint64
+    contentLen: Number(info.contentLen),
+    totalChunks: Number(info.totalChunks),
+    expireTime: Number(info.expireTime),
     name: info.name,
     ext: info.ext,
     contentDisposition: info.contentDisposition,
     contentID: info.contentID,
-    status: 0, // FileStatus enum: 0 = Pending (default status for new files)
+    status: 0,
   };
-
-  console.log("Pushing file info:", fileInfoStruct);
-  console.log("Required payment:", requiredPayment?.toString());
 
   if (!requiredPayment || requiredPayment === undefined) {
     throw new Error("Failed to calculate price: requiredPayment is undefined");
@@ -88,18 +85,13 @@ export async function pushFileInfo(
     gas: 3000000n,
   });
 
-  // Wait for transaction receipt
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
   if (receipt.status !== "success") {
     throw new Error("Transaction failed");
   }
 
-  // Extract fileKey from FileAdded event
-  // FileAdded event signature: FileAdded(bytes32 fileKey, string name, uint64 contentLen)
-  // Event topic[0] is keccak256("FileAdded(bytes32,string,uint64)")
   let fileKey: Hex | null = null;
-
   for (const log of receipt.logs) {
     try {
       const decoded = decodeEventLog({
@@ -109,7 +101,6 @@ export async function pushFileInfo(
       });
 
       if (decoded.eventName === "FileAdded") {
-        // decoded.args can be an object or array depending on event structure
         const args = decoded.args as unknown;
         if (args && typeof args === "object" && "fileKey" in args) {
           fileKey = args.fileKey as Hex;
@@ -117,7 +108,6 @@ export async function pushFileInfo(
         }
       }
     } catch {
-      // Not the event we're looking for, continue
       continue;
     }
   }
@@ -148,10 +138,7 @@ export async function uploadFile(
     const leaves = await new Promise<Uint8Array[]>((resolve, reject) => {
       const worker = new Worker(new URL("./merkle.worker.ts", import.meta.url), { type: "module" });
       worker.onmessage = (e) => {
-        if (e.data.type === "progress") {
-          // Can emit progress for hashing if needed
-          // onProgress?.({ stage: "preparing", currentChunk: e.data.progress, totalChunks: 100 });
-        } else if (e.data.type === "done") {
+        if (e.data.type === "done") {
           worker.terminate();
           resolve(e.data.leaves);
         } else if (e.data.type === "error") {
@@ -172,7 +159,7 @@ export async function uploadFile(
     // 3. Prepare file info
     const fileName = file.name;
     const fileExt = file.name.split(".").pop() || "";
-    const expireTime = BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60); // 1 year
+    const expireTime = BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60);
 
     const info: Omit<FileInfo, "owner"> = {
       merkleRoot: merkleRootHex,
@@ -188,89 +175,112 @@ export async function uploadFile(
     // 4. Push file info
     const fileKey = await pushFileInfo(info, onProgress);
 
-    // 5. Upload chunks in parallel using Web Workers
-    const concurrencyLimit = 10; // Giới hạn 10 luồng CPU vật lý
-    let uploadedCount = 0;
-    let nextChunkIndex = 0;
-    let hasError = false;
-    let activeWorkers = 0;
+    // 5. Create Signature (once for all chunks)
+    const fileKeyStr = fileKey.replace("0x", "");
+    // Rust hash the string: "0x00" + fileKeyWithout0x + merkleRootHex (with 0x)
+    const messageToSign = "0x00" + fileKeyStr + merkleRootHex;
+    const messageHash = keccak256(stringToHex(messageToSign));
 
-    await new Promise<void>((resolve, reject) => {
-      // Create worker pool
-      const workers: Worker[] = [];
-      for (let i = 0; i < concurrencyLimit; i++) {
-        workers.push(new Worker(new URL("./upload.worker.ts", import.meta.url), { type: "module" }));
-      }
+    // Ký trực tiếp hash (không kèm prefix Ethereum Signed Message) giống như Rust
+    const signatureObj = await sign({
+      hash: messageHash,
+      privateKey: `0x${privateKey}` as Hex
+    });
 
-      const dispatchTask = async (worker: Worker) => {
-        if (hasError) return;
-        if (nextChunkIndex >= Number(totalChunks)) {
-          if (activeWorkers === 0) resolve();
-          return;
-        }
+    const vValue = signatureObj.v !== undefined
+      ? signatureObj.v
+      : (signatureObj.yParity === 0 ? 27n : 28n);
+    const vHex = vValue.toString(16).padStart(2, '0');
+    const signatureHex = `${signatureObj.r}${signatureObj.s.replace('0x', '')}${vHex}`;
 
-        const index = nextChunkIndex++;
-        activeWorkers++;
+    // 6. Connect WebTransport and upload chunks
+    const { getWtOptions, pushChunkOnStream } = await import('./wtTransport');
 
-        try {
-          // Read just this chunk into memory lazily
-          const start = index * CHUNK_SIZE;
+    const t1 = new WebTransport(`${DOWNLOAD_SERVER_1}/quic`, getWtOptions());
+    const t2 = new WebTransport(`${DOWNLOAD_SERVER_2}/quic`, getWtOptions());
+    await Promise.all([t1.ready, t2.ready]);
+
+    const uploadStartTime = Date.now();
+    try {
+      const CONCURRENCY_LIMIT = 10; // Match Golang's 5 workers for optimal performance
+      let currentIndex = 0;
+      let hasError = false;
+      let uploadedCount = 0;
+
+      const worker = async () => {
+        while (currentIndex < Number(totalChunks) && !hasError) {
+          const chunkIndex = currentIndex++;
+          const transport = chunkIndex % 2 === 0 ? t1 : t2;
+
+          let success = false;
+          let lastError: any = null;
+          const MAX_RETRIES = 3;
+
+          const start = chunkIndex * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, file.size);
           const chunkBlob = file.slice(start, end);
           const chunkBuffer = await chunkBlob.arrayBuffer();
           const chunkData = new Uint8Array(chunkBuffer);
 
-          const proof = getMerkleProofPadded(paddedLeaves, index);
+          const proof = getMerkleProofPadded(paddedLeaves, chunkIndex);
+          const proofHex = proof.map((p: Uint8Array) => bytesToHex(p) as string);
 
-          worker.postMessage({
-            id: index,
-            fileKey,
-            chunkData: chunkData,
-            chunkIndex: index,
-            merkleProof: proof,
-          });
-        } catch (err) {
-          hasError = true;
-          reject(err);
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+              const res = await pushChunkOnStream(
+                transport,
+                fileKey,
+                chunkIndex,
+                chunkData,
+                signatureHex,
+                proofHex,
+                merkleRootHex
+              );
+
+              if (!res.ok) {
+                throw new Error(res.error);
+              }
+
+              success = true;
+              uploadedCount++;
+              onProgress?.({
+                stage: "uploading",
+                fileKey,
+                currentChunk: uploadedCount,
+                totalChunks: Number(totalChunks),
+              });
+              break;
+            } catch (e: any) {
+              lastError = e;
+              console.warn(`[Retry ${attempt}/${MAX_RETRIES}] Chunk ${chunkIndex} upload error:`, e);
+              if (attempt < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+              }
+            }
+          }
+          if (!success) {
+            hasError = true;
+            throw new Error(`Failed to upload chunk ${chunkIndex}: ${lastError}`);
+          }
         }
       };
 
-      workers.forEach((worker) => {
-        worker.onmessage = (e) => {
-          activeWorkers--;
-          const { success, error } = e.data;
+      const workers = [];
+      for (let i = 0; i < CONCURRENCY_LIMIT; i++) {
+        workers.push(worker());
+      }
+      await Promise.all(workers);
 
-          if (success) {
-            uploadedCount++;
-            onProgress?.({
-              stage: "uploading",
-              fileKey,
-              currentChunk: uploadedCount,
-              totalChunks: Number(totalChunks),
-            });
-            dispatchTask(worker);
-          } else {
-            hasError = true;
-            reject(new Error(`Worker error: ${error}`));
-          }
-        };
+    } finally {
+      t1.close();
+      t2.close();
+    }
 
-        worker.onerror = (err) => {
-          activeWorkers--;
-          hasError = true;
-          reject(err);
-        };
-
-        // Start first tasks
-        dispatchTask(worker);
-      });
-    });
-
-    // Cleanup workers
-    // (In a real app you might want to keep them alive or terminate them)
+    const uploadEndTime = Date.now();
+    console.log(`⏱️ Thời gian MẠNG (chỉ tính lúc đẩy chunk): ${((uploadEndTime - uploadStartTime) / 1000).toFixed(2)}s`);
 
     const endTime = Date.now();
-    console.log(`⏱️ Tổng thời gian upload: ${((endTime - startTime) / 1000).toFixed(2)}s`);
+    console.log(`⏱️ Tổng thời gian (Hash + SmartContract + Network): ${((endTime - startTime) / 1000).toFixed(2)}s`);
 
     onProgress?.({ stage: "completed", fileKey, currentChunk: Number(totalChunks), totalChunks: Number(totalChunks) });
     return fileKey;

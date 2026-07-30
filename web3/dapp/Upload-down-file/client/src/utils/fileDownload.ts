@@ -128,7 +128,7 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     try {
       // Tải song song (Concurrency limit để tránh quá tải)
       // Dùng Worker Pool thực thụ (Xoay vòng liên tục) thay vì Batching
-      const CONCURRENCY_LIMIT = 10;
+      const CONCURRENCY_LIMIT = 5;
       let currentIndex = 0;
       let hasError = false; // Cờ báo lỗi để dừng các worker khác
 

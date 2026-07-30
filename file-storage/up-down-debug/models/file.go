@@ -27,6 +27,7 @@ type Command struct {
 }
 
 type UploadChunkPayload struct {
+	ContractAddress string `json:"contract_address"`
 	FileKey         string `json:"file_key"`
 	ChunkIndex      int    `json:"chunk_index"`
 	ChunkDataBase64 string `json:"chunk_data_base64"`
@@ -40,6 +41,7 @@ type GenericResponse struct {
 
 // Request/Response structures
 type DownloadChunkPayload struct {
+	ContractAddress string `json:"contract_address"`
 	FileKey     string `json:"file_key"`
 	DownloadKey string `json:"download_key"`
 	ChunkIndex  int    `json:"chunk_index"`

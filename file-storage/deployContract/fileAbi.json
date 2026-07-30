@@ -357,6 +357,24 @@
 	{
 		"inputs": [
 			{
+				"internalType": "bytes32",
+				"name": "fileKey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "address[]",
+				"name": "users",
+				"type": "address[]"
+			}
+		],
+		"name": "addWhitelist",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
 				"internalType": "uint256",
 				"name": "numChunks",
 				"type": "uint256"
@@ -402,6 +420,19 @@
 	{
 		"inputs": [
 			{
+				"internalType": "bytes32[]",
+				"name": "fileKeys",
+				"type": "bytes32[]"
+			}
+		],
+		"name": "confirmServerUploadBatch",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
 				"internalType": "bytes32",
 				"name": "fileKey",
 				"type": "bytes32"
@@ -433,6 +464,25 @@
 		"name": "downloadFile",
 		"outputs": [],
 		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"name": "fileVotes",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
 		"type": "function"
 	},
 	{
@@ -701,6 +751,19 @@
 	},
 	{
 		"inputs": [],
+		"name": "getRequiredVotes",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
 		"name": "getRustServerAddresses",
 		"outputs": [
 			{
@@ -739,6 +802,49 @@
 		"type": "function"
 	},
 	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "fileKey",
+				"type": "bytes32"
+			}
+		],
+		"name": "getWhitelist",
+		"outputs": [
+			{
+				"internalType": "address[]",
+				"name": "",
+				"type": "address[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "hasVoted",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
 		"inputs": [],
 		"name": "initialize",
 		"outputs": [],
@@ -754,6 +860,25 @@
 			}
 		],
 		"name": "isOwner",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"name": "isPublicFile",
 		"outputs": [
 			{
 				"internalType": "bool",
@@ -800,19 +925,6 @@
 			}
 		],
 		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
-				"name": "fileKey",
-				"type": "bytes32"
-			}
-		],
-		"name": "lockFile",
-		"outputs": [],
-		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
@@ -1156,6 +1268,24 @@
 				"type": "bytes32"
 			},
 			{
+				"internalType": "address[]",
+				"name": "users",
+				"type": "address[]"
+			}
+		],
+		"name": "removeWhitelist",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "fileKey",
+				"type": "bytes32"
+			},
+			{
 				"internalType": "uint64",
 				"name": "_newExpireTime",
 				"type": "uint64"
@@ -1207,6 +1337,37 @@
 			}
 		],
 		"name": "setPricePerChunk",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "fileKey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bool",
+				"name": "status",
+				"type": "bool"
+			}
+		],
+		"name": "setPublicStatus",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "newRequiredVotes",
+				"type": "uint256"
+			}
+		],
+		"name": "setRequiredVotes",
 		"outputs": [],
 		"stateMutability": "nonpayable",
 		"type": "function"
