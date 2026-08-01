@@ -33,9 +33,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"tool-test/pkg/loggerfile"
@@ -97,6 +99,39 @@ func readFrameWithLength(stream quic.Stream) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func waitForTransaction(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+	for {
+		receipt, err := client.TransactionReceipt(ctx, txHash)
+		if err == nil {
+			if receipt.Status == 0 {
+				// Lấy raw JSON receipt để đọc field revertReason
+				var raw map[string]interface{}
+				errRaw := client.Client().CallContext(ctx, &raw, "eth_getTransactionReceipt", txHash)
+				if errRaw == nil && raw != nil {
+					if reason, ok := raw["revertReason"].(string); ok {
+						return nil, fmt.Errorf("transaction failed with revert reason: %s", reason)
+					}
+				}
+				return nil, fmt.Errorf("transaction failed with status %d", receipt.Status)
+			}
+			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+				if receipt.Status == 1 {
+					return receipt, nil
+				}
+			}
+		} else if err != ethereum.NotFound {
+			return nil, fmt.Errorf("system error checking receipt: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout waiting for transaction")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 // buildMerkleTreePadded xây dựng cây tương thích với logic xác minh `index >> level`
@@ -184,7 +219,7 @@ func startKeepAlive(ctx context.Context, client *ethclient.Client) {
 	log.Println("🔧 Bắt đầu goroutine duy trì kết nối (keep-alive)...")
 	for {
 		select {
-		case <-ticker.C: // Mỗi khi ticker tick
+		case <-ticker.C: // Mỗi khi ticker
 			// Gọi một phương thức nhẹ nhàng như ChainID để gửi dữ liệu qua socket
 			_, err := client.ChainID(ctx)
 			if err != nil {
@@ -497,8 +532,7 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 		log.Fatalf("Failed to create transactor: %v", err)
 	}
 	auth.GasLimit = uint64(3_000_000_0000000)
-	// auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
-	auth.GasPrice = big.NewInt(10000)
+	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
 	logger.Info("Gas price", auth.GasPrice)
 	auth.Value = requiredPayment // Gửi kèm thanh toán
 
@@ -508,7 +542,7 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 	}
 
 	fmt.Println("Waiting for PushFileInfo tx to be mined...")
-	receipt, err := bind.WaitMined(context.Background(), client, tx)
+	receipt, err := waitForTransaction(client, tx.Hash())
 	if err != nil {
 		log.Fatalf("Failed to wait for tx: %v", err)
 	}
@@ -729,13 +763,11 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 	}
 	fmt.Printf("Giao dịch thanh toán đã được gửi: %s. Đang chờ khai thác...\n", tx.Hash().Hex())
 
-	receipt, err := bind.WaitMined(context.Background(), client, tx)
+	receipt, err := waitForTransaction(client, tx.Hash())
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("lỗi chờ giao dịch được khai thác: %v", err)
 	}
-	if receipt.Status != 1 {
-		return 0, 0, 0, fmt.Errorf("giao dịch thanh toán thất bại. Trạng thái: %d", receipt.Status)
-	}
+	// waitForTransaction đã kiểm tra status == 1 nên không cần kiểm tra lại
 
 	var downloadKey [32]byte
 	var foundEvent bool

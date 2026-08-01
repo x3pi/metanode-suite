@@ -30,9 +30,9 @@ go run main_rpc.go -config=user2.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA
 go run main_rpc.go -config=user1.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6 -spam 200 -ping
 
 
-go run main.go -config=user2.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x5e582475A504998c5631E12A5a2585D2B1911812
+go run main.go -config=user2.json -contract=0x4E58562C5CDa4B80633dD7a3C759e7702213675d -target=0x5e582475A504998c5631E12A5a2585D2B1911812
 
-go run main.go -config=user1.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6 -spam 200 -ping
+go run main.go -config=user1.json -contract=0x4E58562C5CDa4B80633dD7a3C759e7702213675d -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6 -spam 200 -ping
 
 ```
 

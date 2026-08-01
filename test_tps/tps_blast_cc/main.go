@@ -357,7 +357,7 @@ func main() {
 	flag.BoolVar(&verify, "verify", false, "After each round, check recipient balance to confirm TXs landed")
 	flag.IntVar(&epochWait, "epoch-wait", 300, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
-	flag.BoolVar(&trace, "trace", true, "Enable fetching block traces at the end of the round")
+	flag.BoolVar(&trace, "trace", false, "Enable fetching block traces at the end of the round")
 	flag.IntVar(&tpsTarget, "tps-target", 0, "Target TPS for paced injection (0 = disable pacing)")
 	flag.Parse()
 
@@ -676,10 +676,8 @@ func main() {
 			chainId,
 		)
 
-		// Sign with BLS key
-		var accPKey p_common.PrivateKey
-		copy(accPKey[:], privKeyBytes)
-		internalTx.SetSign(accPKey)
+		// Sign with parent's BLS key (all generated accounts registered this)
+		internalTx.SetSign(pKey)
 
 		bTx, err := internalTx.Marshal()
 		if err != nil {
@@ -973,9 +971,7 @@ func main() {
 					common.Hash{}, common.Hash{},
 					nonce, chainId,
 				)
-				var accPKey p_common.PrivateKey
-				copy(accPKey[:], privKeyBytes)
-				internalTx.SetSign(accPKey)
+				internalTx.SetSign(pKey)
 				bTx, err := internalTx.Marshal()
 				if err != nil {
 					rebuildErrors++
@@ -1550,16 +1546,18 @@ func main() {
 		if !firstTxBlockTime.IsZero() && !lastTxBlockTime.IsZero() {
 			if firstTxBlockTime.Equal(lastTxBlockTime) {
 				isSingleBlock = true
-				traces, err := rpcClient.GetBlockTraces(endBlock, endBlock)
-				if err == nil && len(traces) > 0 {
-					t := traces[0]
-					if t.TotalExecutionUs > 0 {
-						onChainDuration = time.Duration(t.TotalExecutionUs) * time.Microsecond
-						txCountForTps := t.TxCount
-						if txCountForTps <= 0 {
-							txCountForTps = int(totalTxsInBlocks)
+				if trace {
+					traces, err := rpcClient.GetBlockTraces(endBlock, endBlock)
+					if err == nil && len(traces) > 0 {
+						t := traces[0]
+						if t.TotalExecutionUs > 0 {
+							onChainDuration = time.Duration(t.TotalExecutionUs) * time.Microsecond
+							txCountForTps := t.TxCount
+							if txCountForTps <= 0 {
+								txCountForTps = int(totalTxsInBlocks)
+							}
+							onChainTPS = float64(txCountForTps) / onChainDuration.Seconds()
 						}
-						onChainTPS = float64(txCountForTps) / onChainDuration.Seconds()
 					}
 				}
 			} else {

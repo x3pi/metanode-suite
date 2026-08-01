@@ -16,12 +16,15 @@ import (
 	"tool-test/file-storage/up-down-debug/contract"
 	processor "tool-test/file-storage/up-down-debug/proccessor"
 
+	"tool-test/pkg/loggerfile"
+
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/event"
-	"tool-test/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
 )
 
@@ -144,13 +147,12 @@ func downloadFile(instance *contract.FileContract, fileKey [32]byte) {
 		log.Printf("Lỗi thanh toán cho việc tải tệp: %v", err)
 		return
 	}
-	receipt, err := bind.WaitMined(context.Background(), client, tx)
+	receipt, err := waitForTransaction(client, tx.Hash())
 	if err != nil {
 		log.Fatalf("Lỗi chờ giao dịch được khai thác: %v", err)
 	}
-	if receipt.Status != 1 {
-		log.Fatalf("Giao dịch thanh toán thất bại. Trạng thái: %d", receipt.Status)
-	}
+	// waitForTransaction đã kiểm tra status == 1 nên không cần kiểm tra lại
+
 	var downloadKey [32]byte
 	var foundEvent bool
 	for _, vLog := range receipt.Logs {
@@ -274,4 +276,37 @@ func SignMessage(privateKey *ecdsa.PrivateKey, message string) (string, error) {
 	}
 
 	return hex.EncodeToString(signature), nil
+}
+
+func waitForTransaction(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	for {
+		receipt, err := client.TransactionReceipt(ctx, txHash)
+		if err == nil {
+			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+				if receipt.Status == 1 {
+					return receipt, nil
+				}
+				// Lấy raw JSON receipt để đọc field revertReason
+				var raw map[string]interface{}
+				errRaw := client.Client().CallContext(ctx, &raw, "eth_getTransactionReceipt", txHash)
+				if errRaw == nil && raw != nil {
+					if reason, ok := raw["revertReason"].(string); ok {
+						return nil, fmt.Errorf("transaction failed with revert reason: %s", reason)
+					}
+				}
+				return nil, fmt.Errorf("transaction failed with status %d", receipt.Status)
+			} else {
+				log.Printf("Waiting for transaction to be mined...")
+			}
+		} else if err != ethereum.NotFound {
+			return nil, fmt.Errorf("system error checking receipt: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout waiting for transaction")
+		case <-time.After(10 * time.Microsecond):
+		}
+	}
 }

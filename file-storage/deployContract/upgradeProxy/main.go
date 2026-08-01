@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -268,6 +269,8 @@ func waitForTransaction(client *ethclient.Client, txHash common.Hash, contractNa
 				return receipt, nil
 			}
 			return nil, fmt.Errorf("transaction failed with status %d", receipt.Status)
+		} else if err != ethereum.NotFound {
+			return nil, err
 		}
 
 		select {

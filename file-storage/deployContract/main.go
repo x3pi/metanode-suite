@@ -399,7 +399,7 @@ func waitForTransaction(client *ethclient.Client, txHash common.Hash, contractNa
 	for {
 		receipt, err := client.TransactionReceipt(ctx, txHash)
 		if err == nil {
-			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+			if receipt.BlockNumber != nil {
 				if receipt.Status == 1 {
 					return receipt, nil
 				}
@@ -416,7 +416,7 @@ func waitForTransaction(client *ethclient.Client, txHash common.Hash, contractNa
 				return nil, fmt.Errorf("transaction failed with status %d", receipt.Status)
 			}
 		} else if err != ethereum.NotFound {
-			return nil, fmt.Errorf("system error checking receipt: %w", err)
+			return nil, err
 		}
 
 		select {

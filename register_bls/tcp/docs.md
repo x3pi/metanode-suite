@@ -27,6 +27,7 @@ Lệnh này sẽ lấy cấu hình 5 node hiện tại và cập nhật tự đ�
 ```bash
 # Tạo và xử lý cho 1 ví (Gửi đều lên 5 node)
 go run main.go
+go run main.go -config config-single.json -count 1
 
 # Tạo và xử lý cho N ví (ví dụ: 100 ví, gửi đều lên 5 node)
 go run main.go -count 100

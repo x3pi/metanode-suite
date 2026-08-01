@@ -1,6 +1,13 @@
 # manage_genesis.py
 
-`manage_genesis.py` là một công cụ tiện ích nhỏ viết bằng Python, được sử dụng để tự động thêm hoặc xóa hàng loạt accounts vào file genesis (thường dùng cho các bài test TPS hoặc spam txs).
+```
+--genesis-in (File Đầu Vào - Base/Source): Đây là file cấu hình gốc ban đầu của mạng lưới (chưa chứa các tài khoản rác/spam). Script sẽ ĐỌC file này để lấy cấu trúc cơ bản của mạng và danh sách các tài khoản genesis tối thiểu (như tài khoản của hệ thống, validator, node...). Nó đóng vai trò như một bản nháp sạch.
+
+--genesis-out (File Đầu Ra - Destination/Target): Sau khi script tạo xong 100,000 keys mới trên RAM, nó sẽ nhét toàn bộ 100,000 keys này vào mảng alloc của cấu trúc vừa đọc từ in. Sau đó, nó sẽ LƯU (GHI) toàn bộ dữ liệu (file gốc + 100k account mới) ra file đường dẫn out. Đây chính là file bạn sẽ dùng để load thực tế khi chạy Node.
+
+
+go run main.go --count 100000 --genesis-in /home/abc/nhat/con-chain-v2/metanode/execution/cmd/simple_chain/genesis-main.json --genesis-out /home/abc/nhat/con-chain-v2/metanode/deploy/systemd/genesis.json.example
+```
 
 ## Cú pháp sử dụng
 
@@ -36,7 +43,7 @@ Script cần truyền vào 3 tham số: lệnh cần chạy (`add` hoặc `remov
 # simple-chain
 
 ```bash
-python3 /home/abc/nhat/consensus-chain/metanode-suite/test_tps/gen_spam_keys/manage_genesis.py add \
-  /home/abc/nhat/mtn-simple-2025/cmd/simple_chain/genesis.json \
-  /home/abc/nhat/consensus-chain/metanode-suite/test_tps/gen_spam_keys/generated_keys.json.test
+./manage_genesis.py add \
+  /home/abc/nhat/consensus-chain/mtn-2026/cmd/simple_chain/genesis.json \
+  /home/abc/nhat/con-chain-v2/metanode-suite/test_tps/gen_spam_keys/generated_keys.json
 ```bash

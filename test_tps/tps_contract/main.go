@@ -749,7 +749,14 @@ func main() {
 		// Generate a unique dummy address so each sender sends to an untouched recipient
 		// This makes verification perfectly isolated and guarantees the balance must equal txAmount.
 		targetContract = *contractAddr
-		bCallData = callData
+		
+		cdProto := &pb.CallData{Input: callData}
+		bCallData, err = proto.Marshal(cdProto)
+		if err != nil {
+			buildErrors++
+			continue
+		}
+
 		txAmount := big.NewInt(0) // Contract call amount is 0
 
 		// Get nonce for this account
@@ -784,9 +791,7 @@ func main() {
 		)
 
 		// Sign with BLS key
-		var accPKey p_common.PrivateKey
-		copy(accPKey[:], privKeyBytes)
-		internalTx.SetSign(accPKey)
+		internalTx.SetSign(pKey)
 
 		bTx, err := internalTx.Marshal()
 		if err != nil {
@@ -1056,7 +1061,14 @@ func main() {
 				var bCallData []byte
 
 				targetContract = *contractAddr
-				bCallData = callData
+				
+				cdProto := &pb.CallData{Input: callData}
+				bCallData, err = proto.Marshal(cdProto)
+				if err != nil {
+					rebuildErrors++
+					continue
+				}
+
 				txAmount := big.NewInt(0) // Contract call amount is 0
 
 				nonce, ok := nonceMap[acc.Address]
@@ -1080,9 +1092,7 @@ func main() {
 					common.Hash{}, common.Hash{},
 					nonce, chainId,
 				)
-				var accPKey p_common.PrivateKey
-				copy(accPKey[:], privKeyBytes)
-				internalTx.SetSign(accPKey)
+				internalTx.SetSign(pKey)
 				bTx, err := internalTx.Marshal()
 				if err != nil {
 					rebuildErrors++

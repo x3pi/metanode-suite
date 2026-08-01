@@ -1,0 +1,12 @@
+{
+    "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
+    "version": "0.0.1.0",
+    "parent_connection_address": "192.168.1.234:9545",
+    "http_rpc": "192.168.1.234:8545",
+    "chain_id": 991,
+    "nation_id": 1,
+    "parent_connection_type": "client",
+    "parent_address": "0x0B143e894a600114C4A3729874214e5fC5EA9cbc",
+    "eth_private_key": "48d0959736be4999d4fcfce48423e2e0f98610663ae3ee87f879eb69f74a0746",
+    "contact_private": "0x00000000000000000000000000000000D844bb55"
+}

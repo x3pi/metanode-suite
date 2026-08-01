@@ -21,6 +21,7 @@ TESTS=(
     "17-xapian-parallel-read-write"
     "18-update-different-variables"
     "19-xapian-parallel-update"
+    
 )
 
 TOTAL_TESTS=${#TESTS[@]}

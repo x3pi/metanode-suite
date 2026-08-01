@@ -123,7 +123,7 @@ func main() {
 		extraAccVal := big.NewInt(10000000000000000)
 		testSetFunc("setExtraAccount", extraAccVal)
 
-		freeGasVal := big.NewInt(20000000000000000)
+		freeGasVal := big.NewInt(10000000000000000)
 		testSetFunc("setFreeGasMinBalance", freeGasVal)
 
 		rewardVal := big.NewInt(0)

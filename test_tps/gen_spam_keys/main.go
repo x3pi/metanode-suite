@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
-	"tool-test/pkg/bls"
 )
 
 // KeyInfo represents a generated key pair
@@ -146,22 +146,14 @@ func main() {
 			if existingAddrs[key.Address] {
 				continue // skip duplicate
 			}
-			privBytes, err := hex.DecodeString(key.PrivateKey)
-			if err != nil {
-				fmt.Printf("  ❌ Error decoding private key: %v\n", err)
-				os.Exit(1)
-			}
-			kp := bls.NewKeyPair(privBytes)
-			pubBytes := kp.PublicKey()
-			pubHex := "0x" + hex.EncodeToString(pubBytes[:])
-
+			// Removed unused privBytes decoding since we use predefined blsKey
 			newAlloc := GenesisAlloc{
 				Address:      key.Address,
 				Balance:      *balance,
 				PendingBal:   "0",
 				LastHash:     "0x0000000000000000000000000000000000000000000000000000000000000000",
 				DeviceKey:    "0x0000000000000000000000000000000000000000000000000000000000000000",
-				PublicKeyBls: pubHex,
+				PublicKeyBls: strings.TrimPrefix(*blsKey, "0x"),
 			}
 			existingAlloc = append(existingAlloc, newAlloc)
 			added++
