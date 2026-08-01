@@ -250,18 +250,31 @@ async function runTests() {
 
   await runTest("Transaction Revert (Gọi hàm setValueRevert với giá trị >= 100)", async () => {
     try {
-      const { request } = await publicClient.simulateContract({
+      // Để ép gửi một giao dịch chắc chắn sẽ revert LÊN MẠNG (lấy được txHash)
+      // thay vì bị chặn lại ở bước simulate/estimateGas, ta truyền cứng mức gas:
+      const txHash = await walletClient.writeContract({
         address: contractAddress!,
         abi,
         functionName: 'setValueRevert',
-        args: [150n], // Truyền 150 > 100 để test revert
+        args: [150n], // 150 > 100 => Sẽ revert
         account,
-      });
-      // Nếu simulate pass (sai), tiếp tục thử gửi thực tế
-      await walletClient.writeContract(request);
-      return "Sai chuẩn (Giao dịch không bị revert khi gọi setValueRevert)";
+        gas: 100000n, // Ép gas để bypass simulate
+      } as any);
+
+      console.log(`\n    [DEBUG] Đã ép gửi giao dịch Revert lên mạng. TX Hash: ${txHash}`);
+      
+      // Chờ receipt để kiểm tra status (nếu giao dịch được mine)
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      console.log(`    [DEBUG] Tx Receipt Status: ${receipt.status === 'success' ? '1 (Success)' : '0 (Reverted)'}`);
+      
+      if (receipt.status === 'reverted') {
+        return `Đúng chuẩn (Đã có Receipt lưu trên chain với status = reverted. TX: ${txHash})`;
+      } else {
+        return `Sai chuẩn (Giao dịch không bị revert trên chain. TX: ${txHash})`;
+      }
     } catch (error: any) {
-      return `Đúng chuẩn (Đã catch lỗi Revert: ${error.details || error.shortMessage || error.name})`;
+      // Nếu node reject thẳng thừng từ vòng gửi (eth_sendRawTransaction)
+      return `Đúng chuẩn (Node chặn gửi hoặc revert ngay lập tức: ${error.details || error.shortMessage || error.name})`;
     }
   });
 

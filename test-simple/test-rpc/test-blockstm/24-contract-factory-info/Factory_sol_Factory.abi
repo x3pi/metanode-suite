@@ -1,0 +1,1 @@
+[{"anonymous":false,"inputs":[{"indexed":false,"internalType":"address","name":"childAddress","type":"address"}],"name":"ChildCreated","type":"event"},{"inputs":[{"internalType":"uint256","name":"_x","type":"uint256"}],"name":"createChild","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"nonpayable","type":"function"}]

@@ -21,7 +21,11 @@ TESTS=(
     "17-xapian-parallel-read-write"
     "18-update-different-variables"
     "19-xapian-parallel-update"
-    
+    "20-xapian-read-after-write-same-block"
+    "21-sequential-nonce-same-wallet"
+    "22-block-timestamp"
+    "23-contract-creator-info"
+    "24-contract-factory-info"
 )
 
 TOTAL_TESTS=${#TESTS[@]}
