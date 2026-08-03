@@ -37,10 +37,10 @@ type ContractData struct {
 }
 
 type Config struct {
-	RPCUrl      string                  `json:"rpc_url"`
-	RPCNodes    map[string]string       `json:"rpc_nodes"`
-	ChainID     int64                   `json:"chain_id"`
-	Contracts   map[string]ContractData `json:"contracts"`
+	RPCUrl    string                  `json:"rpc_url"`
+	RPCNodes  map[string]string       `json:"rpc_nodes"`
+	ChainID   int64                   `json:"chain_id"`
+	Contracts map[string]ContractData `json:"contracts"`
 }
 
 type GeneratedKey struct {
@@ -262,7 +262,7 @@ func main() {
 				wgReceipt.Add(1)
 				go func(txHash common.Hash) {
 					defer wgReceipt.Done()
-					sem <- struct{}{} // Acquire token
+					sem <- struct{}{}        // Acquire token
 					defer func() { <-sem }() // Release token
 
 					receipt, err := waitReceipt(client, txHash)
@@ -317,12 +317,12 @@ func main() {
 	}
 
 	elapsed := time.Since(start)
-	
+
 	balanceAfter, err := client.BalanceAt(context.Background(), from0, nil)
 	if err != nil {
 		log.Fatalf("❌ Lỗi lấy số dư cuối: %v", err)
 	}
-	
+
 	totalCost := new(big.Int).Sub(balanceBefore, balanceAfter)
 	fmt.Printf("\n💰 THỐNG KÊ CHI PHÍ GAS VÍ 0:\n")
 	fmt.Printf("   - Số dư ban đầu: %s wei\n", balanceBefore.String())
