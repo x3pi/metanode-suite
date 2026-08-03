@@ -135,6 +135,8 @@ export async function uploadFile(
     console.log("totalChunks", totalChunks);
 
     // 2. Build Merkle tree using Worker to avoid blocking UI and saving RAM
+    console.time("⏱️ Băm Merkle Tree (Frontend)");
+    const tMerkle = Date.now();
     const leaves = await new Promise<Uint8Array[]>((resolve, reject) => {
       const worker = new Worker(new URL("./merkle.worker.ts", import.meta.url), { type: "module" });
       worker.onmessage = (e) => {
@@ -155,6 +157,8 @@ export async function uploadFile(
 
     const { paddedLeaves, merkleRoot } = buildMerkleTreeFromLeaves(leaves);
     const merkleRootHex = `0x${Array.from(merkleRoot).map((b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
+    console.timeEnd("⏱️ Băm Merkle Tree (Frontend)");
+    console.log(`Băm Merkle xong trong: ${((Date.now() - tMerkle) / 1000).toFixed(2)}s`);
 
     // 3. Prepare file info
     const fileName = file.name;
@@ -173,7 +177,11 @@ export async function uploadFile(
     };
 
     // 4. Push file info
+    console.time("⏱️ Đợi Smart Contract (PushFileInfo)");
+    const tContract = Date.now();
     const fileKey = await pushFileInfo(info, onProgress);
+    console.timeEnd("⏱️ Đợi Smart Contract (PushFileInfo)");
+    console.log(`Gọi Smart Contract xong trong: ${((Date.now() - tContract) / 1000).toFixed(2)}s`);
 
     // 5. Create Signature (once for all chunks)
     const fileKeyStr = fileKey.replace("0x", "");
@@ -195,10 +203,14 @@ export async function uploadFile(
 
     // 6. Connect WebTransport and upload chunks
     const { getWtOptions, pushChunkOnStream } = await import('./wtTransport');
-
+    
+    console.time("⏱️ Mở kết nối WebTransport (QUIC)");
+    const tWT = Date.now();
     const t1 = new WebTransport(`${DOWNLOAD_SERVER_1}/quic`, getWtOptions());
     const t2 = new WebTransport(`${DOWNLOAD_SERVER_2}/quic`, getWtOptions());
     await Promise.all([t1.ready, t2.ready]);
+    console.timeEnd("⏱️ Mở kết nối WebTransport (QUIC)");
+    console.log(`Kết nối QUIC xong trong: ${((Date.now() - tWT) / 1000).toFixed(2)}s`);
 
     const uploadStartTime = Date.now();
     try {
@@ -229,6 +241,7 @@ export async function uploadFile(
             try {
               const res = await pushChunkOnStream(
                 transport,
+                contracts.File.address,
                 fileKey,
                 chunkIndex,
                 chunkData,

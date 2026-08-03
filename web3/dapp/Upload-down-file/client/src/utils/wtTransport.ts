@@ -14,6 +14,8 @@ export interface WtChunkRequest {
   id: string;
   command: "download_chunk";
   payload: {
+    contract_address: string;
+    file_key: string;
     download_key: string;
     chunk_index: number;
     signature: string;
@@ -24,6 +26,7 @@ export interface WtUploadRequest {
   id: string;
   command: "upload_chunk";
   payload: {
+    contract_address: string;
     file_key: string;
     chunk_index: number;
     signature: string;
@@ -174,6 +177,8 @@ export function getWtOptions() {
 
 export async function fetchChunkOnStream(
   transport: WebTransport,
+  contractAddress: string,
+  fileKey: string,
   downloadKey: string,
   chunkIndex: number,
   signature: string
@@ -186,7 +191,13 @@ export async function fetchChunkOnStream(
     const request: WtChunkRequest = {
       id: crypto.randomUUID(),
       command: "download_chunk",
-      payload: { download_key: downloadKey, chunk_index: chunkIndex, signature },
+      payload: { 
+        contract_address: contractAddress,
+        file_key: fileKey.replace(/^0x/, ''),
+        download_key: downloadKey, 
+        chunk_index: chunkIndex, 
+        signature 
+      },
     };
 
     const frame = encodeFrame(request);
@@ -203,6 +214,8 @@ export async function fetchChunkOnStream(
 
 export async function fetchChunkViaWt(
   serverUrl: string,
+  contractAddress: string,
+  fileKey: string,
   downloadKey: string,
   chunkIndex: number,
   signature: string
@@ -212,7 +225,7 @@ export async function fetchChunkViaWt(
 
   try {
     await transport.ready;
-    return await fetchChunkOnStream(transport, downloadKey, chunkIndex, signature);
+    return await fetchChunkOnStream(transport, contractAddress, fileKey, downloadKey, chunkIndex, signature);
   } finally {
     transport.close();
   }
@@ -220,6 +233,7 @@ export async function fetchChunkViaWt(
 
 export async function pushChunkOnStream(
   transport: WebTransport,
+  contractAddress: string,
   fileKey: string,
   chunkIndex: number,
   chunkData: Uint8Array,
@@ -236,7 +250,8 @@ export async function pushChunkOnStream(
       id: crypto.randomUUID(),
       command: "upload_chunk",
       payload: { 
-        file_key: fileKey, 
+        contract_address: contractAddress,
+        file_key: fileKey.replace(/^0x/, ''), 
         chunk_index: chunkIndex, 
         signature,
         merkle_proof_hashes: merkleProofHashes,

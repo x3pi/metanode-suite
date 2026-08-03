@@ -535,6 +535,7 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
 	logger.Info("Gas price", auth.GasPrice)
 	auth.Value = requiredPayment // Gửi kèm thanh toán
+	logger.Info("___ RequiredPayment", requiredPayment)
 
 	tx, err := instance.PushFileInfo(auth, info)
 	if err != nil {

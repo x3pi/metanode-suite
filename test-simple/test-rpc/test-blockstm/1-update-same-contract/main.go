@@ -166,6 +166,13 @@ func main() {
 	start := time.Now()
 	totalSuccess := 0
 
+	// Lấy số dư ví 0 trước khi test
+	balanceBefore, err := client.BalanceAt(context.Background(), from0, nil)
+	if err != nil {
+		log.Fatalf("❌ Lỗi lấy số dư ban đầu: %v", err)
+	}
+	fmt.Printf("💰 Số dư ví 0 ban đầu: %s wei\n", balanceBefore.String())
+
 	header, err := client.HeaderByNumber(context.Background(), nil)
 	if err != nil {
 		log.Fatalf("❌ Lỗi lấy startBlock: %v", err)
@@ -310,6 +317,24 @@ func main() {
 	}
 
 	elapsed := time.Since(start)
+	
+	balanceAfter, err := client.BalanceAt(context.Background(), from0, nil)
+	if err != nil {
+		log.Fatalf("❌ Lỗi lấy số dư cuối: %v", err)
+	}
+	
+	totalCost := new(big.Int).Sub(balanceBefore, balanceAfter)
+	fmt.Printf("\n💰 THỐNG KÊ CHI PHÍ GAS VÍ 0:\n")
+	fmt.Printf("   - Số dư ban đầu: %s wei\n", balanceBefore.String())
+	fmt.Printf("   - Số dư sau cùng: %s wei\n", balanceAfter.String())
+	fmt.Printf("   - Tổng phí đã trừ (Gas Cost): %s wei\n", totalCost.String())
+
+	if totalCost.Cmp(big.NewInt(0)) == 0 {
+		log.Fatalf("\n❌ [LỖI NGHIÊM TRỌNG] PHÍ GAS KHÔNG BỊ TRỪ! Giao dịch Smart Contract không trừ phí từ Sender!")
+	} else {
+		fmt.Printf("   => ✅ Phí Gas đã được trừ hợp lệ!\n")
+	}
+
 	fmt.Println("\n📊 KẾT QUẢ:")
 	fmt.Printf("Thời gian gửi & chờ: %v\n", elapsed)
 	fmt.Printf("Giá trị count cuối cùng: %d\n", actual)
@@ -333,6 +358,17 @@ func main() {
 		fmt.Println("🎉 TEST PASSED: BlockSTM xử lý đúng!")
 	} else {
 		fmt.Printf("⚠️ TEST FAILED: Kỳ vọng %d nhưng nhận %d\n", totalSuccess, actual)
+	}
+
+	balanceAfter, err = client.BalanceAt(context.Background(), from0, nil)
+	if err != nil {
+		log.Fatalf("❌ Lỗi lấy số dư cuối: %v", err)
+	}
+	fmt.Printf("💰 Số dư ví 0 cuối cùng: %s wei\n", balanceAfter.String())
+	if balanceAfter.Cmp(balanceBefore) >= 0 {
+		log.Fatalf("🚨 LỖI NGHIÊM TRỌNG: Không trừ phí gas! (Trước: %v, Sau: %v)", balanceBefore, balanceAfter)
+	} else {
+		fmt.Printf("💸 Phí gas đã được trừ: %s wei\n", new(big.Int).Sub(balanceBefore, balanceAfter).String())
 	}
 }
 

@@ -131,8 +131,8 @@ func main() {
 	fmt.Printf("   - BaseFee   : %v\n", blockInfo.BaseFee())
 
 	allPassed := true
-	if ts != blockInfo.Time()/1000 {
-		fmt.Printf("   => ⚠️ LỖI: Timestamp không khớp! (Contract: %d, RPC/1000: %d)\n", ts, blockInfo.Time()/1000)
+	if ts != blockInfo.Time() {
+		fmt.Printf("   => ⚠️ LỖI: Timestamp không khớp! (Contract: %d, RPC: %d)\n", ts, blockInfo.Time())
 		allPassed = false
 	}
 	if num != blockInfo.NumberU64() {

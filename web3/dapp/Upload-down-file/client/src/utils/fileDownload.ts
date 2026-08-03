@@ -170,7 +170,14 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
 
           for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
-              const result = await fetchChunkOnStream(transport, downloadKeyStr, chunkIndex, signatureHex);
+              const result = await fetchChunkOnStream(
+                transport, 
+                contracts.File.address, 
+                fileKey, 
+                downloadKeyStr, 
+                chunkIndex, 
+                signatureHex
+              );
               if (!result.ok) throw new Error(`Server báo lỗi: ${result.error}`);
 
               // Xử lý ghi dữ liệu (Không block network)
