@@ -317,6 +317,7 @@ func sendTelegramAlert(message string, testName string) {
 }
 
 func main() {
+	_ = os.Remove("/tmp/MTN_CHAIN_ERROR_STOP")
 	os.MkdirAll("reports", 0755)
 	reportFilename := fmt.Sprintf("reports/tps_report_%s.md", time.Now().Format("20060102_150405"))
 	cleanupReports()
@@ -1035,7 +1036,33 @@ func main() {
 			}
 		}
 
+		// Build map of expected tx hashes to correctly count only our TXs
+		expectedTxHashes := make(map[string]bool)
+		hashMapping := make(map[string][]string)
+		for _, tx := range allTxs {
+			ethHashLower := strings.ToLower(tx.txHash.Hex())
+			expectedTxHashes[ethHashLower] = true
+
+			internalTx := &transaction.Transaction{}
+			if err := internalTx.Unmarshal(tx.bytes); err == nil {
+				pbHash := internalTx.Hash()
+				pbHashLower := strings.ToLower(pbHash.Hex())
+				expectedTxHashes[pbHashLower] = true
+
+				rawHash := crypto.Keccak256Hash(tx.bytes)
+				rawHashLower := strings.ToLower(rawHash.Hex())
+				expectedTxHashes[rawHashLower] = true
+
+				hashMapping[ethHashLower] = []string{pbHashLower, rawHashLower}
+				hashMapping[pbHashLower] = []string{ethHashLower, rawHashLower}
+				hashMapping[rawHashLower] = []string{ethHashLower, pbHashLower}
+			}
+		}
+
 		blastStart := time.Now()
+
+		txSendTimeMap := make(map[string]time.Time)
+		var txSendTimeMu sync.Mutex
 
 		var wg sync.WaitGroup
 		var totalSent int64
@@ -1065,6 +1092,25 @@ func main() {
 					}
 
 					err := client.rw.sendRaw(command.SendTransactions, batchBytes)
+					nowSend := time.Now()
+					if err == nil {
+						txSendTimeMu.Lock()
+						batchStartIdx := i * batchSize
+						batchEndIdx := batchStartIdx + batchSize
+						if batchEndIdx > len(allTxs) {
+							batchEndIdx = len(allTxs)
+						}
+						for j := batchStartIdx; j < batchEndIdx; j++ {
+							ethH := strings.ToLower(allTxs[j].txHash.Hex())
+							txSendTimeMap[ethH] = nowSend
+							if otherHashes, exists := hashMapping[ethH]; exists {
+								for _, oh := range otherHashes {
+									txSendTimeMap[oh] = nowSend
+								}
+							}
+						}
+						txSendTimeMu.Unlock()
+					}
 					if err != nil {
 						var activeRPCEndpoints []string
 						for _, rc := range rpcPool {
@@ -1135,35 +1181,15 @@ func main() {
 		maxWait := time.Duration(waitSecs) * time.Second
 		pollInterval := 5 * time.Millisecond
 
-		// Build map of expected tx hashes to correctly count only our TXs
-		expectedTxHashes := make(map[string]bool)
-		hashMapping := make(map[string][]string)
-		for _, tx := range allTxs {
-			ethHashLower := strings.ToLower(tx.txHash.Hex())
-			expectedTxHashes[ethHashLower] = true
-
-			internalTx := &transaction.Transaction{}
-			if err := internalTx.Unmarshal(tx.bytes); err == nil {
-				pbHash := internalTx.Hash()
-				pbHashLower := strings.ToLower(pbHash.Hex())
-				expectedTxHashes[pbHashLower] = true
-
-				rawHash := crypto.Keccak256Hash(tx.bytes)
-				rawHashLower := strings.ToLower(rawHash.Hex())
-				expectedTxHashes[rawHashLower] = true
-
-				hashMapping[ethHashLower] = []string{pbHashLower, rawHashLower}
-				hashMapping[pbHashLower] = []string{ethHashLower, rawHashLower}
-				hashMapping[rawHashLower] = []string{ethHashLower, pbHashLower}
-			}
-		}
-
 		var processingDuration time.Duration
 		lastBlockNum := startBlock
 		totalTxsInBlocks := uint64(0)
 		seenAnyTx := false
 		var firstTxBlockTime time.Time
 		var lastTxBlockTime time.Time
+
+		var allLatencies []time.Duration
+		var latenciesMu sync.Mutex
 
 		epochWaitStart := time.Now()
 		startEpoch := startEpochBeforeBlast
@@ -1359,11 +1385,25 @@ func main() {
 					}
 
 					newTxsCount := uint64(0)
+					nowConfirm := time.Now()
 					for _, txHash := range blk.Transactions {
 						txHashLower := strings.ToLower(txHash)
 						if expectedTxHashes[txHashLower] {
 							newTxsCount++
 							delete(expectedTxHashes, txHashLower)
+
+							txSendTimeMu.Lock()
+							sendT, hasSendT := txSendTimeMap[txHashLower]
+							txSendTimeMu.Unlock()
+							if hasSendT {
+								lat := nowConfirm.Sub(sendT)
+								if lat > 0 {
+									latenciesMu.Lock()
+									allLatencies = append(allLatencies, lat)
+									latenciesMu.Unlock()
+								}
+							}
+
 							if otherHashes, exists := hashMapping[txHashLower]; exists {
 								for _, otherHash := range otherHashes {
 									delete(expectedTxHashes, otherHash)
@@ -1550,8 +1590,8 @@ func main() {
 					traces, err := rpcClient.GetBlockTraces(endBlock, endBlock)
 					if err == nil && len(traces) > 0 {
 						t := traces[0]
-						if t.TotalExecutionUs > 0 {
-							onChainDuration = time.Duration(t.TotalExecutionUs) * time.Microsecond
+						if t.TotalBlockDurationUs > 0 {
+							onChainDuration = time.Duration(t.TotalBlockDurationUs) * time.Microsecond
 							txCountForTps := t.TxCount
 							if txCountForTps <= 0 {
 								txCountForTps = int(totalTxsInBlocks)
@@ -1623,7 +1663,7 @@ func main() {
 			if tracesErr == nil {
 				var totalRealUs float64
 				for _, t := range traces {
-					realTotalUs := float64(0) + float64(0) + float64(t.EvmExecutionDurationUs) + float64(t.TotalExecutionUs)
+					realTotalUs := float64(t.TotalBlockDurationUs)
 					totalRealUs += realTotalUs
 				}
 				totalOnChainExecTime = time.Duration(totalRealUs) * time.Microsecond
@@ -1640,6 +1680,33 @@ func main() {
 		sb.WriteString(fmt.Sprintf("     1️⃣  Client TX Injection:     %s\n", blastDuration.Round(time.Millisecond)))
 		sb.WriteString(fmt.Sprintf("     2️⃣  On-Chain Execution:      %s (Sum of block traces)\n", totalOnChainExecTime.Round(time.Millisecond)))
 		sb.WriteString(fmt.Sprintf("     3️⃣  Mempool, Sync & Polling: %s (Wait & Networking)\n", waitAndNetworkDelay.Round(time.Millisecond)))
+
+		if len(allLatencies) > 0 {
+			latenciesCopy := make([]time.Duration, len(allLatencies))
+			copy(latenciesCopy, allLatencies)
+			sort.Slice(latenciesCopy, func(i, j int) bool {
+				return latenciesCopy[i] < latenciesCopy[j]
+			})
+			var totalLatSum time.Duration
+			for _, l := range latenciesCopy {
+				totalLatSum += l
+			}
+			avgLat := totalLatSum / time.Duration(len(latenciesCopy))
+			minLat := latenciesCopy[0]
+			maxLat := latenciesCopy[len(latenciesCopy)-1]
+			p50Lat := latenciesCopy[len(latenciesCopy)*50/100]
+			p95Lat := latenciesCopy[len(latenciesCopy)*95/100]
+			p99Lat := latenciesCopy[len(latenciesCopy)*99/100]
+
+			sb.WriteString(fmt.Sprintf("  ─────────────────────────────────────────────────\n"))
+			sb.WriteString(fmt.Sprintf("  ⏱️  REAL E2E LATENCY (Ví gửi ➡️ Node đóng block):\n"))
+			sb.WriteString(fmt.Sprintf("     • Trung bình (Average): %s (%.2f ms)\n", avgLat.Round(time.Millisecond), float64(avgLat.Microseconds())/1000.0))
+			sb.WriteString(fmt.Sprintf("     • Nhanh nhất (Min):     %s (%.2f ms)\n", minLat.Round(time.Millisecond), float64(minLat.Microseconds())/1000.0))
+			sb.WriteString(fmt.Sprintf("     • Lâu nhất (Max):       %s (%.2f ms)\n", maxLat.Round(time.Millisecond), float64(maxLat.Microseconds())/1000.0))
+			sb.WriteString(fmt.Sprintf("     • Phân vị P50 (Median): %s (%.2f ms)\n", p50Lat.Round(time.Millisecond), float64(p50Lat.Microseconds())/1000.0))
+			sb.WriteString(fmt.Sprintf("     • Phân vị P95:          %s (%.2f ms)\n", p95Lat.Round(time.Millisecond), float64(p95Lat.Microseconds())/1000.0))
+			sb.WriteString(fmt.Sprintf("     • Phân vị P99:          %s (%.2f ms)\n", p99Lat.Round(time.Millisecond), float64(p99Lat.Microseconds())/1000.0))
+		}
 		sb.WriteString(fmt.Sprintf("  ─────────────────────────────────────────────────\n"))
 
 		if isSingleBlock && onChainDuration > 0 {
@@ -1671,45 +1738,43 @@ func main() {
 				} else {
 					var totalWaitGo, totalWaitRust, totalConsensus, totalRustFFI, totalClientBatch float64
 					var totalProcessTX, totalCalcRoots, totalBlockData, totalMapping, totalCommitMem, totalSaveDB, totalTotal, totalGCPause float64
+					var totalTxCount int
 
 					for _, t := range traces {
-						// Calculate real total including all phases + wait times (End-to-End Node Latency)
-						realTotalUs := float64(0) +
-							float64(0) +
-							float64(t.EvmExecutionDurationUs) +
-							float64(t.TotalExecutionUs)
+						realTotalUs := float64(t.TotalBlockDurationUs)
+						totalTxCount += t.TxCount
 
-						totalWaitGo += float64(0)
-						totalWaitRust += float64(0)
-						totalConsensus += float64(0)
-						totalRustFFI += float64(0)
-						totalClientBatch += float64(0)
-						totalProcessTX += float64(t.EvmExecutionDurationUs)
-						totalCalcRoots += float64(0)
-						totalBlockData += float64(0)
-						totalMapping += float64(0)
-						totalCommitMem += float64(0)
-						totalSaveDB += float64(t.CommitDurationUs)
-						totalTotal += float64(t.TotalExecutionUs)
-						totalGCPause += float64(0)
+						totalWaitGo += float64(t.WaitGoUs)
+						totalWaitRust += float64(t.WaitRustUs)
+						totalConsensus += float64(t.ConsensusDurationUs)
+						totalRustFFI += float64(t.RustDeliveryFFIDurationUs)
+						totalClientBatch += float64(t.ClientBatchProcessingUs)
+						totalProcessTX += float64(t.ProcessTxsDurationUs)
+						totalCalcRoots += float64(t.TxsRootDurationUs + t.ReceiptsRootDurationUs)
+						totalBlockData += float64(t.BlockDataDurationUs)
+						totalMapping += float64(t.MappingDurationUs)
+						totalCommitMem += float64(t.CommitMemoryDurationUs)
+						totalSaveDB += float64(t.SaveDBDurationUs)
+						totalTotal += realTotalUs
+						totalGCPause += float64(t.GCPauseUs)
 
 						sb.WriteString(fmt.Sprintf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
 							t.BlockNumber, t.TxCount,
-							float64(0)/1000.0,
-							float64(0)/1000.0,
-							float64(0)/1000.0,
-							float64(0)/1000.0,
-							float64(0)/1000.0,
-							float64(t.EvmExecutionDurationUs)/1000.0,
-							float64(0)/1000.0, // calc roots
-							float64(0)/1000.0,
-							float64(0)/1000.0,
-							float64(0)/1000.0,
-							float64(t.CommitDurationUs)/1000.0,
+							float64(t.WaitGoUs)/1000.0,
+							float64(t.WaitRustUs)/1000.0,
+							float64(t.ConsensusDurationUs)/1000.0,
+							float64(t.RustDeliveryFFIDurationUs)/1000.0,
+							float64(t.ClientBatchProcessingUs)/1000.0,
+							float64(t.ProcessTxsDurationUs)/1000.0,
+							float64(t.TxsRootDurationUs+t.ReceiptsRootDurationUs)/1000.0,
+							float64(t.BlockDataDurationUs)/1000.0,
+							float64(t.MappingDurationUs)/1000.0,
+							float64(t.CommitMemoryDurationUs)/1000.0,
+							float64(t.SaveDBDurationUs)/1000.0,
 							realTotalUs/1000.0,
-							float64(0)/1000.0))
+							float64(t.GCPauseUs)/1000.0))
 					}
-
+					sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 190)))
 					if len(traces) > 0 {
 						n := float64(len(traces))
 						sb.WriteString(fmt.Sprintf("\n  🔍 BOTTLENECK ANALYSIS (Average per Block)\n"))
@@ -1781,9 +1846,9 @@ func main() {
 						}
 					}
 				}
-			} else {
-				sb.WriteString(blockDetails.String())
 			}
+		} else {
+			sb.WriteString(blockDetails.String())
 		}
 
 		fmt.Print(sb.String())

@@ -254,9 +254,29 @@ type BlockTrace struct {
 	BlockNumber uint64 `json:"block_number"`
 	TxCount     int    `json:"tx_count"`
 
-	EvmExecutionDurationUs int64 `json:"process_txs_duration_ms"`
-	CommitDurationUs       int64 `json:"save_db_duration_ms"`
-	TotalExecutionUs       int64 `json:"total_block_duration_ms"`
+	ConsensusDurationUs          int64 `json:"consensus_duration_ms"`
+	RustMempoolProposeDurationUs int64 `json:"rust_mempool_propose_duration_ms"`
+	RustDagConsensusDurationUs   int64 `json:"rust_dag_consensus_duration_ms"`
+	RustDeliveryFFIDurationUs    int64 `json:"rust_delivery_ffi_duration_ms"`
+
+	ClientBatchProcessingUs int64 `json:"client_batch_processing_ms"`
+	WaitGoUs                int64 `json:"wait_go_us"`
+	WaitRustUs              int64 `json:"wait_rust_us"`
+
+	ProcessTxsDurationUs   int64 `json:"process_txs_duration_ms"`
+	ReceiptsRootDurationUs int64 `json:"receipts_root_duration_ms"`
+	TxsRootDurationUs      int64 `json:"txs_root_duration_ms"`
+	Phase1TotalDurationUs  int64 `json:"phase1_total_duration_ms"`
+
+	BlockDataDurationUs int64 `json:"block_data_duration_ms"`
+	MappingDurationUs   int64 `json:"mapping_duration_ms"`
+	CommitMemoryDurationUs int64 `json:"commit_memory_duration_ms"`
+	JobPrepAndSnapDurationUs int64 `json:"job_prep_and_snap_duration_ms"`
+	DispatchDurationUs       int64 `json:"dispatch_duration_ms"`
+
+	SaveDBDurationUs     int64 `json:"save_db_duration_ms"`
+	TotalBlockDurationUs int64 `json:"total_block_duration_ms"`
+	GCPauseUs            int64 `json:"gc_pause_us"`
 }
 
 // GetBlockTraces fetches block traces via JSON-RPC
