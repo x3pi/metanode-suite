@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -27,7 +28,24 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 )
+
+// dialOptimizedClient khởi tạo RPC client với HTTP Transport được tối ưu connection pool cho benchmark tải cao
+func dialOptimizedClient(rawURL string) (*ethclient.Client, error) {
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			MaxIdleConns:        2000,
+			MaxIdleConnsPerHost: 1000,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+	rpcClient, err := rpc.DialHTTPWithClient(rawURL, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	return ethclient.NewClient(rpcClient), nil
+}
 
 // Xapian Contract ABI & Bytecode
 const xapianAbiJSON = `[
@@ -100,7 +118,7 @@ func main() {
 		log.Fatalf("❌ Lỗi parse config: %v", err)
 	}
 
-	client, err := ethclient.Dial(cfg.RPCUrl)
+	client, err := dialOptimizedClient(cfg.RPCUrl)
 	if err != nil {
 		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
 	}
@@ -108,7 +126,7 @@ func main() {
 	var rpcClients []*ethclient.Client
 	if *multiNodes && len(cfg.RPCNodes) > 0 {
 		for name, url := range cfg.RPCNodes {
-			if c, e := ethclient.Dial(url); e == nil {
+			if c, e := dialOptimizedClient(url); e == nil {
 				rpcClients = append(rpcClients, c)
 			} else {
 				fmt.Printf("⚠️ Lỗi kết nối node %s (%s): %v\n", name, url, e)
@@ -202,7 +220,7 @@ func main() {
 	var errs []error
 	var errsMu sync.Mutex
 	// Semaphore giới hạn số goroutine gửi tx đồng thời → tránh cạn kiệt HTTP connection pool
-	sendSem := make(chan struct{}, 500)
+	sendSem := make(chan struct{}, 1000)
 
 	type RoundSummary struct {
 		Round        int
@@ -675,8 +693,8 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 
 	fmt.Printf("   [Info] Đang chờ %d giao dịch từ block %d...\n", totalTxs, lastChecked)
 
-	startTime := time.Now()       // Tổng thời gian chờ toàn bộ round
-	lastBlockTime := time.Now()   // Thời gian block mới nhất được tìm thấy
+	startTime := time.Now()     // Tổng thời gian chờ toàn bộ round
+	lastBlockTime := time.Now() // Thời gian block mới nhất được tìm thấy
 	lastLogTime := time.Now()
 	var currentLatestBlock uint64 = lastChecked
 	var lastSeenBlock uint64 = lastChecked
@@ -772,4 +790,3 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 
 	return totalSuccess, nil
 }
-

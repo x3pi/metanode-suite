@@ -5,8 +5,8 @@
   "chain_id": 991,
   "nation_id": 1,
   "parent_connection_type": "client",
-  "parent_address": "0x2C71210D239D472e963a7Be8362eCBdeD5337fE6",
-  "eth_pk": "41acc857cdc74215d5b5e1c4f497ef88409c8f095689f11930f1924efdf8bb12",
-  "http_rpc": "http://192.168.1.234:8650",
-  "websocket_rpc": "ws://192.168.1.234:8650"
+  "parent_address": "0x5Ff07Fb6140d05B5D66312aCdDAe2fF2434C437C",
+  "eth_pk": "0311720d7c137027f4c2a1350956d9b1c60b078d9bb014f23c5c0f44f716a46c",
+  "http_rpc": "http://192.168.1.234:8545",
+  "websocket_rpc": "ws://192.168.1.234:8545/ws"
 }

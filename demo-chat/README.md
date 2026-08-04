@@ -12,14 +12,15 @@ go run main.go -config=user1.json -deploy
 ## Terminal 2 (User 2 - Người kết nối)
 Sử dụng địa chỉ contract vừa copy được ở trên, chạy lệnh sau cho User 2 (thay `<ADDRESS>` bằng địa chỉ contract thực tế):
 ```bash
-go run main.go -config=user2.json -contract=0x1098Ed005916B0C2a2fe56E358C96015bBe2FbFA -target=0x5e582475A504998c5631E12A5a2585D2B1911812
+go run main.go -config=user1.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x5Ff07Fb6140d05B5D66312aCdDAe2fF2434C437C -spam 100 -ping
+go run main.go -config=user2.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x0b86Be8a3147EDF160C4Eb33666df2e42edB0A43
 
-go run main.go -config=user1.json -contract=0x1098Ed005916B0C2a2fe56E358C96015bBe2FbFA -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6
 
 
-go run main_rpc.go -config=user2.json -contract=0x1098Ed005916B0C2a2fe56E358C96015bBe2FbFA -target=0x5e582475A504998c5631E12A5a2585D2B1911812
+go run main_rpc.go -config=user1.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x5Ff07Fb6140d05B5D66312aCdDAe2fF2434C437C -spam 100 -ping
+go run main_rpc.go -config=user2.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x0b86Be8a3147EDF160C4Eb33666df2e42edB0A43
 
-go run main_rpc.go -config=user1.json -contract=0x1098Ed005916B0C2a2fe56E358C96015bBe2FbFA -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6
+
 
 
 
