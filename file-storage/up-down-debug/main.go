@@ -43,9 +43,10 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"google.golang.org/protobuf/proto"
 
+	"tool-test/pkg/loggerfile"
+
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"tool-test/pkg/loggerfile"
 	"github.com/quic-go/quic-go"
 	"golang.org/x/net/http2"
 )
@@ -450,7 +451,7 @@ func uploadFileGetInputData(client *ethclient.Client, privateKey *ecdsa.PrivateK
 	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
 	logger.Info("Gas price", auth.GasPrice)
 	auth.Value = requiredPayment // Gửi kèm thanh toán
-
+	logger.Info("___ RequiredPayment", requiredPayment)
 	balanceBefore, err := client.BalanceAt(context.Background(), fromAddress, nil)
 	if err != nil {
 		log.Fatalf("Failed to get balance before: %v", err)
