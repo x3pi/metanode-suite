@@ -201,6 +201,8 @@ func main() {
 	var wg sync.WaitGroup
 	var errs []error
 	var errsMu sync.Mutex
+	// Semaphore giới hạn số goroutine gửi tx đồng thời → tránh cạn kiệt HTTP connection pool
+	sendSem := make(chan struct{}, 500)
 
 	type RoundSummary struct {
 		Round        int
@@ -240,6 +242,8 @@ func main() {
 			wg.Add(1)
 			go func(idx int, pKeyHex string) {
 				defer wg.Done()
+				sendSem <- struct{}{}
+				defer func() { <-sendSem }()
 
 				pk, err := crypto.HexToECDSA(pKeyHex)
 				if err != nil {
@@ -252,15 +256,25 @@ func main() {
 
 				clientForTx := rpcClients[idx%len(rpcClients)]
 				var hash common.Hash
-				if *useXapian {
-					hash, err = sendIncrementShared(clientForTx, pk, cfg.ChainID, from, contractAddr, parsedABI)
-				} else {
-					hash, err = sendIncrement(clientForTx, pk, cfg.ChainID, from, contractAddr, parsedABI)
+				const maxRetry = 3
+				for attempt := 0; attempt < maxRetry; attempt++ {
+					clientForTx = rpcClients[(idx+attempt)%len(rpcClients)]
+					if *useXapian {
+						hash, err = sendIncrementShared(clientForTx, pk, cfg.ChainID, from, contractAddr, parsedABI)
+					} else {
+						hash, err = sendIncrement(clientForTx, pk, cfg.ChainID, from, contractAddr, parsedABI)
+					}
+					if err == nil {
+						break
+					}
+					if attempt < maxRetry-1 {
+						time.Sleep(500 * time.Millisecond)
+					}
 				}
 
 				if err != nil {
 					errsMu.Lock()
-					errs = append(errs, fmt.Errorf("round %d - lỗi send tx từ wallet %d: %v", r, idx, err))
+					errs = append(errs, fmt.Errorf("round %d - lỗi send tx từ wallet %d (sau %d lần thử): %v", r, idx, maxRetry, err))
 					errsMu.Unlock()
 					return
 				}
@@ -273,13 +287,15 @@ func main() {
 		wg.Wait()
 
 		if len(errs) > 0 {
-			fmt.Println("❌ Một số giao dịch gửi thất bại trong round này:")
 			errsMu.Lock()
+			errCount := len(errs)
+			fmt.Printf("❌ Round %d: %d/%d giao dịch gửi thất bại (sau 3 lần retry):\n", r, errCount, len(testKeys))
 			for _, e := range errs {
 				fmt.Println("  -", e)
 			}
-			errs = nil // reset cho round sau
+			errs = nil
 			errsMu.Unlock()
+			log.Fatalf("🚨 [DỪNG] Round %d có %d tx thất bại sau 3 lần retry. Dừng chương trình!", r, errCount)
 		}
 
 		var roundSuccess int
