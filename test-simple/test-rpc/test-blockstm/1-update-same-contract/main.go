@@ -581,62 +581,102 @@ func main() {
 			time.Sleep(20 * time.Second)
 		}
 
-		var roundActual uint64
-		var isPassed bool
+		var isPassed bool = true
+		var checkErr error
+		var failedNodes []int
+		var nodeResults []uint64
 
-		if *useXapian {
-			if *useParallel {
-				userVal, err := getUserDataFromDB(client, contractAddr, parsedABI, from0)
-				if err != nil {
-					fmt.Printf("❌ Lỗi đọc state Xapian Parallel sau round %d: %v\n", r, err)
+		for nodeIdx, rpcClient := range rpcClients {
+			var roundActual uint64
+			var nodePassed bool
+
+			if *useXapian {
+				if *useParallel {
+					userVal, err := getUserDataFromDB(rpcClient, contractAddr, parsedABI, from0)
+					if err != nil {
+						fmt.Printf("❌ Lỗi đọc state Xapian Parallel sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						checkErr = err
+					} else {
+						roundActual = userVal.Uint64()
+						nodePassed = (roundActual == uint64(r))
+					}
 				} else {
-					roundActual = userVal.Uint64()
-					isPassed = (roundActual == uint64(r))
+					var err error
+					roundActual, err = getSharedDataFromDB(rpcClient, contractAddr, parsedABI)
+					if err != nil {
+						fmt.Printf("❌ Lỗi đọc state Xapian Shared sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						checkErr = err
+					} else {
+						nodePassed = (uint64(totalSuccess) == roundActual)
+					}
 				}
 			} else {
-				roundActual, err = getSharedDataFromDB(client, contractAddr, parsedABI)
-				if err != nil {
-					fmt.Printf("❌ Lỗi đọc state Xapian Shared sau round %d: %v\n", r, err)
+				if *useParallel {
+					userVal, err := getUserDataEVM(rpcClient, contractAddr, parsedABI, from0)
+					if err != nil {
+						fmt.Printf("❌ Lỗi đọc state EVM Parallel sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						checkErr = err
+					} else {
+						roundActual = userVal.Uint64()
+						nodePassed = (roundActual == 1)
+					}
 				} else {
-					isPassed = (uint64(totalSuccess) == roundActual)
+					var err error
+					roundActual, err = getCount(rpcClient, contractAddr, parsedABI)
+					if err != nil {
+						fmt.Printf("❌ Lỗi đọc state EVM count sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						checkErr = err
+					} else {
+						nodePassed = (uint64(totalSuccess) == roundActual)
+					}
 				}
 			}
-		} else {
-			if *useParallel {
-				userVal, err := getUserDataEVM(client, contractAddr, parsedABI, from0)
-				if err != nil {
-					fmt.Printf("❌ Lỗi đọc state EVM Parallel sau round %d: %v\n", r, err)
-				} else {
-					roundActual = userVal.Uint64()
-					isPassed = (roundActual == 1)
-				}
-			} else {
-				roundActual, err = getCount(client, contractAddr, parsedABI)
-				if err != nil {
-					fmt.Printf("❌ Lỗi đọc state EVM count sau round %d: %v\n", r, err)
-				} else {
-					isPassed = (uint64(totalSuccess) == roundActual)
-				}
+
+			if checkErr != nil {
+				break
+			}
+
+			nodeResults = append(nodeResults, roundActual)
+			if !nodePassed {
+				isPassed = false
+				failedNodes = append(failedNodes, nodeIdx)
 			}
 		}
 
-		if err != nil {
-			fmt.Printf("❌ Lỗi đọc state sau round %d: %v\n", r, err)
+		if checkErr != nil {
+			fmt.Printf("❌ Lỗi đọc state sau round %d: %v\n", r, checkErr)
 		} else {
-			fmt.Printf("\n📊 KẾT QUẢ ROUND %d:\n", r)
+			fmt.Printf("\n📊 KẾT QUẢ ROUND %d (Đã check %d nodes):\n", r, len(rpcClients))
 			fmt.Printf("   - Số tx thành công round này : %d\n", roundSuccess)
 			fmt.Printf("   - Tổng tx thành công đến hiện tại: %d\n", totalSuccess)
+
+			var expectedVal uint64
+			var valName string
 			if *useXapian {
 				if *useParallel {
-					fmt.Printf("   - Giá trị Xapian DB ví 0 thực tế: %d (Kỳ vọng: %d)\n", roundActual, r)
+					expectedVal = uint64(r)
+					valName = "Xapian DB ví 0"
 				} else {
-					fmt.Printf("   - Giá trị Xapian DB thực tế    : %d (Kỳ vọng: %d)\n", roundActual, totalSuccess)
+					expectedVal = uint64(totalSuccess)
+					valName = "Xapian DB"
 				}
 			} else {
 				if *useParallel {
-					fmt.Printf("   - Giá trị EVM ví 0 thực tế    : %d (Kỳ vọng: 1)\n", roundActual)
+					expectedVal = 1
+					valName = "EVM ví 0"
 				} else {
-					fmt.Printf("   - Giá trị EVM count thực tế   : %d (Kỳ vọng: %d)\n", roundActual, totalSuccess)
+					expectedVal = uint64(totalSuccess)
+					valName = "EVM count"
+				}
+			}
+
+			fmt.Printf("   - Giá trị kỳ vọng (%s): %d\n", valName, expectedVal)
+			fmt.Println("   - Kết quả trên từng node:")
+			for i, val := range nodeResults {
+				if val == expectedVal {
+					fmt.Printf("       + Node %d: %d (✅ KHỚP)\n", i, val)
+				} else {
+					fmt.Printf("       + Node %d: %d (❌ LỆCH)\n", i, val)
 				}
 			}
 
@@ -645,7 +685,7 @@ func main() {
 			} else {
 				fmt.Printf("   => ❌ ROUND FAILED\n")
 				fmt.Println("================================================--------------------------------")
-				fmt.Printf("🚨 [LỖI LỆCH KẾT QUẢ STATE TẠI ROUND %d]\n", r)
+				fmt.Printf("🚨 [LỖI LỆCH KẾT QUẢ STATE TẠI ROUND %d] Các node có kết quả sai lệch: %v\n", r, failedNodes)
 				fmt.Println("================================================--------------------------------")
 				log.Fatalf("🚨 Dừng chương trình ngay lập tức do phát hiện điểm sai ở Round %d!", r)
 			}
@@ -654,7 +694,7 @@ func main() {
 				Round:        r,
 				SuccessTx:    roundSuccess,
 				TotalSuccess: totalSuccess,
-				DBValue:      roundActual,
+				DBValue:      nodeResults[0],
 				Passed:       isPassed,
 			})
 		}
@@ -662,36 +702,56 @@ func main() {
 
 	var actual uint64
 	var testPassed bool
-	if *useXapian {
-		if *useParallel {
-			val, err := getUserDataFromDB(client, contractAddr, parsedABI, from0)
-			if err == nil {
-				actual = val.Uint64()
-				testPassed = (actual == uint64(*rounds))
+	var finalCheckErr error
+
+	for _, rpcClient := range rpcClients {
+		if *useXapian {
+			if *useParallel {
+				val, err := getUserDataFromDB(rpcClient, contractAddr, parsedABI, from0)
+				if err == nil {
+					actual = val.Uint64()
+					testPassed = (actual == uint64(*rounds))
+				} else {
+					finalCheckErr = err
+				}
+			} else {
+				actual, err = getSharedDataFromDB(rpcClient, contractAddr, parsedABI)
+				if err == nil {
+					testPassed = (actual == uint64(totalSuccess))
+				} else {
+					finalCheckErr = err
+				}
 			}
 		} else {
-			actual, err = getSharedDataFromDB(client, contractAddr, parsedABI)
-			if err == nil {
-				testPassed = (actual == uint64(totalSuccess))
+			if *useParallel {
+				val, err := getUserDataEVM(rpcClient, contractAddr, parsedABI, from0)
+				if err == nil {
+					actual = val.Uint64()
+					testPassed = (actual == 1)
+				} else {
+					finalCheckErr = err
+				}
+			} else {
+				actual, err = getCount(rpcClient, contractAddr, parsedABI)
+				if err == nil {
+					testPassed = (actual == uint64(totalSuccess))
+				} else {
+					finalCheckErr = err
+				}
 			}
 		}
-	} else {
-		if *useParallel {
-			val, err := getUserDataEVM(client, contractAddr, parsedABI, from0)
-			if err == nil {
-				actual = val.Uint64()
-				testPassed = (actual == 1)
-			}
-		} else {
-			actual, err = getCount(client, contractAddr, parsedABI)
-			if err == nil {
-				testPassed = (actual == uint64(totalSuccess))
-			}
+
+		if finalCheckErr != nil {
+			break
+		}
+
+		if !testPassed {
+			break
 		}
 	}
 
-	if err != nil {
-		log.Fatalf("❌ Lỗi đọc state cuối cùng: %v", err)
+	if finalCheckErr != nil {
+		log.Fatalf("❌ Lỗi đọc state cuối cùng: %v", finalCheckErr)
 	}
 
 	elapsed := time.Since(start)
