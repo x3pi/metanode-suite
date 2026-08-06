@@ -585,10 +585,18 @@ func main() {
 		var checkErr error
 		var failedNodes []int
 		var nodeResults []uint64
+		var nodeBlocks []uint64
 
 		for nodeIdx, rpcClient := range rpcClients {
 			var roundActual uint64
 			var nodePassed bool
+
+			blockNum, errBlock := rpcClient.BlockNumber(context.Background())
+			if errBlock != nil {
+				fmt.Printf("⚠️ Lỗi lấy BlockNumber node %d: %v\n", nodeIdx, errBlock)
+				blockNum = 0
+			}
+			nodeBlocks = append(nodeBlocks, blockNum)
 
 			if *useXapian {
 				if *useParallel {
@@ -674,9 +682,9 @@ func main() {
 			fmt.Println("   - Kết quả trên từng node:")
 			for i, val := range nodeResults {
 				if val == expectedVal {
-					fmt.Printf("       + Node %d: %d (✅ KHỚP)\n", i, val)
+					fmt.Printf("       + Node %d: %d (✅ KHỚP) - Block: %d\n", i, val, nodeBlocks[i])
 				} else {
-					fmt.Printf("       + Node %d: %d (❌ LỆCH)\n", i, val)
+					fmt.Printf("       + Node %d: %d (❌ LỆCH) - Block: %d\n", i, val, nodeBlocks[i])
 				}
 			}
 
