@@ -38,7 +38,7 @@ go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys
 
 **Chạy test tải nặng (100.000 txs) chia batch lớn (1000 tx/batch) và chia đều tải ra nhiều node:**
 ```bash
-go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys.json -count=100000 -batch=1000 -load_balance=true
+go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys.json -count=100000 -batch=20000 -load_balance=true
 ```
 
 **Chạy bài test độ bền (Endurance Test) với 5 vòng (rounds) liên tiếp, bật verify chéo receipt:**
@@ -46,7 +46,7 @@ go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys
 go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys.json -count=20000 -rounds=5 -verify=true
 ```
 
-go run main.go --config config-multi.json --count 50000 --batch 2000 -rounds=5 --conflict=true
+go run main.go --config config-multi.json --count 50000 --batch 2000 -rounds=1 --conflict=false -load_balance=true
 
 ## 4. Hoạt động của Script
 Khi bạn chạy lệnh trên, script sẽ:

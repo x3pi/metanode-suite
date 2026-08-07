@@ -11,6 +11,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"log"
 	"math/big"
 	"os"
@@ -140,6 +141,11 @@ func main() {
 		}
 		for {
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
+
+			if err != nil && !strings.Contains(err.Error(), "not found") {
+				fmt.Printf("Lỗi kết nối RPC: %v\n", err)
+				os.Exit(1)
+			}
 			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status != 1 {
 					fmt.Printf("❌ Wallet %d Tx bị revert!\n", i)

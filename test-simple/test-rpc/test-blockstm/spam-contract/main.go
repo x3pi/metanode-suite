@@ -17,6 +17,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -182,40 +183,41 @@ func main() {
 	waitMethod := flag.String("wait-method", "block", "Phương thức chờ giao dịch: 'block' hoặc 'receipt'")
 	useXapian := flag.Bool("xapian", false, "Chế độ test Xapian DB (thay vì EVM State thông thường)")
 	useParallel := flag.Bool("parallel", false, "Chế độ test song song không xung đột (non-conflicting parallel updates)")
+	checkAddr := flag.String("check", "", "Contract Address để kiểm tra state độc lập trên các node (bỏ qua deploy)")
 	flag.Parse()
 
-	fmt.Println("==========================================================")
+	log.Println("==========================================================")
 	if *useXapian {
 		if *useParallel {
-			fmt.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ XAPIAN DB - SONG SONG KHÔNG XUNG ĐỘT)")
-			fmt.Println("==========================================================")
-			fmt.Println("📖 MÔ TẢ   : Gửi nhiều tx cùng lúc cập nhật độc lập từng key trên Xapian DB.")
-			fmt.Println("⚡ GỌI     : Giao dịch gọi hàm incrementUser() từ các ví.")
-			fmt.Println("🎯 KỲ VỌNG : Block-STM phát hiện KHÔNG CÓ read/write conflict trên Xapian Document, xử lý song song thành công.")
+			log.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ XAPIAN DB - SONG SONG KHÔNG XUNG ĐỘT)")
+			log.Println("==========================================================")
+			log.Println("📖 MÔ TẢ   : Gửi nhiều tx cùng lúc cập nhật độc lập từng key trên Xapian DB.")
+			log.Println("⚡ GỌI     : Giao dịch gọi hàm incrementUser() từ các ví.")
+			log.Println("🎯 KỲ VỌNG : Block-STM phát hiện KHÔNG CÓ read/write conflict trên Xapian Document, xử lý song song thành công.")
 		} else {
-			fmt.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ XAPIAN DB - CHUNG 1 GIÁ TRỊ)")
-			fmt.Println("==========================================================")
-			fmt.Println("📖 MÔ TẢ   : Gửi nhiều tx cùng lúc cập nhật chung 1 giá trị trên Xapian DB.")
-			fmt.Println("⚡ GỌI     : Giao dịch gọi hàm incrementShared() từ các ví.")
-			fmt.Println("🎯 KỲ VỌNG : Block-STM phải phát hiện read/write conflict trên Xapian Document, re-execute và cho kết quả đúng.")
+			log.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ XAPIAN DB - CHUNG 1 GIÁ TRỊ)")
+			log.Println("==========================================================")
+			log.Println("📖 MÔ TẢ   : Gửi nhiều tx cùng lúc cập nhật chung 1 giá trị trên Xapian DB.")
+			log.Println("⚡ GỌI     : Giao dịch gọi hàm incrementShared() từ các ví.")
+			log.Println("🎯 KỲ VỌNG : Block-STM phải phát hiện read/write conflict trên Xapian Document, re-execute và cho kết quả đúng.")
 		}
 	} else {
 		if *useParallel {
-			fmt.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ EVM STATE - SONG SONG KHÔNG XUNG ĐỘT)")
-			fmt.Println("==========================================================")
-			fmt.Println("📖 MÔ TẢ   : Gửi nhiều giao dịch (tx) cùng lúc để gọi hàm update (ghi mapping độc lập) trên 1 Smart Contract.")
-			fmt.Println("⚡ GỌI     : Giao dịch gọi hàm updateIfPhase1() từ các ví.")
-			fmt.Println("🎯 KỲ VỌNG : Block-STM phát hiện KHÔNG CÓ read/write conflict, toàn bộ txs chạy song song thành công mượt mà.")
+			log.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ EVM STATE - SONG SONG KHÔNG XUNG ĐỘT)")
+			log.Println("==========================================================")
+			log.Println("📖 MÔ TẢ   : Gửi nhiều giao dịch (tx) cùng lúc để gọi hàm update (ghi mapping độc lập) trên 1 Smart Contract.")
+			log.Println("⚡ GỌI     : Giao dịch gọi hàm updateIfPhase1() từ các ví.")
+			log.Println("🎯 KỲ VỌNG : Block-STM phát hiện KHÔNG CÓ read/write conflict, toàn bộ txs chạy song song thành công mượt mà.")
 		} else {
-			fmt.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ EVM STATE - UPDATE CHUNG BIẾN)")
-			fmt.Println("==========================================================")
-			fmt.Println("📖 MÔ TẢ   : Gửi nhiều giao dịch (tx) cùng lúc để gọi hàm update (tăng biến count) trên cùng một Smart Contract.")
-			fmt.Println("⚡ GỌI     : Giao dịch gọi hàm EVM update state (increment) trên 1 contract duy nhất.")
-			fmt.Println("🎯 KỲ VỌNG : Block-STM phải phát hiện read/write conflict, abort và re-execute để đảm bảo tính tuần tự.")
+			log.Println("BÀI TEST: 1-update-same-contract (CHẾ ĐỘ EVM STATE - UPDATE CHUNG BIẾN)")
+			log.Println("==========================================================")
+			log.Println("📖 MÔ TẢ   : Gửi nhiều giao dịch (tx) cùng lúc để gọi hàm update (tăng biến count) trên cùng một Smart Contract.")
+			log.Println("⚡ GỌI     : Giao dịch gọi hàm EVM update state (increment) trên 1 contract duy nhất.")
+			log.Println("🎯 KỲ VỌNG : Block-STM phải phát hiện read/write conflict, abort và re-execute để đảm bảo tính tuần tự.")
 		}
 	}
-	fmt.Println("==========================================================")
-	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+	log.Println("==========================================================")
+	log.Println("🚀 KẾT QUẢ THỰC THI:")
 
 	configPath := *configFlag
 	if flag.NArg() > 0 {
@@ -238,21 +240,27 @@ func main() {
 
 	var rpcClients []*ethclient.Client
 	if *multiNodes && len(cfg.RPCNodes) > 0 {
-		for name, url := range cfg.RPCNodes {
+		var nodeKeys []string
+		for k := range cfg.RPCNodes {
+			nodeKeys = append(nodeKeys, k)
+		}
+		sort.Strings(nodeKeys)
+		for _, name := range nodeKeys {
+			url := cfg.RPCNodes[name]
 			if c, e := dialOptimizedClient(url); e == nil {
 				rpcClients = append(rpcClients, c)
 			} else {
-				fmt.Printf("⚠️ Lỗi kết nối node %s (%s): %v\n", name, url, e)
+				log.Printf("⚠️ Lỗi kết nối node %s (%s): %v", name, url, e)
 			}
 		}
 	}
 	if len(rpcClients) == 0 {
 		if *multiNodes {
-			fmt.Println("⚠️ Không cấu hình rpc_nodes trong config.json hoặc kết nối lỗi, fallback về RPC mặc định")
+			log.Println("⚠️ Không cấu hình rpc_nodes trong config.json hoặc kết nối lỗi, fallback về RPC mặc định")
 		}
 		rpcClients = append(rpcClients, client)
 	} else {
-		fmt.Printf("🌐 Đã kết nối tới %d nodes RPC (Chế độ multi)\n", len(rpcClients))
+		log.Printf("🌐 Đã kết nối tới %d nodes RPC (Chế độ multi)", len(rpcClients))
 	}
 
 	var parsedABI abi.ABI
@@ -338,26 +346,62 @@ func main() {
 	}
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
-	fmt.Println("🚀 Deploying contract with Account 0...")
+	if *checkAddr != "" {
+		cAddr := common.HexToAddress(*checkAddr)
+		log.Printf("🔍 Đang kiểm tra state của Contract: %s", cAddr.Hex())
+		for i, rpcClient := range rpcClients {
+			var actual uint64
+			var err error
+			if *useXapian {
+				if *useParallel {
+					val, e := getUserDataFromDB(rpcClient, &cAddr, parsedABI, from0)
+					if e == nil {
+						actual = val.Uint64()
+					}
+					err = e
+				} else {
+					actual, err = getSharedDataFromDB(rpcClient, &cAddr, parsedABI)
+				}
+			} else {
+				if *useParallel {
+					val, e := getUserDataEVM(rpcClient, &cAddr, parsedABI, from0)
+					if e == nil {
+						actual = val.Uint64()
+					}
+					err = e
+				} else {
+					actual, err = getCount(rpcClient, &cAddr, parsedABI)
+				}
+			}
+			if err != nil {
+				log.Printf("   - Node %d: LỖI %v", i, err)
+			} else {
+				log.Printf("   - Node %d: State = %d", i, actual)
+			}
+		}
+		os.Exit(0)
+	}
+
+	log.Println("🚀 Deploying contract with Account 0...")
 	contractAddr, err := deployContract(client, pk0, cfg.ChainID, from0, bytecode)
 	if err != nil {
 		log.Fatalf("❌ Deploy thất bại: %v", err)
 	}
-	fmt.Printf("📌 Contract deployed at: %s\n\n", contractAddr.Hex())
+	log.Printf("📌 Contract deployed at: %s\n", contractAddr.Hex())
 
 	if *useXapian {
-		fmt.Println("⚙️ Initializing Xapian Document...")
+		log.Println("⚙️ Initializing Xapian Document...")
 		initHash, err := sendInitializeDoc(client, pk0, cfg.ChainID, from0, contractAddr, parsedABI)
 		if err != nil {
 			log.Fatalf("❌ InitializeDoc failed: %v", err)
 		}
-		fmt.Printf("   TX Hash: %s\n", initHash.Hex())
+		log.Printf("   TX Hash: %s", initHash.Hex())
 
 		initReceipt, err := waitReceipt(client, initHash)
 		if err != nil || initReceipt.Status != 1 {
 			log.Fatalf("❌ Khởi tạo Document thất bại!")
 		}
-		fmt.Printf("✅ InitializeDoc thành công!\n\n")
+		log.Printf("✅ InitializeDoc thành công!\n")
 	}
 
 	var wg sync.WaitGroup
@@ -383,7 +427,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("❌ Lỗi lấy số dư ban đầu: %v", err)
 	}
-	fmt.Printf("💰 Số dư ví 0 ban đầu: %s wei\n", balanceBefore.String())
+	log.Printf("💰 Số dư ví 0 ban đầu: %s wei", balanceBefore.String())
 
 	header, err := client.HeaderByNumber(context.Background(), nil)
 	if err != nil {
@@ -391,7 +435,7 @@ func main() {
 	}
 	startBlock := header.Number.Uint64()
 
-	fmt.Printf("⏳ Đang tải nonce ban đầu cho %d ví...\n", len(testKeys))
+	log.Printf("⏳ Đang tải nonce ban đầu cho %d ví...", len(testKeys))
 	startNonces := make([]uint64, len(testKeys))
 	var nonceWg sync.WaitGroup
 	nonceSem := make(chan struct{}, 200)
@@ -417,21 +461,21 @@ func main() {
 		}(i, pkStr)
 	}
 	nonceWg.Wait()
-	fmt.Printf("✅ Đã tải xong nonce ban đầu cho tất cả ví!\n\n")
+	log.Printf("✅ Đã tải xong nonce ban đầu cho tất cả ví!\n")
 
 	for r := 1; r <= *rounds; r++ {
-		fmt.Printf("\n🔥 --- ROUND %d/%d --- 🔥\n", r, *rounds)
+		log.Printf("\n🔥 --- ROUND %d/%d --- 🔥", r, *rounds)
 		if *useXapian {
 			if *useParallel {
-				fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update Xapian DB (Song song không xung đột)...\n", len(testKeys))
+				log.Printf("🔥 Gửi %d giao dịch đồng thời để update Xapian DB (Song song không xung đột)...", len(testKeys))
 			} else {
-				fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update Xapian DB (Xung đột shared)...\n", len(testKeys))
+				log.Printf("🔥 Gửi %d giao dịch đồng thời để update Xapian DB (Xung đột shared)...", len(testKeys))
 			}
 		} else {
 			if *useParallel {
-				fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update EVM State contract (Song song không xung đột)...\n", len(testKeys))
+				log.Printf("🔥 Gửi %d giao dịch đồng thời để update EVM State contract (Song song không xung đột)...", len(testKeys))
 			} else {
-				fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update EVM State contract (Xung đột shared)...\n", len(testKeys))
+				log.Printf("🔥 Gửi %d giao dịch đồng thời để update EVM State contract (Xung đột shared)...", len(testKeys))
 			}
 		}
 
@@ -486,18 +530,20 @@ func main() {
 					}
 					if attempt < maxRetry-1 {
 						time.Sleep(500 * time.Millisecond)
+						
+		
 					}
 				}
 
 				if err != nil {
 					errsMu.Lock()
-					fmt.Printf("❌ Round %d - Wallet %d gửi tx thất bại (sau %d lần thử): %v\n", r, idx, maxRetry, err)
+					log.Printf("❌ Round %d - Wallet %d gửi tx thất bại (sau %d lần thử): %v", r, idx, maxRetry, err)
 					errs = append(errs, fmt.Errorf("round %d - lỗi send tx từ wallet %d (sau %d lần thử): %v", r, idx, maxRetry, err))
 					errsMu.Unlock()
 					return
 				}
 
-				fmt.Printf("✅ Round %d - Wallet %d gửi tx thành công: %s\n", r, idx, hash.Hex())
+				log.Printf("✅ Round %d - Wallet %d gửi tx thành công: %s", r, idx, hash.Hex())
 				txHashes[idx] = hash
 			}(i, pkStr)
 		}
@@ -508,18 +554,18 @@ func main() {
 		if len(errs) > 0 {
 			errsMu.Lock()
 			errCount = len(errs)
-			fmt.Printf("❌ Round %d: %d/%d giao dịch gửi thất bại (sau 3 lần retry):\n", r, errCount, len(testKeys))
+			log.Printf("❌ Round %d: %d/%d giao dịch gửi thất bại (sau 3 lần retry):", r, errCount, len(testKeys))
 			for _, e := range errs {
-				fmt.Println("  -", e)
+				log.Println("  -", e)
 			}
 			errs = nil
 			errsMu.Unlock()
-			fmt.Printf("🚨 [BỎ QUA LỖI] Round %d có %d tx thất bại sau 3 lần retry. Chuyển sang bước đợi block cho các tx thành công...\n", r, errCount)
+			log.Printf("🚨 [BỎ QUA LỖI] Round %d có %d tx thất bại sau 3 lần retry. Chuyển sang bước đợi block cho các tx thành công...", r, errCount)
 		}
 
 		var roundSuccess int
 		if *waitMethod == "receipt" {
-			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách lấy Receipt...")
+			log.Println("⏳ Chờ các giao dịch được confirm bằng cách lấy Receipt...")
 			successCount := 0
 			var wgReceipt sync.WaitGroup
 			var mu sync.Mutex
@@ -535,7 +581,7 @@ func main() {
 						mu.Lock()
 						current := successCount
 						mu.Unlock()
-						fmt.Printf("   [⏳ Waiting Receipt] Đã confirm %d/%d txs... (Thời gian chờ: %v)\n", current, len(txHashes), time.Since(startTime).Round(time.Second))
+						log.Printf("   [⏳ Waiting Receipt] Đã confirm %d/%d txs... (Thời gian chờ: %v)", current, len(txHashes), time.Since(startTime).Round(time.Second))
 					case <-donePrint:
 						return
 					}
@@ -566,18 +612,18 @@ func main() {
 			close(donePrint)
 			roundSuccess = successCount
 			totalSuccess += roundSuccess
-			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng Receipt trong round %d\n", roundSuccess, len(txHashes), r)
+			log.Printf("✅ Đã confirm %d/%d giao dịch bằng Receipt trong round %d", roundSuccess, len(txHashes), r)
 		} else {
-			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách quét Block...")
+			log.Println("⏳ Chờ các giao dịch được confirm bằng cách quét Block...")
 			successCount, err := waitForTxHashesByBlock(client, txHashes, startBlock, cfg.RPCNodes)
 			if err != nil {
-				fmt.Printf("❌ Lỗi khi chờ block: %v\n", err)
+				log.Printf("❌ Lỗi khi chờ block: %v", err)
 				log.Fatalf("🚨 Dừng chương trình do Timeout 4 phút khi chờ confirm block!")
 			}
 			roundSuccess = successCount
 			totalSuccess += roundSuccess
-			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng quét Block trong round %d\n", roundSuccess, len(txHashes), r)
-			fmt.Println("⏳ Đợi thêm 20s để đảm bảo State DB commit xong trước khi chạy round tiếp theo...")
+			log.Printf("✅ Đã confirm %d/%d giao dịch bằng quét Block trong round %d", roundSuccess, len(txHashes), r)
+			log.Println("⏳ Đợi thêm 20s để đảm bảo State DB commit xong trước khi chạy round tiếp theo...")
 			time.Sleep(20 * time.Second)
 		}
 
@@ -593,7 +639,7 @@ func main() {
 
 			blockNum, errBlock := rpcClient.BlockNumber(context.Background())
 			if errBlock != nil {
-				fmt.Printf("⚠️ Lỗi lấy BlockNumber node %d: %v\n", nodeIdx, errBlock)
+				log.Printf("⚠️ Lỗi lấy BlockNumber node %d: %v", nodeIdx, errBlock)
 				blockNum = 0
 			}
 			nodeBlocks = append(nodeBlocks, blockNum)
@@ -602,7 +648,7 @@ func main() {
 				if *useParallel {
 					userVal, err := getUserDataFromDB(rpcClient, contractAddr, parsedABI, from0)
 					if err != nil {
-						fmt.Printf("❌ Lỗi đọc state Xapian Parallel sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state Xapian Parallel sau round %d từ node %d: %v", r, nodeIdx, err)
 						checkErr = err
 					} else {
 						roundActual = userVal.Uint64()
@@ -612,7 +658,7 @@ func main() {
 					var err error
 					roundActual, err = getSharedDataFromDB(rpcClient, contractAddr, parsedABI)
 					if err != nil {
-						fmt.Printf("❌ Lỗi đọc state Xapian Shared sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state Xapian Shared sau round %d từ node %d: %v", r, nodeIdx, err)
 						checkErr = err
 					} else {
 						nodePassed = (uint64(totalSuccess) == roundActual)
@@ -622,7 +668,7 @@ func main() {
 				if *useParallel {
 					userVal, err := getUserDataEVM(rpcClient, contractAddr, parsedABI, from0)
 					if err != nil {
-						fmt.Printf("❌ Lỗi đọc state EVM Parallel sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state EVM Parallel sau round %d từ node %d: %v", r, nodeIdx, err)
 						checkErr = err
 					} else {
 						roundActual = userVal.Uint64()
@@ -632,7 +678,7 @@ func main() {
 					var err error
 					roundActual, err = getCount(rpcClient, contractAddr, parsedABI)
 					if err != nil {
-						fmt.Printf("❌ Lỗi đọc state EVM count sau round %d từ node %d: %v\n", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state EVM count sau round %d từ node %d: %v", r, nodeIdx, err)
 						checkErr = err
 					} else {
 						nodePassed = (uint64(totalSuccess) == roundActual)
@@ -652,11 +698,11 @@ func main() {
 		}
 
 		if checkErr != nil {
-			fmt.Printf("❌ Lỗi đọc state sau round %d: %v\n", r, checkErr)
+			log.Printf("❌ Lỗi đọc state sau round %d: %v", r, checkErr)
 		} else {
-			fmt.Printf("\n📊 KẾT QUẢ ROUND %d (Đã check %d nodes):\n", r, len(rpcClients))
-			fmt.Printf("   - Số tx thành công round này : %d\n", roundSuccess)
-			fmt.Printf("   - Tổng tx thành công đến hiện tại: %d\n", totalSuccess)
+			log.Printf("\n📊 KẾT QUẢ ROUND %d (Đã check %d nodes):", r, len(rpcClients))
+			log.Printf("   - Số tx thành công round này : %d", roundSuccess)
+			log.Printf("   - Tổng tx thành công đến hiện tại: %d", totalSuccess)
 
 			var expectedVal uint64
 			var valName string
@@ -678,23 +724,24 @@ func main() {
 				}
 			}
 
-			fmt.Printf("   - Giá trị kỳ vọng (%s): %d\n", valName, expectedVal)
-			fmt.Println("   - Kết quả trên từng node:")
+			log.Printf("   - Giá trị kỳ vọng (%s): %d", valName, expectedVal)
+			log.Println("   - Kết quả trên từng node:")
 			for i, val := range nodeResults {
 				if val == expectedVal {
-					fmt.Printf("       + Node %d: %d (✅ KHỚP) - Block: %d\n", i, val, nodeBlocks[i])
+					log.Printf("       + Node %d: %d (✅ KHỚP) - Block: %d", i, val, nodeBlocks[i])
 				} else {
-					fmt.Printf("       + Node %d: %d (❌ LỆCH) - Block: %d\n", i, val, nodeBlocks[i])
+					log.Printf("       + Node %d: %d (❌ LỆCH) - Block: %d", i, val, nodeBlocks[i])
 				}
 			}
 
 			if isPassed {
-				fmt.Printf("   => ✅ ROUND PASSED\n")
+				log.Printf("   => ✅ ROUND PASSED")
 			} else {
-				fmt.Printf("   => ❌ ROUND FAILED\n")
-				fmt.Println("================================================--------------------------------")
-				fmt.Printf("🚨 [LỖI LỆCH KẾT QUẢ STATE TẠI ROUND %d] Các node có kết quả sai lệch: %v\n", r, failedNodes)
-				fmt.Println("================================================--------------------------------")
+				log.Printf("   => ❌ ROUND FAILED")
+				log.Println("================================================--------------------------------")
+				log.Printf("🚨 [LỖI LỆCH KẾT QUẢ STATE TẠI ROUND %d] Các node có kết quả sai lệch: %v", r, failedNodes)
+				log.Printf("📌 CONTRACT ADDRESS ĐỂ KIỂM TRA LẠI: %s", contractAddr.Hex())
+				log.Println("================================================--------------------------------")
 				log.Fatalf("🚨 Dừng chương trình ngay lập tức do phát hiện điểm sai ở Round %d!", r)
 			}
 
@@ -770,56 +817,56 @@ func main() {
 	}
 
 	totalCost := new(big.Int).Sub(balanceBefore, balanceAfter)
-	fmt.Printf("\n💰 THỐNG KÊ CHI PHÍ GAS VÍ 0:\n")
-	fmt.Printf("   - Số dư ban đầu: %s wei\n", balanceBefore.String())
-	fmt.Printf("   - Số dư sau cùng: %s wei\n", balanceAfter.String())
-	fmt.Printf("   - Tổng phí đã trừ (Gas Cost): %s wei\n", totalCost.String())
+	log.Printf("\n💰 THỐNG KÊ CHI PHÍ GAS VÍ 0:")
+	log.Printf("   - Số dư ban đầu: %s wei", balanceBefore.String())
+	log.Printf("   - Số dư sau cùng: %s wei", balanceAfter.String())
+	log.Printf("   - Tổng phí đã trừ (Gas Cost): %s wei", totalCost.String())
 
 	if totalCost.Cmp(big.NewInt(0)) == 0 {
 		log.Fatalf("\n❌ [LỖI NGHIÊM TRỌNG] PHÍ GAS KHÔNG BỊ TRỪ! Giao dịch Smart Contract không trừ phí từ Sender!")
 	} else {
-		fmt.Printf("   => ✅ Phí Gas đã được trừ hợp lệ!\n")
+		log.Printf("   => ✅ Phí Gas đã được trừ hợp lệ!")
 	}
 
-	fmt.Println("\n📊 KẾT QUẢ:")
-	fmt.Printf("Thời gian gửi & chờ: %v\n", elapsed)
+	log.Println("\n📊 KẾT QUẢ:")
+	log.Printf("Thời gian gửi & chờ: %v", elapsed)
 	if *useXapian {
 		if *useParallel {
-			fmt.Printf("Giá trị counter ví 0 lưu trong Xapian DB: %d\n", actual)
+			log.Printf("Giá trị counter ví 0 lưu trong Xapian DB: %d", actual)
 		} else {
-			fmt.Printf("Giá trị counter cuối cùng lưu trong Xapian DB: %d\n", actual)
+			log.Printf("Giá trị counter cuối cùng lưu trong Xapian DB: %d", actual)
 		}
 	} else {
 		if *useParallel {
-			fmt.Printf("Giá trị state ví 0 EVM: %d\n", actual)
+			log.Printf("Giá trị state ví 0 EVM: %d", actual)
 		} else {
-			fmt.Printf("Giá trị count EVM cuối cùng: %d\n", actual)
+			log.Printf("Giá trị count EVM cuối cùng: %d", actual)
 		}
 	}
-	fmt.Printf("Tổng số lượng tx thành công: %d (trên %d round, mỗi round %d ví)\n", totalSuccess, *rounds, len(testKeys))
+	log.Printf("Tổng số lượng tx thành công: %d (trên %d round, mỗi round %d ví)", totalSuccess, *rounds, len(testKeys))
 
-	fmt.Println("\n📋 BẢNG TỔNG HỢP CÁC ROUND:")
-	fmt.Println("-------------------------------------------------------------------------")
-	fmt.Printf("%-10s | %-12s | %-14s | %-10s | %-10s\n", "Round", "Tx Success", "Total Success", "State Value", "Status")
-	fmt.Println("-------------------------------------------------------------------------")
+	log.Println("\n📋 BẢNG TỔNG HỢP CÁC ROUND:")
+	log.Println("-------------------------------------------------------------------------")
+	log.Printf("%-10s | %-12s | %-14s | %-10s | %-10s", "Round", "Tx Success", "Total Success", "State Value", "Status")
+	log.Println("-------------------------------------------------------------------------")
 	for _, s := range summaries {
 		status := "✅ PASSED"
 		if !s.Passed {
 			status = "⚠️ FAILED"
 		}
-		fmt.Printf("%-10d | %-12d | %-14d | %-10d | %-10s\n", s.Round, s.SuccessTx, s.TotalSuccess, s.DBValue, status)
+		log.Printf("%-10d | %-12d | %-14d | %-10d | %-10s", s.Round, s.SuccessTx, s.TotalSuccess, s.DBValue, status)
 	}
-	fmt.Println("-------------------------------------------------------------------------")
+	log.Println("-------------------------------------------------------------------------")
 
-	fmt.Println("\n🏁 KẾT LUẬN CUỐI CÙNG:")
+	log.Println("\n🏁 KẾT LUẬN CUỐI CÙNG:")
 	if testPassed {
 		if *useParallel {
-			fmt.Println("🎉 TEST PASSED: BlockSTM xử lý song song không xung đột thành công!")
+			log.Println("🎉 TEST PASSED: BlockSTM xử lý song song không xung đột thành công!")
 		} else {
-			fmt.Println("🎉 TEST PASSED: BlockSTM xử lý write conflict đúng!")
+			log.Println("🎉 TEST PASSED: BlockSTM xử lý write conflict đúng!")
 		}
 	} else {
-		fmt.Println("⚠️ TEST FAILED: Giá trị state không khớp với kỳ vọng")
+		log.Println("⚠️ TEST FAILED: Giá trị state không khớp với kỳ vọng")
 	}
 }
 
@@ -1100,20 +1147,27 @@ func getSharedDataFromDB(client *ethclient.Client, addr *common.Address, parsedA
 }
 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	timeout := time.After(120 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for {
-		receipt, err := client.TransactionReceipt(context.Background(), txHash)
+		select {
+		case <-timeout:
+			panic(fmt.Sprintf("timeout waiting for receipt tx %s", txHash.Hex()))
+		case <-ticker.C:
+			receipt, err := client.TransactionReceipt(context.Background(), txHash)
 
-		if err != nil && !strings.Contains(err.Error(), "not found") {
-			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-			os.Exit(1)
+			if err != nil && !strings.Contains(err.Error(), "not found") {
+				fmt.Printf("Lỗi kết nối RPC: %v\n", err)
+				os.Exit(1)
+			}
+			if err == nil {
+				return receipt, nil
+			}
+			if err != nil && err.Error() != "not found" {
+				return nil, err
+			}
 		}
-		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
-			return receipt, nil
-		}
-		if err != nil && err.Error() != "not found" {
-			return nil, err
-		}
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -1133,7 +1187,7 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 	totalSuccess := 0
 	totalTxs := len(pending)
 
-	fmt.Printf("   [Info] Đang chờ %d giao dịch từ block %d...\n", totalTxs, lastChecked)
+	log.Printf("   [Info] Đang chờ %d giao dịch từ block %d...", totalTxs, lastChecked)
 
 	startTime := time.Now()     // Tổng thời gian chờ toàn bộ round
 	lastBlockTime := time.Now() // Thời gian block mới nhất được tìm thấy
@@ -1145,36 +1199,64 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 		// Timeout 4 phút PER BLOCK: nếu không có block mới nào trong 4 phút → timeout
 		waitingForBlock := time.Since(lastBlockTime)
 		if waitingForBlock > 4*time.Minute {
-			fmt.Printf("\n⏰ [TIMEOUT 4 PHÚT / BLOCK] Không có block mới trong 4 phút! Còn %d/%d giao dịch chưa được đóng block.\n", len(pending), totalTxs)
-			fmt.Printf("   📊 Tổng thời gian đã chờ: %v | Thời gian chờ block hiện tại (block %d): %v\n",
+			log.Printf("\n⏰ [TIMEOUT 4 PHÚT / BLOCK] Không có block mới trong 4 phút! Còn %d/%d giao dịch chưa được đóng block.", len(pending), totalTxs)
+			log.Printf("   📊 Tổng thời gian đã chờ: %v | Thời gian chờ block hiện tại (block %d): %v\n",
 				time.Since(startTime).Round(time.Second), lastSeenBlock, waitingForBlock.Round(time.Second))
-			fmt.Println("🛑 Dừng chương trình. Dưới đây là danh sách 5 giao dịch chưa xử lý để debug:")
-			fmt.Println("--------------------------------------------------------------------------------")
+
+			log.Printf("\n🔍 TIẾN HÀNH KIỂM TRA BLOCK HEIGHT CỦA TẤT CẢ CÁC NODE TẠI THỜI ĐIỂM TIMEOUT:")
+			if len(rpcNodes) > 0 {
+				for nodeName, nodeUrl := range rpcNodes {
+					c, err := ethclient.Dial(nodeUrl)
+					if err == nil {
+						h, err := c.HeaderByNumber(context.Background(), nil)
+						if err == nil {
+							log.Printf("   📌 Block hiện tại: %d", nodeName, h.Number.Uint64())
+						} else {
+							log.Printf("   📌 Lỗi HeaderByNumber: %v", nodeName, err)
+						}
+						c.Close()
+					} else {
+						log.Printf("   📌 Lỗi kết nối RPC: %v", nodeName, err)
+					}
+				}
+			} else {
+				h, err := client.HeaderByNumber(context.Background(), nil)
+				if err == nil {
+					log.Printf("   📌 [Local Node] Block hiện tại: %d", h.Number.Uint64())
+				} else {
+					log.Printf("   📌 [Local Node] Lỗi HeaderByNumber: %v", err)
+				}
+			}
+
+			log.Println("\n🛑 Dừng chương trình. Dưới đây là danh sách 5 giao dịch chưa xử lý để debug:")
+			log.Println("--------------------------------------------------------------------------------")
 
 			count := 0
 			for txHash := range pending {
 				count++
-				fmt.Printf("\n🔍 [%d/5] Unconfirmed TxHash: %s\n", count, txHash.Hex())
+				log.Printf("\n🔍 [%d/5] Unconfirmed TxHash: %s", count, txHash.Hex())
 				if len(rpcNodes) > 0 {
 					for nodeName, nodeUrl := range rpcNodes {
-						fmt.Printf("   👉 curl (%s): curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionReceipt\",\"params\":[\"%s\"],\"id\":1}' %s\n", nodeName, txHash.Hex(), nodeUrl)
+						log.Printf("   👉 curl (%s): curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionReceipt\",\"params\":[\"%s\"],\"id\":1}' %s", nodeName, txHash.Hex(), nodeUrl)
 					}
 				} else {
-					fmt.Printf("   👉 curl: curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionReceipt\",\"params\":[\"%s\"],\"id\":1}' http://127.0.0.1:10746\n", txHash.Hex())
+					log.Printf("   👉 curl: curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionReceipt\",\"params\":[\"%s\"],\"id\":1}' http://127.0.0.1:10746", txHash.Hex())
 				}
 
 				if count >= 5 {
 					break
 				}
 			}
-			fmt.Println("--------------------------------------------------------------------------------")
+			log.Println("--------------------------------------------------------------------------------")
 			return totalSuccess, fmt.Errorf("timeout 4 phút chờ block mới (block cuối: %d)", lastSeenBlock)
 		}
 
 		header, err := client.HeaderByNumber(context.Background(), nil)
 		if err != nil {
-			fmt.Printf("   [Error] HeaderByNumber lỗi: %v. Sẽ thử lại sau...\n", err)
+			log.Printf("   [Error] HeaderByNumber lỗi: %v. Sẽ thử lại sau...", err)
 			time.Sleep(500 * time.Millisecond)
+			
+		
 			continue
 		}
 		latestBlock := header.Number.Uint64()
@@ -1195,9 +1277,10 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 					break
 				}
 				time.Sleep(200 * time.Millisecond)
+				
 			}
 			if err != nil {
-				fmt.Printf("   [Error] Không thể lấy block %d: %v. Dừng việc quét các block tiếp theo và sẽ thử lại!\n", b, err)
+				log.Printf("   [Error] Không thể lấy block %d: %v. Dừng việc quét các block tiếp theo và sẽ thử lại!", b, err)
 				break
 			}
 
@@ -1211,7 +1294,7 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 				}
 			}
 			if foundInBlock > 0 {
-				fmt.Printf("   [Info] Block %d chứa %d giao dịch của round này (còn lại: %d)\n", b, foundInBlock, len(pending))
+				log.Printf("   [Info] Block %d chứa %d giao dịch của round này (còn lại: %d)", b, foundInBlock, len(pending))
 			}
 			lastChecked = b + 1
 		}
@@ -1219,7 +1302,7 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 		if len(pending) > 0 {
 			if time.Since(lastLogTime) > 3*time.Second {
 				waitingForBlock = time.Since(lastBlockTime)
-				fmt.Printf("   [⏳ Waiting] Đã confirm %d/%d txs... | Tổng chờ: %v | Chờ block %d: %v\n",
+				log.Printf("   [⏳ Waiting] Đã confirm %d/%d txs... | Tổng chờ: %v | Chờ block %d: %v\n",
 					totalSuccess, totalTxs,
 					time.Since(startTime).Round(time.Second),
 					currentLatestBlock,
@@ -1227,6 +1310,7 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 				lastLogTime = time.Now()
 			}
 			time.Sleep(100 * time.Millisecond)
+			
 		}
 	}
 

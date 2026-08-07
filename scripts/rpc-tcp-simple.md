@@ -49,6 +49,7 @@ Hoặc kết hợp `--multi` và `--node` để **chạy test duy nhất 1 node 
 ```bash
 # Test riêng Node 1 từ cấu hình cluster mạng
 ./rpc-tcp-simple.sh --multi --node 1
+./rpc-tcp-simple.sh --multi --node 0
 ```
 
 ```bash

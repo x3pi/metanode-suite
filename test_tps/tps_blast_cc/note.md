@@ -43,6 +43,9 @@ go run main.go --count 20000 --rounds 30 --load_balance=false --batch=10 --amoun
 go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amount 1 --config=config-multi.json --trace
 
 go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --amount 1
+
+go run main.go --count 100000 --rounds 1 --load_balance=true --batch=20000 --amount 1 --config=config-multi.json
+
 ```
 
 ```bash

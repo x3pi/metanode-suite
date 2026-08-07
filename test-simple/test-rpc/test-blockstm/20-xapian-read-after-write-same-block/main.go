@@ -165,6 +165,11 @@ func main() {
 	
 	for job := range readHashes {
 		receipt, err := client.TransactionReceipt(context.Background(), job.hash)
+
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
+			os.Exit(1)
+		}
 		if err != nil {
 			continue
 		}
@@ -212,6 +217,11 @@ func sendTxWithNonce(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
+
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
+			os.Exit(1)
+		}
 		if err == nil && receipt != nil && receipt.BlockNumber.Uint64() > 0 {
 			return receipt, nil
 		}

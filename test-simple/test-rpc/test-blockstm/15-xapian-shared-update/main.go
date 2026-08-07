@@ -551,6 +551,11 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 	// start := time.Now()
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
+
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
+			os.Exit(1)
+		}
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return receipt, nil
 		}

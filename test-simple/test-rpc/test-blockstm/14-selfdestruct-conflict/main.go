@@ -152,6 +152,11 @@ func main() {
 		
 		for {
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
+
+			if err != nil && !strings.Contains(err.Error(), "not found") {
+				fmt.Printf("Lỗi kết nối RPC: %v\n", err)
+				os.Exit(1)
+			}
 			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if i == 0 {
 					// Tx 0 là destroy
@@ -199,6 +204,11 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	
 	for {
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
+
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
+			os.Exit(1)
+		}
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return &receipt.ContractAddress, nil
 		}

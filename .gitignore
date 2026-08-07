@@ -34,6 +34,21 @@ test-simple/test-rpc/test-blockstm/5-gas/main
 test-simple/test-rpc/test-blockstm/8-native-mixed-evm/main
 test-simple/test-rpc/test-blockstm/9-cross-contract-call/main
 test-simple/test-rpc/test-blockstm/10-cross-contract-payable/main
+test-simple/test-rpc/test-blockstm/11-double-spending-same-nonce/main
+test-simple/test-rpc/test-blockstm/12-insufficient-balance-parallel/main
+test-simple/test-rpc/test-blockstm/13-deploy-and-call-same-block/main
+test-simple/test-rpc/test-blockstm/14-selfdestruct-conflict/main
+test-simple/test-rpc/test-blockstm/15-xapian-shared-update/main
+test-simple/test-rpc/test-blockstm/16-xapian-evm-contract/main
+test-simple/test-rpc/test-blockstm/17-xapian-parallel-read-write/main
+test-simple/test-rpc/test-blockstm/19-xapian-parallel-update/main
+test-simple/test-rpc/test-blockstm/20-xapian-read-after-write-same-block/main
+test-simple/test-rpc/test-blockstm/21-sequential-nonce-same-wallet/main
+test-simple/test-rpc/test-blockstm/22-block-timestamp/main
+test-simple/test-rpc/test-blockstm/24-contract-factory-info/main
+test-simple/test-rpc/test-blockstm/6-native-many-to-one/main
+test-simple/test-rpc/test-blockstm/7-native-one-to-many/main
+test-simple/test-rpc/test-blockstm/spam-contract/main
 register_bls/tcp/register_bls
 test-simple/test-rpc/test-history/test-history
 test-simple/test-rpc/test-history/main
@@ -44,3 +59,4 @@ file-storage/up-down-debug/benchmark_file.bin
 file-storage/load-test/up-down-debug
 file-storage/load-test/load-test-bin
 file-storage/load-test/load-test
+test-simple/test-rpc/test-blockstm/10-cross-contract-payable/test_main

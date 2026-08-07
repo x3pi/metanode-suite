@@ -1670,8 +1670,8 @@ func main() {
 				traces, err := rpcClient.GetBlockTraces(endBlock, endBlock)
 				if err == nil && len(traces) > 0 {
 					t := traces[0]
-					if t.TotalExecutionUs > 0 {
-						onChainDuration = time.Duration(t.TotalExecutionUs) * time.Microsecond
+					if t.TotalBlockDurationUs > 0 {
+						onChainDuration = time.Duration(t.TotalBlockDurationUs) * time.Microsecond
 						txCountForTps := t.TxCount
 						if txCountForTps <= 0 {
 							txCountForTps = int(totalTxsInBlocks)
@@ -1742,7 +1742,7 @@ func main() {
 			if tracesErr == nil {
 				var totalRealUs float64
 				for _, t := range traces {
-					realTotalUs := float64(0) + float64(0) + float64(t.EvmExecutionDurationUs) + float64(t.TotalExecutionUs)
+					realTotalUs := float64(0) + float64(0) + float64(t.ProcessTxsDurationUs) + float64(t.TotalBlockDurationUs)
 					totalRealUs += realTotalUs
 				}
 				totalOnChainExecTime = time.Duration(totalRealUs) * time.Microsecond
@@ -1795,21 +1795,21 @@ func main() {
 						// Calculate real total including all phases + wait times (End-to-End Node Latency)
 						realTotalUs := float64(0) +
 							float64(0) +
-							float64(t.EvmExecutionDurationUs) +
-							float64(t.TotalExecutionUs)
+							float64(t.ProcessTxsDurationUs) +
+							float64(t.TotalBlockDurationUs)
 
 						totalWaitGo += float64(0)
 						totalWaitRust += float64(0)
 						totalConsensus += float64(0)
 						totalRustFFI += float64(0)
 						totalClientBatch += float64(0)
-						totalProcessTX += float64(t.EvmExecutionDurationUs)
+						totalProcessTX += float64(t.ProcessTxsDurationUs)
 						totalCalcRoots += float64(0)
 						totalBlockData += float64(0)
 						totalMapping += float64(0)
 						totalCommitMem += float64(0)
-						totalSaveDB += float64(t.CommitDurationUs)
-						totalTotal += float64(t.TotalExecutionUs)
+						totalSaveDB += float64(t.SaveDBDurationUs)
+						totalTotal += float64(t.TotalBlockDurationUs)
 						totalGCPause += float64(0)
 
 						sb.WriteString(fmt.Sprintf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
@@ -1819,12 +1819,12 @@ func main() {
 							float64(0)/1000.0,
 							float64(0)/1000.0,
 							float64(0)/1000.0,
-							float64(t.EvmExecutionDurationUs)/1000.0,
+							float64(t.ProcessTxsDurationUs)/1000.0,
 							float64(0)/1000.0, // calc roots
 							float64(0)/1000.0,
 							float64(0)/1000.0,
 							float64(0)/1000.0,
-							float64(t.CommitDurationUs)/1000.0,
+							float64(t.SaveDBDurationUs)/1000.0,
 							realTotalUs/1000.0,
 							float64(0)/1000.0))
 					}
