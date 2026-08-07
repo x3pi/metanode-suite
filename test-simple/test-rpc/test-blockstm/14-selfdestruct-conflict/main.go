@@ -150,7 +150,12 @@ func main() {
 			continue
 		}
 		
+		timeoutStart := time.Now()
 		for {
+			if time.Since(timeoutStart) > 60*time.Second {
+				fmt.Println("❌ Timeout waiting for receipt")
+				os.Exit(1)
+			}
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
 
 			if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -176,7 +181,7 @@ func main() {
 				}
 				break
 			}
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -202,7 +207,12 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
 	client.SendTransaction(context.Background(), signedTx)
 	
+	timeoutStart := time.Now()
 	for {
+		if time.Since(timeoutStart) > 60*time.Second {
+			fmt.Println("❌ Timeout waiting for receipt")
+			os.Exit(1)
+		}
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
 
 		if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -212,6 +222,6 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return &receipt.ContractAddress, nil
 		}
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }

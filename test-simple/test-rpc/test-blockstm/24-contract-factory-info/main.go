@@ -204,12 +204,17 @@ func deployContract(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chai
 
 	// Đợi transaction được mine
 	var receipt *types.Receipt
+	timeoutStart := time.Now()
 	for {
+		if time.Since(timeoutStart) > 60*time.Second {
+			fmt.Println("❌ Timeout waiting for receipt")
+			os.Exit(1)
+		}
 		receipt, err = client.TransactionReceipt(context.Background(), signedTx.Hash())
 		if err == nil {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	if receipt.Status != 1 {
@@ -244,12 +249,17 @@ func sendTransactionAndWait(client *ethclient.Client, privateKey *ecdsa.PrivateK
 	}
 
 	var receipt *types.Receipt
+	timeoutStart := time.Now()
 	for {
+		if time.Since(timeoutStart) > 60*time.Second {
+			fmt.Println("❌ Timeout waiting for receipt")
+			os.Exit(1)
+		}
 		receipt, err = client.TransactionReceipt(context.Background(), signedTx.Hash())
 		if err == nil {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	if receipt.Status != 1 {

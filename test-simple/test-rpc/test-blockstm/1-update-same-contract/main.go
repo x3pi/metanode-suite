@@ -485,7 +485,7 @@ func main() {
 						break
 					}
 					if attempt < maxRetry-1 {
-						time.Sleep(500 * time.Millisecond)
+						time.Sleep(100 * time.Millisecond)
 					}
 				}
 
@@ -577,8 +577,7 @@ func main() {
 			roundSuccess = successCount
 			totalSuccess += roundSuccess
 			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng quét Block trong round %d\n", roundSuccess, len(txHashes), r)
-			fmt.Println("⏳ Đợi thêm 20s để đảm bảo State DB commit xong trước khi chạy round tiếp theo...")
-			time.Sleep(20 * time.Second)
+			// Removed 20s sleep at user's request
 		}
 
 		var isPassed bool = true
@@ -1100,7 +1099,12 @@ func getSharedDataFromDB(client *ethclient.Client, addr *common.Address, parsedA
 }
 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	timeoutStart := time.Now()
 	for {
+		if time.Since(timeoutStart) > 60*time.Second {
+			fmt.Println("❌ Timeout waiting for receipt")
+			os.Exit(1)
+		}
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
 
 		if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -1174,7 +1178,7 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 		header, err := client.HeaderByNumber(context.Background(), nil)
 		if err != nil {
 			fmt.Printf("   [Error] HeaderByNumber lỗi: %v. Sẽ thử lại sau...\n", err)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		latestBlock := header.Number.Uint64()

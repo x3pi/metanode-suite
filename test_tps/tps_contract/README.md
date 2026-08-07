@@ -38,7 +38,7 @@ go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys
 
 **Chạy test tải nặng (100.000 txs) chia batch lớn (1000 tx/batch) và chia đều tải ra nhiều node:**
 ```bash
-go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys.json -count=100000 -batch=20000 -load_balance=true
+go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys.json -count=50000 -batch=10000 -load_balance=true
 ```
 
 **Chạy bài test độ bền (Endurance Test) với 5 vòng (rounds) liên tiếp, bật verify chéo receipt:**

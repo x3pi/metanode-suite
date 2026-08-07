@@ -12,7 +12,7 @@ go run main.go -config=../config.json -num=10000 -rounds=8 -wait-method=block -m
 go run main.go -config=../config.json -num=50 -xapian
 go run main.go -config=../config.json -num=5000 -xapian -parallel
 go run main.go -config=../config.json -num=10000 -rounds=8 -wait-method=block
-go run main.go -config=../config.json -num=10000 -rounds=16 -wait-method=block -multi -xapian
+go run main.go -config=../config.json -num=10000 -rounds=32 -wait-method=block -multi -xapian
 
 
 

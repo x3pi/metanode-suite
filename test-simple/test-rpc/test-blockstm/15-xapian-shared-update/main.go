@@ -549,7 +549,12 @@ func getSharedDataFromDB(client *ethclient.Client, addr *common.Address, parsedA
 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	// start := time.Now()
+	timeoutStart := time.Now()
 	for {
+		if time.Since(timeoutStart) > 60*time.Second {
+			fmt.Println("❌ Timeout waiting for receipt")
+			os.Exit(1)
+		}
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
 
 		if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -596,7 +601,7 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 		header, err := client.HeaderByNumber(context.Background(), nil)
 		if err != nil {
 			fmt.Printf("   [Error] HeaderByNumber lỗi: %v. Sẽ thử lại sau...\n", err)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		latestBlock := header.Number.Uint64()

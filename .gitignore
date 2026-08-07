@@ -60,3 +60,5 @@ file-storage/load-test/up-down-debug
 file-storage/load-test/load-test-bin
 file-storage/load-test/load-test
 test-simple/test-rpc/test-blockstm/10-cross-contract-payable/test_main
+test-simple/test-rpc/test-blockstm/test_report.md
+test_tps/tps_contract_parallel/tps_blast_parallel

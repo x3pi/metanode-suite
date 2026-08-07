@@ -343,7 +343,12 @@ func getCounterData(client *ethclient.Client, addr *common.Address, parsedABI ab
 }
 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	timeoutStart := time.Now()
 	for {
+		if time.Since(timeoutStart) > 60*time.Second {
+			fmt.Println("❌ Timeout waiting for receipt")
+			os.Exit(1)
+		}
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
 
 		if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -356,6 +361,6 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 		if err != nil && err.Error() != "not found" {
 			return nil, err
 		}
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }

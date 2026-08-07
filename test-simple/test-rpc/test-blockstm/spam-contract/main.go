@@ -16,6 +16,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -429,12 +430,6 @@ func main() {
 	}
 	log.Printf("💰 Số dư ví 0 ban đầu: %s wei", balanceBefore.String())
 
-	header, err := client.HeaderByNumber(context.Background(), nil)
-	if err != nil {
-		log.Fatalf("❌ Lỗi lấy startBlock: %v", err)
-	}
-	startBlock := header.Number.Uint64()
-
 	log.Printf("⏳ Đang tải nonce ban đầu cho %d ví...", len(testKeys))
 	startNonces := make([]uint64, len(testKeys))
 	var nonceWg sync.WaitGroup
@@ -478,6 +473,12 @@ func main() {
 				log.Printf("🔥 Gửi %d giao dịch đồng thời để update EVM State contract (Xung đột shared)...", len(testKeys))
 			}
 		}
+
+		header, err := client.HeaderByNumber(context.Background(), nil)
+		if err != nil {
+			log.Fatalf("❌ Lỗi lấy startBlock round %d: %v", r, err)
+		}
+		startBlock := header.Number.Uint64()
 
 		txHashes := make([]common.Hash, len(testKeys))
 
@@ -529,7 +530,7 @@ func main() {
 						break
 					}
 					if attempt < maxRetry-1 {
-						time.Sleep(500 * time.Millisecond)
+						time.Sleep(100 * time.Millisecond)
 						
 		
 					}
@@ -1171,6 +1172,27 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 	}
 }
 
+func sendTelegramAlert(msg string) {
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if token == "" {
+		token = "8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+	}
+	chatID := os.Getenv("TELEGRAM_CHAT_ID")
+	if chatID == "" {
+		chatID = "-1003867050625"
+	}
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	resp, err := http.PostForm(apiURL, url.Values{
+		"chat_id": {chatID},
+		"text":    {msg},
+	})
+	if err == nil {
+		resp.Body.Close()
+	} else {
+		log.Printf("Lỗi gửi Telegram: %v", err)
+	}
+}
+
 func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, startBlock uint64, rpcNodes map[string]string) (int, error) {
 	pending := make(map[common.Hash]bool)
 	for _, h := range txHashes {
@@ -1195,66 +1217,104 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 	var currentLatestBlock uint64 = lastChecked
 	var lastSeenBlock uint64 = lastChecked
 
-	for len(pending) > 0 {
-		// Timeout 4 phút PER BLOCK: nếu không có block mới nào trong 4 phút → timeout
-		waitingForBlock := time.Since(lastBlockTime)
-		if waitingForBlock > 4*time.Minute {
-			log.Printf("\n⏰ [TIMEOUT 4 PHÚT / BLOCK] Không có block mới trong 4 phút! Còn %d/%d giao dịch chưa được đóng block.", len(pending), totalTxs)
-			log.Printf("   📊 Tổng thời gian đã chờ: %v | Thời gian chờ block hiện tại (block %d): %v\n",
-				time.Since(startTime).Round(time.Second), lastSeenBlock, waitingForBlock.Round(time.Second))
+	var sent4MinWarning bool
 
-			log.Printf("\n🔍 TIẾN HÀNH KIỂM TRA BLOCK HEIGHT CỦA TẤT CẢ CÁC NODE TẠI THỜI ĐIỂM TIMEOUT:")
+	for len(pending) > 0 {
+		waitingForBlock := time.Since(lastBlockTime)
+		
+		if waitingForBlock > 10*time.Minute {
+			log.Printf("\n⏰ [TIMEOUT 10 PHÚT / BLOCK] Không có block mới trong 10 phút! Dừng chương trình.")
+			log.Printf("\n🔍 TIẾN HÀNH KIỂM TRA BLOCK HEIGHT CỦA TẤT CẢ CÁC NODE TẠI THỜI ĐIỂM TIMEOUT 10 PHÚT:")
+			var nodeBlocksInfo []string
 			if len(rpcNodes) > 0 {
 				for nodeName, nodeUrl := range rpcNodes {
 					c, err := ethclient.Dial(nodeUrl)
 					if err == nil {
 						h, err := c.HeaderByNumber(context.Background(), nil)
 						if err == nil {
-							log.Printf("   📌 Block hiện tại: %d", nodeName, h.Number.Uint64())
+							info := fmt.Sprintf("   📌 %s: Block %d", nodeName, h.Number.Uint64())
+							log.Println(info)
+							nodeBlocksInfo = append(nodeBlocksInfo, info)
 						} else {
-							log.Printf("   📌 Lỗi HeaderByNumber: %v", nodeName, err)
+							info := fmt.Sprintf("   📌 %s: Lỗi %v", nodeName, err)
+							log.Println(info)
+							nodeBlocksInfo = append(nodeBlocksInfo, info)
 						}
 						c.Close()
-					} else {
-						log.Printf("   📌 Lỗi kết nối RPC: %v", nodeName, err)
 					}
 				}
-			} else {
-				h, err := client.HeaderByNumber(context.Background(), nil)
-				if err == nil {
-					log.Printf("   📌 [Local Node] Block hiện tại: %d", h.Number.Uint64())
-				} else {
-					log.Printf("   📌 [Local Node] Lỗi HeaderByNumber: %v", err)
-				}
 			}
+			
+			// Lấy địa chỉ contract từ tx pending đầu tiên nếu có thể
+			contractTarget := "Unknown"
+			for txHash := range pending {
+				tx, _, err := client.TransactionByHash(context.Background(), txHash)
+				if err == nil && tx.To() != nil {
+					contractTarget = tx.To().Hex()
+				}
+				break
+			}
+			
+			timeoutMsg := fmt.Sprintf("🚨 [TIMEOUT] Bài test đã dừng do chờ 10 phút không có block mới.\n👉 Contract đang gọi: %s\n\n📌 Block các node:\n%s", 
+				contractTarget, strings.Join(nodeBlocksInfo, "\n"))
+			sendTelegramAlert(timeoutMsg)
 
 			log.Println("\n🛑 Dừng chương trình. Dưới đây là danh sách 5 giao dịch chưa xử lý để debug:")
 			log.Println("--------------------------------------------------------------------------------")
-
 			count := 0
 			for txHash := range pending {
 				count++
 				log.Printf("\n🔍 [%d/5] Unconfirmed TxHash: %s", count, txHash.Hex())
-				if len(rpcNodes) > 0 {
-					for nodeName, nodeUrl := range rpcNodes {
-						log.Printf("   👉 curl (%s): curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionReceipt\",\"params\":[\"%s\"],\"id\":1}' %s", nodeName, txHash.Hex(), nodeUrl)
-					}
-				} else {
-					log.Printf("   👉 curl: curl -s -X POST -H \"Content-Type: application/json\" --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionReceipt\",\"params\":[\"%s\"],\"id\":1}' http://127.0.0.1:10746", txHash.Hex())
-				}
-
 				if count >= 5 {
 					break
 				}
 			}
 			log.Println("--------------------------------------------------------------------------------")
-			return totalSuccess, fmt.Errorf("timeout 4 phút chờ block mới (block cuối: %d)", lastSeenBlock)
+			return totalSuccess, fmt.Errorf("timeout 10 phút chờ block mới (block cuối: %d)", lastSeenBlock)
+		} else if waitingForBlock > 4*time.Minute && !sent4MinWarning {
+			sent4MinWarning = true
+			log.Printf("\n⏰ [CẢNH BÁO 4 PHÚT] Không có block mới trong 4 phút. Kiểm tra đồng bộ các node...")
+			
+			var nodeBlocksInfo []string
+			var allSame = true
+			var lastVal uint64
+			var first = true
+
+			if len(rpcNodes) > 0 {
+				for nodeName, nodeUrl := range rpcNodes {
+					c, err := ethclient.Dial(nodeUrl)
+					if err == nil {
+						h, err := c.HeaderByNumber(context.Background(), nil)
+						if err == nil {
+							bn := h.Number.Uint64()
+							info := fmt.Sprintf("   📌 %s: Block %d", nodeName, bn)
+							log.Println(info)
+							nodeBlocksInfo = append(nodeBlocksInfo, info)
+							if first {
+								lastVal = bn
+								first = false
+							} else if bn != lastVal {
+								allSame = false
+							}
+						}
+						c.Close()
+					}
+				}
+			}
+			
+			var teleMsg string
+			if !allSame {
+				teleMsg = fmt.Sprintf("⚠️ [CẢNH BÁO LỆCH BLOCK] Sau 4 phút chờ, các node đang KHÔNG đồng bộ block (lệch hash/height)! Dẫn đến chưa đủ giao dịch.\nTiếp tục chờ thêm 6 phút...\n\n%s", strings.Join(nodeBlocksInfo, "\n"))
+			} else {
+				teleMsg = fmt.Sprintf("⚠️ [CẢNH BÁO ĐỨNG BLOCK] Sau 4 phút chờ, các node ĐỀU DỪNG ở block %d! Dẫn đến chưa đủ giao dịch.\nTiếp tục chờ thêm 6 phút...\n\n%s", lastVal, strings.Join(nodeBlocksInfo, "\n"))
+			}
+			sendTelegramAlert(teleMsg)
 		}
 
 		header, err := client.HeaderByNumber(context.Background(), nil)
 		if err != nil {
 			log.Printf("   [Error] HeaderByNumber lỗi: %v. Sẽ thử lại sau...", err)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			
 		
 			continue

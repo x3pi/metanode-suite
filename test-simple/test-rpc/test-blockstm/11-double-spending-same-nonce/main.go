@@ -106,6 +106,7 @@ func main() {
 
 			if err := client.SendTransaction(context.Background(), signedTx); err != nil {
 				errsMu.Lock()
+				fmt.Printf("❌ Bị Mempool từ chối (Tx: %s): %v\n", signedTx.Hash().Hex(), err)
 				errs = append(errs, fmt.Errorf("Lỗi gửi (bị mempool chặn ngay lập tức): %v", err))
 				errsMu.Unlock()
 				return
@@ -128,9 +129,18 @@ func main() {
 			continue
 		}
 		
-		// Đợi 2 giây cho mempool và block tạo ra
-		time.Sleep(1 * time.Second)
-		receipt, err := client.TransactionReceipt(context.Background(), hash)
+		// Wait for receipt with timeout
+		timeoutDuration := 60 * time.Second
+		deadline := time.Now().Add(timeoutDuration)
+		var receipt *types.Receipt
+		var err error
+		for time.Now().Before(deadline) {
+			receipt, err = client.TransactionReceipt(context.Background(), hash)
+			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 
 		if err != nil && !strings.Contains(err.Error(), "not found") {
 			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
@@ -156,6 +166,13 @@ func main() {
 	fmt.Printf("Thời gian chạy: %v\n", elapsed)
 	fmt.Printf("Số lượng thành công: %d (Kỳ vọng: 1)\n", successCount)
 	fmt.Printf("Số lượng thất bại / từ chối: %d (Kỳ vọng: 4)\n", failedCount)
+	
+	if len(errs) > 0 {
+		fmt.Println("📋 Lý do từ chối chi tiết:")
+		for _, e := range errs {
+			fmt.Printf(" - %v\n", e)
+		}
+	}
 
 	if successCount == 1 {
 		fmt.Println("\n🎉 TEST PASSED: Block-STM xử lý chuẩn xác, chặn đứng các giao dịch Double Spend cùng Nonce!")

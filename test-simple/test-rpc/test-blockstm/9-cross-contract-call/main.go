@@ -162,7 +162,12 @@ func main() {
 	for i := 0; i < len(txHashes); i++ {
 		hash := txHashes[i]
 		if hash == (common.Hash{}) { continue }
+		timeoutStart := time.Now()
 		for {
+			if time.Since(timeoutStart) > 60*time.Second {
+				fmt.Println("❌ Timeout waiting for receipt")
+				os.Exit(1)
+			}
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
 
 			if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -179,7 +184,7 @@ func main() {
 				}
 				break
 			}
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -235,7 +240,12 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil { return nil, err }
 
+	timeoutStart := time.Now()
 	for {
+		if time.Since(timeoutStart) > 60*time.Second {
+			fmt.Println("❌ Timeout waiting for receipt")
+			os.Exit(1)
+		}
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
 
 		if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -249,6 +259,6 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 			}
 			return nil, fmt.Errorf("transaction reverted")
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }

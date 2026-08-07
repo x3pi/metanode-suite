@@ -154,7 +154,12 @@ func main() {
 			continue
 		}
 		
+		timeoutStart := time.Now()
 		for {
+			if time.Since(timeoutStart) > 60*time.Second {
+				fmt.Println("❌ Timeout waiting for receipt")
+				os.Exit(1)
+			}
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
 
 			if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -170,7 +175,7 @@ func main() {
 				}
 				break
 			}
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 

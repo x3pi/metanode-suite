@@ -56,12 +56,12 @@ for test_dir in "${TESTS[@]}"; do
         
         cd "$test_dir" || exit
         
-        # Chạy lệnh go run và lưu toàn bộ output vào file log
+        # Chạy lệnh go run và lưu output realtime
         log_file="../$LOG_DIR/${test_dir}_run${run_idx}.log"
-        output=$(go run main.go 2>&1)
-        exit_code=$?
+        go run main.go 2>&1 | tee "$log_file"
+        exit_code=${PIPESTATUS[0]}
         
-        echo "$output" > "$log_file"
+        output=$(cat "$log_file")
         
         cd ..
 
