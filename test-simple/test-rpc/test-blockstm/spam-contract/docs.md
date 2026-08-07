@@ -18,3 +18,8 @@ go run main.go -config=../config.json -num=10000 -rounds=32 -wait-method=block -
 
 
 go run main.go -config=../config.json -multi -xapian -check="0xaB81d10D403e23552b0F6eadFd96F745409275AD"
+
+
+
+./run_soak_test.sh xapian
+./run_soak_test.sh contract
