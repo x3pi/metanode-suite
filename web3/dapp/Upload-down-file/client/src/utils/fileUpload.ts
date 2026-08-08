@@ -38,14 +38,8 @@ export interface UploadProgress {
 }
 
 // Calculate price for upload
-export async function calculatePrice(totalChunks: bigint): Promise<bigint> {
-  const result = await publicClient.readContract({
-    address: contracts.File.address,
-    abi: contracts.File.abi as Abi,
-    functionName: "calculatePrice",
-    args: [totalChunks],
-  });
-  return result as bigint;
+export async function calculatePrice(_totalChunks: bigint): Promise<bigint> {
+  return 0n;
 }
 
 // Push file info and get fileKey
@@ -75,7 +69,7 @@ export async function pushFileInfo(
   console.log("Pushing file info:", fileInfoStruct);
   console.log("Required payment:", requiredPayment?.toString());
 
-  if (!requiredPayment || requiredPayment === undefined) {
+  if (requiredPayment === undefined || requiredPayment === null) {
     throw new Error("Failed to calculate price: requiredPayment is undefined");
   }
 
@@ -274,8 +268,8 @@ export async function uploadFile(
 
     onProgress?.({ stage: "completed", fileKey, currentChunk: Number(totalChunks), totalChunks: Number(totalChunks) });
     return fileKey;
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+  } catch (error: any) {
+    const errorMessage = error instanceof Error ? error.message : (error?.message || String(error));
     onProgress?.({ stage: "error", error: errorMessage });
     throw error;
   }

@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { uploadFile, type UploadProgress } from "../utils/fileUpload";
-import { downloadFileAndSave } from "../utils/fileDownload";
 import { useEffect } from "react";
 import { createPublicClient, http } from "viem";
 import { chain991 } from "../constants/customChain";
@@ -24,7 +23,6 @@ export default function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isFileActive, setIsFileActive] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<number | null>(null);
 
@@ -65,7 +63,7 @@ export default function FileUpload() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       if (selectedFile.size > MAX_FILE_SIZE) {
-        setError("File quá lớn. Giới hạn tối đa là 2GB.");
+        alert("File quá lớn. Giới hạn tối đa là 2GB.");
         setFile(null);
         e.target.value = ""; // Clear input
         return;
@@ -95,7 +93,8 @@ export default function FileUpload() {
       setElapsedTime((endTime - startTime) / 1000);
     } catch (error: any) {
       console.error("Upload failed:", error);
-      setProgress({ stage: "error", error: error.message });
+      const errorMsg = error instanceof Error ? error.message : (error?.message || String(error));
+      setProgress({ stage: "error", error: errorMsg });
     } finally {
       setIsUploading(false);
     }

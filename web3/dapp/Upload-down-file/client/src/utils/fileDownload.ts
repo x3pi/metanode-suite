@@ -2,6 +2,7 @@ import { createPublicClient, createWalletClient, http, type Hex, decodeEventLog,
 import { privateKeyToAccount, sign } from "viem/accounts";
 import { contracts, privateKey } from "../constants/contracts";
 import { chain991, DOWNLOAD_SERVER_1, DOWNLOAD_SERVER_2 } from "../constants/customChain";
+import { getWtOptions, fetchChunkOnStream } from "./wtTransport";
 
 const publicClient = createPublicClient({
   chain: chain991,
@@ -30,12 +31,7 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     if (totalChunks === 0) throw new Error("File rỗng hoặc không tồn tại");
 
     onProgress?.(`File có ${totalChunks} chunks. Đang tính phí...`);
-    const requiredPayment = await publicClient.readContract({
-      address: contracts.File.address as `0x${string}`,
-      abi: contracts.File.abi,
-      functionName: "calculatePrice",
-      args: [BigInt(totalChunks)],
-    }) as bigint;
+    const requiredPayment = 0n;
 
     onProgress?.("Đang thanh toán để lấy DownloadKey...");
     const hash = await walletClient.writeContract({
@@ -118,7 +114,6 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     }
 
     onProgress?.("Đang khởi tạo kết nối WebTransport...");
-    const { getWtOptions, fetchChunkOnStream } = await import('./wtTransport');
 
     // Mở connection 1 lần duy nhất cho mỗi server
     const t1 = new WebTransport(`${DOWNLOAD_SERVER_1}/quic`, getWtOptions());

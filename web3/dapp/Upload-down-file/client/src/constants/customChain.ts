@@ -2,7 +2,7 @@
 import { type Chain } from "viem";
 
 // Bật cờ này thành `true` khi deploy lên server thật có SSL và tên miền chuẩn
-export const IS_PRODUCTION = false;
+export const IS_PRODUCTION = true;
 // export const GO_BACKEND_RPC_URL = window.location.origin;
 // export const WS_BASE = window.location.origin.replace(/^http/, "ws");
 // export const WSS_RPC = `${WS_BASE}/interceptor`;
