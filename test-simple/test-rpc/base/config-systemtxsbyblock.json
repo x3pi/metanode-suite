@@ -1,13 +1,11 @@
 {
     "type": "get_system_transactions_by_block_number",
     "rpc_urls": [
-        "http://localhost:8545",
-        "http://localhost:8547",
-        "http://localhost:8548",
-        "http://localhost:8549",
-        "http://localhost:8550"
+        "http://localhost:1076",
+        "http://localhost:10747",
+        "http://localhost:10748"
     ],
     "params": {
-        "block": "469"
+        "block": "621"
     }
 }

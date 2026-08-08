@@ -1,11 +1,12 @@
 [
   {
-    "contract": "0xE1866350a1c38a289e66EbA83cb9AE858ca948f5",
+    "contract": "0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88",
     "abi_path": "../abi/normal-test.json",
-    "action": "send",
-    "method": "setValue",
-    "args": [
-      9999
+    "action": "call",
+    "method": "getValue",
+    "args": [],
+    "verify": [
+      12345
     ]
   }
 ]
