@@ -53,6 +53,11 @@
     "method": "runStep5c_GetData_View",
     "args": [
       "0"
+    ],
+    "expected_output": [
+      "Iphone 13 Pro",
+      "electronics",
+      "apple"
     ]
   }
 ]

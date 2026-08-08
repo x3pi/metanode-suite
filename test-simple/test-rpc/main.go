@@ -42,6 +42,7 @@ type DataPayload struct {
 	Args           []interface{}   `json:"args"`
 	InputData      string          `json:"input_data"`
 	ExpectedEvents []ExpectedEvent `json:"expected_events"`
+	ExpectedOutput []string        `json:"expected_output"`
 }
 
 func main() {
@@ -210,7 +211,7 @@ func main() {
 					}
 				}
 			} else if action == "call" || action == "read" {
-				taskErr = executeCall(client, contractAddress, contractAbi, d.Method, payloadData)
+				taskErr = executeCall(client, contractAddress, contractAbi, d.Method, payloadData, d.ExpectedOutput)
 			} else if action == "send" || action == "write" {
 				taskErr = executeSend(client, privateKey, cfg.ChainID, fromAddress, contractAddress, payloadData, d.Method, contractAbi, hasAbi, d.ExpectedEvents)
 			} else {
@@ -224,7 +225,9 @@ func main() {
 				break
 			} else {
 				if len(d.ExpectedEvents) > 0 {
-					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (Pass %d verify)", taskTitle, len(d.ExpectedEvents)))
+					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (Pass %d verify event)", taskTitle, len(d.ExpectedEvents)))
+				} else if len(d.ExpectedOutput) > 0 {
+					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (Pass verify output)", taskTitle))
 				} else {
 					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG", taskTitle))
 				}
@@ -489,7 +492,7 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 // ----------------------------------------------------
 // THỰC THI ACTION: CALL (Mô phỏng/Đọc)
 // ----------------------------------------------------
-func executeCall(client *ethclient.Client, contractAddress common.Address, parsedABI abi.ABI, methodName string, payloadData []byte) error {
+func executeCall(client *ethclient.Client, contractAddress common.Address, parsedABI abi.ABI, methodName string, payloadData []byte, expectedOutput []string) error {
 	fmt.Printf("▶️  Chạy thử eth_call (READ/SIMULATE) cho hàm %s...\n", methodName)
 
 	msg := ethereum.CallMsg{
@@ -514,8 +517,20 @@ func executeCall(client *ethclient.Client, contractAddress common.Address, parse
 		} else {
 			if len(outputs) > 0 {
 				fmt.Printf("   ✅ KẾT QUẢ ĐỌC: %+v\n", outputs)
+				if len(expectedOutput) > 0 {
+					outputStr := fmt.Sprintf("%+v", outputs)
+					for _, expected := range expectedOutput {
+						if !strings.Contains(outputStr, expected) {
+							return fmt.Errorf("Kết quả trả về không chứa '%s'. Result: %s", expected, outputStr)
+						}
+					}
+					fmt.Printf("   ✅ [Verified] Khớp điều kiện kết quả đầu ra\n")
+				}
 			} else {
 				fmt.Printf("   ✅ eth_call thành công (Kết quả trả về rỗng).\n")
+				if len(expectedOutput) > 0 {
+					return fmt.Errorf("Kết quả trả về rỗng nhưng cấu hình yêu cầu verify output")
+				}
 			}
 		}
 	} else {

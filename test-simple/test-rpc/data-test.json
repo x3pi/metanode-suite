@@ -1,12 +1,11 @@
 [
   {
     "contract": "0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88",
-    "abi_path": "../abi/normal-test.json",
+    "abi_path": "./test_read_wire_xapian/abi/xapian.json",
     "action": "call",
-    "method": "getValue",
-    "args": [],
-    "verify": [
-      12345
+    "method": "runStep5c_GetData_View",
+    "args": [
+      "0"
     ]
   }
 ]

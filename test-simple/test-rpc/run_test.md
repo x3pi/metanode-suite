@@ -16,6 +16,11 @@ go run main.go -config=config-local.json -data=data.json -loop -delay=5
 # Lặp với URL khác
 go run main.go -config=config-local.json -data=data.json -loop -url=http://127.0.0.1:8550
 
+
+
+
+go run main.go -config=./config-local-1.json -data=./test_read_wire_xapian/data-xapian-v2.json
+go run main.go -config=config-local-1.json -data=data-test.json
 ```
 
 # Xapiant read write (server)
@@ -27,6 +32,9 @@ go run main.go -config=config-local.json -data=data.json -loop -url=http://127.0
 #chạy v0
 go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-v0.json
 go run main.go -config=./config-local.json -data=./test_read_wire_xapian/data-xapian-v2.json
+
+
+
 # server
 go run main.go -config=./config-server.json -data=./test_read_wire_xapian/data-xapian-v0.json
 go run main.go -config=./config-server.json -data=./test_read_wire_xapian/data-xapian-v2.json
