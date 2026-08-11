@@ -1,28 +1,12 @@
 #!/bin/bash
 
 # ==========================================
-# CẤU HÌNH & CHẾ ĐỘ TEST
-# ==========================================
-MODE=""
-if [ "$1" == "--internal-run" ]; then
-    MODE=$2
-else
-    MODE=$1
-fi
-
-if [[ "$MODE" != "xapian" && "$MODE" != "contract" ]]; then
-    echo "❌ Lỗi: Vui lòng chọn chế độ test."
-    echo "👉 Cách dùng: ./run_soak_test.sh [xapian | contract]"
-    exit 1
-fi
-
-# ==========================================
 # TỰ ĐỘNG CHẠY TRONG TMUX NẾU CHƯA CÓ
 # ==========================================
 if [ -z "$TMUX" ] && [ "$1" != "--internal-run" ]; then
-    SESSION_NAME="soak_test_${MODE}_$(date +%H%M%S)"
+    SESSION_NAME="soak_test_parallel_$(date +%H%M%S)"
     echo "🚀 Tự động tạo tmux session ngầm: $SESSION_NAME"
-    tmux new-session -d -s "$SESSION_NAME" "bash \"$0\" --internal-run $MODE"
+    tmux new-session -d -s "$SESSION_NAME" "bash \"$0\" --internal-run"
     echo "✅ Script đang chạy ngầm an toàn. Bạn có thể đóng terminal thoải mái."
     echo "💡 Để vào xem trực tiếp tiến trình, gõ lệnh:"
     echo "   tmux attach -t $SESSION_NAME"
@@ -32,11 +16,12 @@ fi
 # ==========================================
 # CẤU HÌNH TELEGRAM & THƯ MỤC
 # ==========================================
-TELEGRAM_BOT_TOKEN="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
-TELEGRAM_CHAT_ID="-1003867050625"
+export TELEGRAM_BOT_TOKEN="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
+export TELEGRAM_CHAT_ID="-1003867050625"
+export MTN_TELE_ALERT="true"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 TEST_DIR="$SCRIPT_DIR"
-LOG_FILE="${TEST_DIR}/soak_test_${MODE}_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="${TEST_DIR}/soak_test_parallel_$(date +%Y%m%d_%H%M%S).log"
 
 # Hàm gửi tin nhắn Telegram
 send_telegram() {
@@ -50,19 +35,15 @@ send_telegram() {
 MY_IP=$(hostname -I | awk '{print $1}')
 
 echo "=========================================="
-echo "Bắt đầu Soak Test ($MODE mode)."
+echo "Bắt đầu Soak Test Parallel Contract."
 echo "Log được ghi tại: $LOG_FILE"
 echo "=========================================="
 
-if [ "$MODE" == "xapian" ]; then
-    TEST_TITLE="XAPIAN"
-    TEST_DESC="Bắt đầu bài test Xapian DB xả tải 10k TPS liên tục."
-    GO_FLAGS="-config=../config.json -num=10000 -rounds=100000 -wait-method=block -multi -xapian"
-else
-    TEST_TITLE="CONTRACT"
-    TEST_DESC="Bắt đầu bài test Block-STM Contract xả tải 10k TPS liên tục (cùng 1 contract)."
-    GO_FLAGS="-config=../config.json -num=10000 -rounds=100000 -wait-method=block -multi"
-fi
+TEST_TITLE="PARALLEL CONTRACT"
+TEST_DESC="Bắt đầu bài test thực thi Contract song song ngầm qua đêm."
+# Để Test sức chịu đựng của thuật toán khi Conflict cực gắt (Dễ ra bug nhất):
+GO_FLAGS="-config=config.json -count=10000 -rounds=1000000 -num-contracts=100 -conflict -check-state"
+
 
 send_telegram "🚀 <b>[SOAK TEST $TEST_TITLE START]</b> $TEST_DESC
 🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
@@ -85,7 +66,7 @@ EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
     if [ -f .intentional_stop ]; then
         echo "🛑 Soak test đã được người dùng dừng chủ động."
-        send_telegram "🛑 <b>[SOAK TEST $TEST_TITLE ĐÃ DỪNG]</b> Bài test spam xả tải đã được dừng chủ động!
+        send_telegram "🛑 <b>[SOAK TEST $TEST_TITLE ĐÃ DỪNG]</b> Bài test đã được dừng chủ động!
 🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
 🕒 <b>Thời gian dừng:</b> $(date)
 📁 <b>File log:</b> <code>$LOG_FILE</code>"
@@ -96,7 +77,7 @@ if [ $EXIT_CODE -ne 0 ]; then
         # Lấy 20 dòng log cuối cùng để xem nguyên nhân lỗi
         TAIL_LOGS=$(tail -n 20 "$LOG_FILE")
         
-        send_telegram "🚨 <b>[LỖI SOAK TEST $TEST_TITLE]</b> Bài test spam xả tải đã bị lỗi hoặc dừng đột ngột!
+        send_telegram "🚨 <b>[LỖI SOAK TEST $TEST_TITLE]</b> Bài test đã bị lỗi hoặc dừng đột ngột!
 🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
 ⚠️ <b>Mã lỗi (Exit Code):</b> <code>$EXIT_CODE</code>
 🕒 <b>Thời gian dừng:</b> $(date)
@@ -109,7 +90,7 @@ if [ $EXIT_CODE -ne 0 ]; then
     fi
 else
     echo "✅ Soak test hoàn thành thành công!"
-    send_telegram "✅ <b>[SOAK TEST $TEST_TITLE THÀNH CÔNG]</b> Bài test đã chạy hết 100000 vòng xả tải mà không gặp lỗi ngắt kết nối nào!
+    send_telegram "✅ <b>[SOAK TEST $TEST_TITLE THÀNH CÔNG]</b> Bài test đã chạy hết số vòng mà không gặp lỗi!
 🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
 🕒 <b>Kết thúc lúc:</b> $(date)
 📁 <b>File log:</b> <code>$LOG_FILE</code>"

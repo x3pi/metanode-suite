@@ -445,6 +445,7 @@ func main() {
 		tpsTarget    int
 		conflict     bool
 		numContracts int
+		checkState   bool
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -461,12 +462,13 @@ func main() {
 	flag.IntVar(&numRounds, "rounds", 1, "Number of benchmark rounds")
 	flag.BoolVar(&loadBalance, "load_balance", false, "Round-robin transactions across all connection_node_* in config")
 	flag.BoolVar(&verify, "verify", false, "After each round, check recipient balance to confirm TXs landed")
-	flag.IntVar(&epochWait, "epoch-wait", 300, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
+	flag.IntVar(&epochWait, "epoch-wait", 0, "Max seconds to wait for epoch transition (0 = disable epoch wait)")
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
 	flag.BoolVar(&trace, "trace", true, "Enable fetching block traces at the end of the round")
 	flag.IntVar(&tpsTarget, "tps-target", 0, "Target TPS for paced injection (0 = disable pacing)")
 	flag.BoolVar(&conflict, "conflict", false, "Enable contract conflict mode (all TXs write to the same state)")
 	flag.IntVar(&numContracts, "num-contracts", 1000, "Số lượng contract rải thảm để lách luật Sequential")
+	flag.BoolVar(&checkState, "check-state", false, "Bật kiểm tra trạng thái EVM của Contract sau mỗi round")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
@@ -1337,7 +1339,6 @@ func main() {
 		epochTransitioned := false
 		var processStart time.Time
 		var timeoutStartEpoch uint64
-		var currentMonitorBlock uint64 // block hiện tại để log vào cảnh báo
 		lastProgressTime := time.Now()
 		if epochWait <= 0 {
 			epochTransitioned = true
@@ -1353,7 +1354,6 @@ func main() {
 			fmt.Printf("\n⏳ [%s] Bắt đầu quét block (timeout %s)...\n", time.Now().Format("15:04:05.000"), maxWait)
 		}
 
-		var lastEpochAlertTime time.Time
 		var lastAlertTime time.Time // 2-minute stall alert for TX confirmation phase
 
 		for {
@@ -1366,53 +1366,37 @@ func main() {
 				os.Exit(1)
 			}
 
-			// Check epoch transition timeout
-			if !epochTransitioned && epochWait > 0 {
-				if time.Since(epochWaitStart) > time.Duration(epochWait)*time.Second {
-					if time.Since(lastEpochAlertTime) >= 60*time.Second {
-						elapsedSec := int(time.Since(epochWaitStart).Seconds())
-						pendingEpoch := len(expectedTxHashes)
-						var activeTCPs []string
-						for _, cl := range clients {
-							activeTCPs = append(activeTCPs, cl.addr)
-						}
-						// ⏰ icon phân biệt: epoch timeout (khác ⚠️ stall)
-						errMsg := fmt.Sprintf("\n⏰ EPOCH TIMEOUT: Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Đang ở block: %d | Pending TXs: %d | Nodes: %v | Time: %s",
-							epochWait, elapsedSec, startEpoch, currentMonitorBlock, pendingEpoch, activeTCPs, time.Now().Format("15:04:05.000"))
-						fmt.Println(errMsg)
-						logErrorToFile(fmt.Sprintf("[Round %d] %s", round, errMsg))
-
-						var missingTxs []string
-						count := 0
-						for idx, tx := range allTxs {
-							txHashLower := strings.ToLower(tx.txHash.Hex())
-							if expectedTxHashes[txHashLower] {
-								clientAddr := "Unknown"
-								if len(clients) > 0 && batchSize > 0 {
-									clientAddr = clients[(idx/batchSize)%len(clients)].addr
-								}
-								missingTxs = append(missingTxs, fmt.Sprintf("%s (Node: %s)", tx.txHash.Hex(), clientAddr))
-								count++
-								if count >= 5 {
-									break
-								}
-							}
-						}
-
-						teleMsg := fmt.Sprintf("⏰ Quá %d giây không có epoch mới! (Đã chờ %d giây) (startEpoch: %d) | Đang ở block: %d | Pending TXs: %d | Nodes: %v\n5 giao dịch chưa được đưa vào:\n%s",
-							epochWait, elapsedSec, startEpoch, currentMonitorBlock, pendingEpoch, activeTCPs, strings.Join(missingTxs, "\n"))
-						sendTelegramAlert(teleMsg, "tps_blast_cc")
-						lastEpochAlertTime = time.Now()
-					}
-					// Bỏ break để chờ mãi và 1 phút báo 1 lần
-				}
-			}
+			// [Removed epoch transition timeout logic]
 
 			// Check TX confirmation timeout + periodic stall alert every 2 minutes
-			if epochTransitioned && !processStart.IsZero() {
+			if !processStart.IsZero() {
 				stalledFor := time.Since(lastProgressTime)
 				if stalledFor > maxWait {
-					break
+					outOfSync := false
+					var minBlk, maxBlk uint64
+					if len(rpcPool) > 1 {
+						minBlk = ^uint64(0)
+						activeNodes := 0
+						for _, rc := range rpcPool {
+							bNum, err := rc.GetBlockNumber()
+							if err == nil {
+								activeNodes++
+								if bNum > maxBlk { maxBlk = bNum }
+								if bNum < minBlk { minBlk = bNum }
+							}
+						}
+						if activeNodes > 1 && maxBlk > minBlk {
+							outOfSync = true
+						}
+					}
+
+					if outOfSync {
+						maxWait += 5 * time.Minute
+						msg := fmt.Sprintf("⚠️ Các node chưa đồng bộ (Min block: %d, Max block: %d). Tự động cộng thêm 5 phút chờ timeout (Tổng: %s)...", minBlk, maxBlk, maxWait)
+						fmt.Printf("\n%s\n", msg)
+					} else {
+						break
+					}
 				}
 				// Every 2 minutes without new confirmed TXs, print alert
 				if stalledFor > 2*time.Minute && time.Since(lastAlertTime) >= 2*time.Minute {
@@ -1445,9 +1429,6 @@ func main() {
 						(maxWait - stalledFor).Round(time.Second),
 						strings.Join(sample, "\n   "))
 					fmt.Print(aMsg)
-					teleMsg := fmt.Sprintf("%d giao dịch chưa phản hồi (Nodes: %v)\nTổng thời gian chờ kể từ epoch: %s | Không tiến triển: %s | Timeout còn lại: %s\n5 giao dịch minh họa:\n%s",
-						pendingCount, activeTCPs, totalElapsed, stalledFor.Round(time.Second), (maxWait - stalledFor).Round(time.Second), strings.Join(sample, "\n"))
-					sendTelegramAlert(teleMsg, "tps_blast_cc")
 					lastAlertTime = time.Now()
 				}
 			}
@@ -1458,7 +1439,6 @@ func main() {
 			if err != nil {
 				continue
 			}
-			currentMonitorBlock = currentBlockNum // cập nhật để log vào cảnh báo
 
 			newTxs := uint64(0)
 			nextLastBlockNum := lastBlockNum
@@ -2068,6 +2048,84 @@ func main() {
 			}
 
 			fmt.Printf("\n  ✅ Kết quả: %d TXs xác nhận OK, %d TXs Lỗi\n", verifiedCount, failedCount)
+		}
+		// ── Contract State Verification (EACH ROUND) ──────────────────
+		if checkState {
+			fmt.Printf("\n  🔎 XÁC MINH TRẠNG THÁI HỢP ĐỒNG (EVM STATE)...\n")
+			if conflict {
+				var totalSharedValue = big.NewInt(0)
+				callData, _ := parsedABI.Pack("sharedValue")
+				var mu sync.Mutex
+				var wg sync.WaitGroup
+				sem := make(chan struct{}, 100)
+				for _, cAddr := range contractAddrs {
+					wg.Add(1)
+					go func(addr *common.Address) {
+						defer wg.Done()
+						sem <- struct{}{}
+						defer func() { <-sem }()
+						res, err := ethClient.CallContract(context.Background(), ethereum.CallMsg{To: addr, Data: callData}, nil)
+						if err == nil && len(res) >= 32 {
+							val := new(big.Int).SetBytes(res)
+							mu.Lock()
+							totalSharedValue.Add(totalSharedValue, val)
+							mu.Unlock()
+						}
+					}(cAddr)
+				}
+				wg.Wait()
+				expected := big.NewInt(int64(round) * int64(len(allTxs)))
+				if totalSharedValue.Cmp(expected) == 0 {
+					fmt.Printf("  ✅ TRẠNG THÁI HOÀN HẢO! Tổng sharedValue = %s (Round %d)\n", totalSharedValue.String(), round)
+				} else {
+					fmt.Printf("  ❌ PHÁT HIỆN LỆCH STATE! Tổng sharedValue = %s (Mong đợi: %s)\n", totalSharedValue.String(), expected.String())
+					logErrorToFile(fmt.Sprintf("[Round %d] LỆCH STATE! Thực tế: %s, Mong đợi: %s", round, totalSharedValue.String(), expected.String()))
+				}
+			} else {
+				successCount := 0
+				failCount := 0
+				checkLimit := 200
+				if len(toSend) < 200 {
+					checkLimit = len(toSend)
+				}
+				var wg sync.WaitGroup
+				var mu sync.Mutex
+				sem := make(chan struct{}, 50)
+				for i := 0; i < checkLimit; i++ {
+					wg.Add(1)
+					go func(idx int) {
+						defer wg.Done()
+						sem <- struct{}{}
+						defer func() { <-sem }()
+						acc := toSend[idx]
+						fromAddr := common.HexToAddress(acc.Address)
+						cAddr := contractAddrs[idx%numContracts]
+						callData, _ := parsedABI.Pack("getValue", fromAddr)
+						res, err := ethClient.CallContract(context.Background(), ethereum.CallMsg{To: cAddr, Data: callData}, nil)
+						if err == nil && len(res) >= 32 {
+							val := new(big.Int).SetBytes(res)
+							mu.Lock()
+							if val.Cmp(big.NewInt(1)) == 0 {
+								successCount++
+							} else {
+								failCount++
+							}
+							mu.Unlock()
+						} else {
+							mu.Lock()
+							failCount++
+							mu.Unlock()
+						}
+					}(i)
+				}
+				wg.Wait()
+				if failCount == 0 {
+					fmt.Printf("  ✅ TRẠNG THÁI HOÀN HẢO! Kiểm tra ngẫu nhiên %d accounts đều có State = 1 (Round %d)\n", successCount, round)
+				} else {
+					fmt.Printf("  ❌ PHÁT HIỆN LỆCH STATE! Đúng: %d, Sai/Lỗi: %d\n", successCount, failCount)
+					logErrorToFile(fmt.Sprintf("[Round %d] LỆCH STATE MẪU! Đúng: %d, Lỗi: %d", round, successCount, failCount))
+				}
+			}
 		}
 	} // end round loop
 
