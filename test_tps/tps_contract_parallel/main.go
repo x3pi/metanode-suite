@@ -2085,6 +2085,18 @@ func main() {
 				successCount := 0
 				failCount := 0
 				checkLimit := len(toSend) // KIỂM TRA TOÀN BỘ 100% ACCOUNT
+				
+				// 🛑 BARRIER: Chờ 20s cho các node đồng bộ tới block cuối cùng của round
+				fmt.Printf("  ⏳ Chờ 20s để các node đồng bộ xong state tới Block %d...\n", endBlock)
+				time.Sleep(20 * time.Second)
+
+				// Pre-dial eth clients cho tất cả rpc nodes để tránh sập connection
+				ethClients := make([]*ethclient.Client, len(rpcPool))
+				for idx, rc := range rpcPool {
+					client, _ := ethclient.Dial(rc.Endpoint)
+					ethClients[idx] = client
+				}
+
 				var wg sync.WaitGroup
 				var mu sync.Mutex
 				sem := make(chan struct{}, 50)
@@ -2095,34 +2107,54 @@ func main() {
 						sem <- struct{}{}
 						defer func() { <-sem }()
 						acc := toSend[idx]
+						txHashHex := allTxs[idx].txHash.Hex()
 						fromAddr := common.HexToAddress(acc.Address)
 						cAddr := contractAddrs[idx%numContracts]
 						callData, _ := parsedABI.Pack("getValue", fromAddr)
-						res, err := ethClient.CallContract(context.Background(), ethereum.CallMsg{To: cAddr, Data: callData}, nil)
-						if err == nil && len(res) >= 32 {
-							val := new(big.Int).SetBytes(res)
-							mu.Lock()
-							if val.Cmp(big.NewInt(int64(round))) == 0 { // GIÁ TRỊ PHẢI TĂNG LÊN THEO SỐ VÒNG
-								successCount++
-							} else {
-								failCount++
-								if failCount <= 20 { // Chỉ in tối đa 20 lỗi ra màn hình để tránh trôi log
-									fmt.Printf("    ❌ Sai lệch tại Acc %s (Contract: %s): Mong đợi = %d, Thực tế = %s\n", acc.Address, cAddr.Hex(), round, val.String())
-								}
+
+						// Kiểm tra chéo trên TOÀN BỘ các node (rpcPool)
+						isAccSuccess := true
+						for nodeIdx, client := range ethClients {
+							if client == nil {
+								continue
 							}
-							mu.Unlock()
-						} else {
+							res, err := client.CallContract(context.Background(), ethereum.CallMsg{To: cAddr, Data: callData}, nil)
+							if err == nil && len(res) >= 32 {
+								val := new(big.Int).SetBytes(res)
+								if val.Cmp(big.NewInt(int64(round))) != 0 {
+									isAccSuccess = false
+									mu.Lock()
+									failCount++
+									if failCount <= 20 {
+										fmt.Printf("    ❌ Sai lệch Node %d (%s) tại Acc %s (Contract: %s) [Tx: %s]: Mong đợi = %d, Thực tế = %s\n", nodeIdx, rpcPool[nodeIdx].Endpoint, acc.Address, cAddr.Hex(), txHashHex, round, val.String())
+									}
+									mu.Unlock()
+									break // Phát hiện 1 node sai thì khỏi check node tiếp theo cho account này
+								}
+							} else {
+								isAccSuccess = false
+								mu.Lock()
+								failCount++
+								if failCount <= 20 {
+									fmt.Printf("    ❌ Lỗi gọi RPC Node %d (%s) tại Acc %s [Tx: %s]: %v\n", nodeIdx, rpcPool[nodeIdx].Endpoint, acc.Address, txHashHex, err)
+								}
+								mu.Unlock()
+								break
+							}
+						}
+
+						if isAccSuccess {
 							mu.Lock()
-							failCount++
+							successCount++
 							mu.Unlock()
 						}
 					}(i)
 				}
 				wg.Wait()
 				if failCount == 0 {
-					fmt.Printf("  ✅ TRẠNG THÁI HOÀN HẢO! Kiểm tra TOÀN BỘ %d accounts đều có State = %d (Round %d)\n", successCount, round, round)
+					fmt.Printf("  ✅ TRẠNG THÁI HOÀN HẢO! Kiểm tra TOÀN BỘ %d accounts đều đã cập nhật State = %d (Round %d)\n", successCount, round, round)
 				} else {
-					errMsg := fmt.Sprintf("❌ [PARALLEL CONTRACT LỆCH STATE]\n\nRound: %d\nĐúng: %d\nSai/Lỗi: %d", round, successCount, failCount)
+					errMsg := fmt.Sprintf("❌ [PARALLEL CONTRACT LỆCH STATE]\n\nRound: %d\nThành công (Đã cập nhật State = %d): %d/%d accounts\nThất bại (Chưa cập nhật hoặc sai State): %d/%d accounts", round, round, successCount, checkLimit, failCount, checkLimit)
 					fmt.Printf("  %s\n", errMsg)
 					logErrorToFile(errMsg)
 					sendTelegramAlert(errMsg, "STATE MISMATCH")
