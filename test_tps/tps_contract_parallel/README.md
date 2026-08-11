@@ -31,8 +31,8 @@ Lưu ý:
 - `-load_balance`: Bật phân bổ chia đều giao dịch ra nhiều node thay vì dồn vào 1 node (`-load_balance=true`).
 - `-trace`: Bật tính năng log chi tiết để xem giao dịch được đưa vào Block nào (`-trace=true`). (Mặc định: `false`)
 
+GO_FLAGS="-config=config.json -count=10000 -rounds=1000000 -num-contracts=10000 -load_balance -check-state"
 ## 3. Các Lệnh Chạy Mẫu (Examples)
-
 **Chạy test mặc định (10.000 txs, batch 500, 1 node):**
 ```bash
 go run main.go -config=./config-multi.json -keys=../gen_spam_keys/generated_keys.json -count=10000

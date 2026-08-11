@@ -10,7 +10,7 @@ contract ParallelTest {
     }
 
     function updateState(uint256 val) public {
-        values[msg.sender] = val;
+        values[msg.sender] += val;
     }
 
     function updateStateConflict(uint256 val) public {

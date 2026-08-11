@@ -42,7 +42,7 @@ echo "=========================================="
 TEST_TITLE="PARALLEL CONTRACT"
 TEST_DESC="Bắt đầu bài test thực thi Contract song song ngầm qua đêm."
 # Để Test sức chịu đựng của thuật toán khi Conflict cực gắt (Dễ ra bug nhất):
-GO_FLAGS="-config=config.json -count=10000 -rounds=1000000 -num-contracts=100 -conflict -check-state"
+GO_FLAGS="-config=config-multi.json -count=10000 -rounds=1000000 -num-contracts=2000 -load_balance -check-state"
 
 
 send_telegram "🚀 <b>[SOAK TEST $TEST_TITLE START]</b> $TEST_DESC

@@ -55,7 +55,7 @@ type AccountInfo struct {
 }
 
 // ABI definitions
-const bytecodeHex = "6080604052348015600e575f5ffd5b506103728061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610055575f3560e01c80633ccc05221461005957806354fe9fd71461008957806371acc738146100b9578063915491d5146100d5578063cc8a55e2146100f3575b5f5ffd5b610073600480360381019061006e919061022b565b61010f565b604051610080919061026e565b60405180910390f35b6100a3600480360381019061009e919061022b565b610154565b6040516100b0919061026e565b60405180910390f35b6100d360048036038101906100ce91906102b1565b610168565b005b6100dd610183565b6040516100ea919061026e565b60405180910390f35b61010d600480360381019061010891906102b1565b610189565b005b5f5f5f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b5f602052805f5260405f205f915090505481565b8060015f8282546101799190610309565b9250508190555050565b60015481565b805f5f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f208190555050565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6101fa826101d1565b9050919050565b61020a816101f0565b8114610214575f5ffd5b50565b5f8135905061022581610201565b92915050565b5f602082840312156102405761023f6101cd565b5b5f61024d84828501610217565b91505092915050565b5f819050919050565b61026881610256565b82525050565b5f6020820190506102815f83018461025f565b92915050565b61029081610256565b811461029a575f5ffd5b50565b5f813590506102ab81610287565b92915050565b5f602082840312156102c6576102c56101cd565b5b5f6102d38482850161029d565b91505092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f61031382610256565b915061031e83610256565b9250828201905080821115610336576103356102dc565b5b9291505056fea26469706673582212207759144d79faef10279cc6aba9a51bd1e4edd2a1843d55ce0ee34141d197e86464736f6c63430008230033"
+const bytecodeHex = "608060405234801561000f575f80fd5b506103838061001d5f395ff3fe608060405234801561000f575f80fd5b5060043610610055575f3560e01c80633ccc05221461005957806354fe9fd71461008957806371acc738146100b9578063915491d5146100d5578063cc8a55e2146100f3575b5f80fd5b610073600480360381019061006e919061023c565b61010f565b604051610080919061027f565b60405180910390f35b6100a3600480360381019061009e919061023c565b610154565b6040516100b0919061027f565b60405180910390f35b6100d360048036038101906100ce91906102c2565b610168565b005b6100dd610183565b6040516100ea919061027f565b60405180910390f35b61010d600480360381019061010891906102c2565b610189565b005b5f805f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b5f602052805f5260405f205f915090505481565b8060015f828254610179919061031a565b9250508190555050565b60015481565b805f803373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546101d4919061031a565b9250508190555050565b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61020b826101e2565b9050919050565b61021b81610201565b8114610225575f80fd5b50565b5f8135905061023681610212565b92915050565b5f60208284031215610251576102506101de565b5b5f61025e84828501610228565b91505092915050565b5f819050919050565b61027981610267565b82525050565b5f6020820190506102925f830184610270565b92915050565b6102a181610267565b81146102ab575f80fd5b50565b5f813590506102bc81610298565b92915050565b5f602082840312156102d7576102d66101de565b5b5f6102e4848285016102ae565b91505092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f61032482610267565b915061032f83610267565b9250828201905080821115610347576103466102ed565b5b9291505056fea2646970667358221220673dfe5704ad0c75843260d7846b7a0bb1eb8b1a16e7b4fdb40d2b689d552e4b64736f6c63430008140033"
 const abiString = `[{"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"getValue","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"sharedValue","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"val","type":"uint256"}],"name":"updateState","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"val","type":"uint256"}],"name":"updateStateConflict","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"values","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]`
 
 func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
@@ -2084,10 +2084,7 @@ func main() {
 			} else {
 				successCount := 0
 				failCount := 0
-				checkLimit := 200
-				if len(toSend) < 200 {
-					checkLimit = len(toSend)
-				}
+				checkLimit := len(toSend) // KIỂM TRA TOÀN BỘ 100% ACCOUNT
 				var wg sync.WaitGroup
 				var mu sync.Mutex
 				sem := make(chan struct{}, 50)
@@ -2105,10 +2102,13 @@ func main() {
 						if err == nil && len(res) >= 32 {
 							val := new(big.Int).SetBytes(res)
 							mu.Lock()
-							if val.Cmp(big.NewInt(1)) == 0 {
+							if val.Cmp(big.NewInt(int64(round))) == 0 { // GIÁ TRỊ PHẢI TĂNG LÊN THEO SỐ VÒNG
 								successCount++
 							} else {
 								failCount++
+								if failCount <= 20 { // Chỉ in tối đa 20 lỗi ra màn hình để tránh trôi log
+									fmt.Printf("    ❌ Sai lệch tại Acc %s (Contract: %s): Mong đợi = %d, Thực tế = %s\n", acc.Address, cAddr.Hex(), round, val.String())
+								}
 							}
 							mu.Unlock()
 						} else {
@@ -2120,10 +2120,13 @@ func main() {
 				}
 				wg.Wait()
 				if failCount == 0 {
-					fmt.Printf("  ✅ TRẠNG THÁI HOÀN HẢO! Kiểm tra ngẫu nhiên %d accounts đều có State = 1 (Round %d)\n", successCount, round)
+					fmt.Printf("  ✅ TRẠNG THÁI HOÀN HẢO! Kiểm tra TOÀN BỘ %d accounts đều có State = %d (Round %d)\n", successCount, round, round)
 				} else {
-					fmt.Printf("  ❌ PHÁT HIỆN LỆCH STATE! Đúng: %d, Sai/Lỗi: %d\n", successCount, failCount)
-					logErrorToFile(fmt.Sprintf("[Round %d] LỆCH STATE MẪU! Đúng: %d, Lỗi: %d", round, successCount, failCount))
+					errMsg := fmt.Sprintf("❌ [PARALLEL CONTRACT LỆCH STATE]\n\nRound: %d\nĐúng: %d\nSai/Lỗi: %d", round, successCount, failCount)
+					fmt.Printf("  %s\n", errMsg)
+					logErrorToFile(errMsg)
+					sendTelegramAlert(errMsg, "STATE MISMATCH")
+					log.Fatalf("❌ Chương trình dừng lại do phát hiện lệch State!")
 				}
 			}
 		}
