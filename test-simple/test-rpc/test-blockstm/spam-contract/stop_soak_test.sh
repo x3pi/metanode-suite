@@ -18,7 +18,8 @@ else
 fi
 
 # 2. Đảm bảo kill sạch sẽ tiến trình go run main.go xả tải đang chạy (để tránh rác bộ nhớ)
-if pkill -f "main.go -config=../config.json -num=10000 -rounds=10000"; then
+touch .intentional_stop
+if pkill -f "main.go -config=../config.json -num=10000 -rounds="; then
     echo "✅ [Máy $MY_IP] Đã kill tiến trình go run đang xả tải!"
 else
     echo "ℹ️  [Máy $MY_IP] Không có tiến trình xả tải nào đang chạy (Coi như đã dừng)."

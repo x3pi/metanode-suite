@@ -47,6 +47,8 @@ send_telegram() {
         -d parse_mode="HTML" > /dev/null
 }
 
+MY_IP=$(hostname -I | awk '{print $1}')
+
 echo "=========================================="
 echo "Bắt đầu Soak Test ($MODE mode)."
 echo "Log được ghi tại: $LOG_FILE"
@@ -63,6 +65,7 @@ else
 fi
 
 send_telegram "🚀 <b>[SOAK TEST $TEST_TITLE START]</b> $TEST_DESC
+🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
 🕒 <b>Bắt đầu lúc:</b> $(date)"
 
 # Di chuyển vào thư mục test
@@ -71,6 +74,7 @@ cd "$TEST_DIR" || { echo "Không tìm thấy thư mục test!"; exit 1; }
 # ==========================================
 # CHẠY SOAK TEST
 # ==========================================
+rm -f .intentional_stop
 go run main.go $GO_FLAGS > "$LOG_FILE" 2>&1
 
 EXIT_CODE=$?
@@ -79,12 +83,21 @@ EXIT_CODE=$?
 # XỬ LÝ KẾT QUẢ VÀ GỬI THÔNG BÁO
 # ==========================================
 if [ $EXIT_CODE -ne 0 ]; then
-    echo "❌ Soak test thất bại với mã lỗi $EXIT_CODE"
-    
-    # Lấy 20 dòng log cuối cùng để xem nguyên nhân lỗi
-    TAIL_LOGS=$(tail -n 20 "$LOG_FILE")
-    
-    send_telegram "🚨 <b>[LỖI SOAK TEST $TEST_TITLE]</b> Bài test spam xả tải đã bị dừng đột ngột!
+    if [ -f .intentional_stop ]; then
+        echo "🛑 Soak test đã được người dùng dừng chủ động."
+        send_telegram "🛑 <b>[SOAK TEST $TEST_TITLE ĐÃ DỪNG]</b> Bài test spam xả tải đã được dừng chủ động!
+🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
+🕒 <b>Thời gian dừng:</b> $(date)
+📁 <b>File log:</b> <code>$LOG_FILE</code>"
+        rm -f .intentional_stop
+    else
+        echo "❌ Soak test thất bại với mã lỗi $EXIT_CODE"
+        
+        # Lấy 20 dòng log cuối cùng để xem nguyên nhân lỗi
+        TAIL_LOGS=$(tail -n 20 "$LOG_FILE")
+        
+        send_telegram "🚨 <b>[LỖI SOAK TEST $TEST_TITLE]</b> Bài test spam xả tải đã bị lỗi hoặc dừng đột ngột!
+🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
 ⚠️ <b>Mã lỗi (Exit Code):</b> <code>$EXIT_CODE</code>
 🕒 <b>Thời gian dừng:</b> $(date)
 
@@ -93,10 +106,11 @@ if [ $EXIT_CODE -ne 0 ]; then
 
 🔍 <b>Yêu cầu kiểm tra:</b> Hãy lên server đọc toàn bộ file log tại:
 <code>$LOG_FILE</code>"
-
+    fi
 else
     echo "✅ Soak test hoàn thành thành công!"
     send_telegram "✅ <b>[SOAK TEST $TEST_TITLE THÀNH CÔNG]</b> Bài test đã chạy hết 100000 vòng xả tải mà không gặp lỗi ngắt kết nối nào!
+🖥 <b>Máy chủ:</b> <code>$MY_IP</code>
 🕒 <b>Kết thúc lúc:</b> $(date)
 📁 <b>File log:</b> <code>$LOG_FILE</code>"
 fi

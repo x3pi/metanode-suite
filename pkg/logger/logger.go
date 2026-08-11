@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv" // Added for int/uint to string conversion
@@ -201,6 +202,10 @@ func Telegram(message interface{}, a ...interface{}) {
 }
 
 func sendToTelegram(messageContent []byte) {
+	// Gắn thêm thông tin Máy chủ đang báo cáo
+	machineInfo := "\n\n[Máy báo cáo: " + getMachineIP() + "]"
+	finalMsg := string(messageContent) + machineInfo
+
 	var jsonPayload bytes.Buffer
 	jsonPayload.WriteString(`{"chat_id": "`)
 	jsonPayload.WriteString(strconv.Itoa(config.TelegramChatId))
@@ -215,14 +220,14 @@ func sendToTelegram(messageContent []byte) {
 	jsonPayload.WriteString(`"text": `)
 	// Use json.Marshal to correctly escape the message content for JSON.
 	// This will also add the surrounding quotes to the message string.
-	escapedMessage, err := json.Marshal(string(messageContent))
+	escapedMessage, err := json.Marshal(finalMsg)
 	if err != nil {
 		// Fallback or log error if marshalling fails, though unlikely for a string.
 		// For simplicity, writing the raw string (less safe for complex content).
 		// A more robust solution would log this marshalling error.
 		fmt.Printf("Error marshalling telegram message content: %v. Sending raw.\n", err)
 		jsonPayload.WriteString(`"`)
-		jsonPayload.Write(messageContent) // Might be problematic if content has unescaped quotes
+		jsonPayload.WriteString(finalMsg) // Might be problematic if content has unescaped quotes
 		jsonPayload.WriteString(`"`)
 	} else {
 		jsonPayload.Write(escapedMessage)
@@ -321,6 +326,35 @@ func getLogBuffer(color string, prefix string, message interface{}, a []interfac
 	// Add final newline for the log entry
 	buffer.WriteString("\n")
 	return buffer.Bytes()
+}
+
+var machineIP string
+var machineIPOnce sync.Once
+
+func getMachineIP() string {
+	machineIPOnce.Do(func() {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "UnknownHost"
+		}
+		var localIPs []string
+		addrs, err := net.InterfaceAddrs()
+		if err == nil {
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+					if ipnet.IP.To4() != nil {
+						localIPs = append(localIPs, ipnet.IP.String())
+					}
+				}
+			}
+		}
+		if len(localIPs) > 0 {
+			machineIP = fmt.Sprintf("%s (%s)", hostname, strings.Join(localIPs, ", "))
+		} else {
+			machineIP = hostname
+		}
+	})
+	return machineIP
 }
 
 func (l *Logger) writeToOutputs(buffer []byte) {
