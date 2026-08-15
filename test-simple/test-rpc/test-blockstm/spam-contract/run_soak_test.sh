@@ -36,7 +36,9 @@ TELEGRAM_BOT_TOKEN="8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo"
 TELEGRAM_CHAT_ID="-1003867050625"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 TEST_DIR="$SCRIPT_DIR"
-LOG_FILE="${TEST_DIR}/soak_test_${MODE}_$(date +%Y%m%d_%H%M%S).log"
+LOG_DIR="${TEST_DIR}/logs/$(date +%Y-%m-%d)"
+mkdir -p "$LOG_DIR"
+LOG_FILE="${LOG_DIR}/soak_test_${MODE}_$(date +%H%M%S).log"
 
 # Hàm gửi tin nhắn Telegram
 send_telegram() {
