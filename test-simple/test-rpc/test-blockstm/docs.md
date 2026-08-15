@@ -68,3 +68,30 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
   - `Contract DepositContract`: Phục vụ lưu trữ tiền cơ bản.
   - `Contract TargetContract` & `CallerContract`: Phục vụ bài test 9 (Cross-Contract Calls).
   - `Contract PayableTargetContract` & `PayableCallerContract`: Phục vụ bài test 10 (Cross-Contract Payable).
+
+### 25. `25-eip4844-blob-tx/main.go` (Kiểm tra EIP-4844 Blob Transaction - TxType 0x03)
+- **Mục đích:** Kiểm tra khả năng tiếp nhận, xử lý Sidecar và thực thi giao dịch Blob (EIP-4844) trong cỗ máy Block-STM.
+- **Cách hoạt động:** Tạo KZG Blob, Commitment, Proof và Versioned Hash. Đóng gói `types.BlobTx` mang theo `Sidecar` và gửi qua JSON-RPC.
+- **Kết quả kỳ vọng:** Giao dịch được Mempool tiếp nhận, sidecar lưu trữ ở `blob_store`, đưa vào block và receipt trả về đúng `TxType = 0x03`, `Status = 1`.
+
+### 26. `26-eip7702-setcode-tx/main.go` (Kiểm tra EIP-7702 SetCode Transaction - TxType 0x04)
+- **Mục đích:** Kiểm tra cơ chế Account Abstraction EIP-7702 thông qua việc ủy quyền mã thực thi (Delegation Code) cho ví EOA.
+- **Cách hoạt động:** Ký `SetCodeAuthorization` tuple cho tài khoản Authority, đóng gói vào `types.SetCodeTx` với `AuthList`, ký bằng `PragueSigner` và gửi qua JSON-RPC.
+- **Kết quả kỳ vọng:** Node xác thực chữ ký authorization, áp dụng delegation code `0xef0100 || delegate`, thực thi giao dịch thành công trong block, receipt trả về `TxType = 0x04` và `Status = 1`.
+
+### 27. `27-eip4844-edge-cases/main.go` (Kiểm tra Các Trường Hợp Biên & Ranh Giới An Toàn EIP-4844)
+- **Mục đích:** Kiểm tra cơ chế phòng vệ chống tấn công DoS và đảm bảo tính toàn vẹn của giao dịch EIP-4844:
+  1. Gửi quá số lượng blob tối đa (> 6 blobs/tx) -> Node phải reject tại RPC admission.
+  2. Gửi BlobTx với mục đích tạo Smart Contract (`To = nil`) -> Node phải reject.
+  3. Gửi BlobTx với KZG Proof bị sai lệch (Corrupted Proof) -> Node phát hiện sai lệch mật mã và từ chối.
+- **Kết quả kỳ vọng:** Toàn bộ 3 kịch bản tấn công/sai chuẩn đều bị node từ chối ngay lập tức, không lọt vào mempool hay block.
+
+### 28. `28-eip7702-delegated-execution-and-revocation/main.go` (Kiểm tra Thực Thi Ủy Quyền & Thu Hồi EIP-7702)
+- **Mục đích:** Kiểm tra trọn vẹn vòng đời ủy quyền, thực thi mã hợp đồng trên storage của EOA và thu hồi ủy quyền.
+- **Cách hoạt động:** Deploy Counter contract; EOA B ký ủy quyền sang Counter; Caller gọi vào EOA B để thực thi logic; EOA B ký Authorization trỏ về `0x0` để thu hồi.
+- **Kết quả kỳ vọng:** Gọi vào EOA B thực thi chuẩn xác logic contract trên tài khoản EOA B; Sau khi thu hồi, bytecode tại EOA B trở về rỗng (`0x`).
+
+### 29. `29-blockhash-opcode-verifier/main.go` (Kiểm tra Opcode BLOCKHASH - TEE Packaging B1)
+- **Mục đích:** Xác minh opcode `BLOCKHASH (0x40)` hoạt động chính xác theo đặc tả EVM thông qua cấu trúc `BlockContext` (loại bỏ runtime callback).
+- **Cách hoạt động:** Deploy contract gọi `BLOCKHASH`; so khớp hash EVM trả về với RPC block header; kiểm tra truy vấn block hiện tại/tương lai và block ngoài cửa sổ 256 trả về `0x0`.
+- **Kết quả kỳ vọng:** EVM trả về khớp 100% hash của block lịch sử và trả về `0x0` cho các truy vấn ngoài phạm vi hợp lệ.

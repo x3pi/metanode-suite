@@ -26,6 +26,11 @@ TESTS=(
     "22-block-timestamp"
     "23-contract-creator-info"
     "24-contract-factory-info"
+    "25-eip4844-blob-tx"
+    "26-eip7702-setcode-tx"
+    "27-eip4844-edge-cases"
+    "28-eip7702-delegated-execution-and-revocation"
+    "29-blockhash-opcode-verifier"
 )
 
 TOTAL_TEST_CASES=${#TESTS[@]}
