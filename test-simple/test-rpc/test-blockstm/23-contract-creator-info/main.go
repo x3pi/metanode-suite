@@ -30,6 +30,7 @@ import (
 const bytecodeHex = "0x608060405234801561001057600080fd5b5061026a806100206000396000f3fe608060405234801561001057600080fd5b50600436106100625760003560e01c806307604a7e146100675780631b36fa78146100855780632abbd748146100a3578063433c070d146100c15780634840a051146100cb5780636e795a5d146100e9575b600080fd5b61006f610107565b60405161007c91906101bd565b60405180910390f35b61008d61010d565b60405161009a91906101bd565b60405180910390f35b6100ab610113565b6040516100b891906101bd565b60405180910390f35b6100c9610119565b005b6100d3610178565b6040516100e09190610219565b60405180910390f35b6100f161019e565b6040516100fe91906101bd565b60405180910390f35b60015481565b60005481565b60035481565b426000819055504360018190555041600260006101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055504660038190555048600481905550565b600260009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b60045481565b6000819050919050565b6101b7816101a4565b82525050565b60006020820190506101d260008301846101ae565b92915050565b600073ffffffffffffffffffffffffffffffffffffffff82169050919050565b6000610203826101d8565b9050919050565b610213816101f8565b82525050565b600060208201905061022e600083018461020a565b9291505056fea26469706673582212203fabbfb2a358eedd75490ab3dda10644672f328eb7d42191cc329ae08b5612fa64736f6c63430008140033"
 
 type Config struct {
+	PrivateKeys []string                  `json:"private_keys"`
 	RPCUrl  string `json:"rpc_url"`
 	ChainID int64  `json:"chain_id"`
 }
@@ -55,7 +56,7 @@ func main() {
 	fmt.Println("==========================================================")
 
 	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
-	keysFile := flag.String("keys", "../../../../test_tps/gen_spam_keys/generated_keys.json", "Đường dẫn file chứa private keys")
+keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
 	flag.Parse()
 
 	raw, err := os.ReadFile(*configFlag)
@@ -77,16 +78,10 @@ func main() {
 		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
 	}
 
-	keysRaw, err := os.ReadFile(*keysFile)
-	if err != nil {
-		log.Fatalf("❌ Lỗi đọc file keys %s: %v", *keysFile, err)
-	}
-	var genKeys []GeneratedKey
-	if err := json.Unmarshal(keysRaw, &genKeys); err != nil {
-		log.Fatalf("❌ Lỗi parse keys: %v", err)
-	}
+	testKeys := loadPrivateKeys(*keysFile, cfg.PrivateKeys)
+	cfg.PrivateKeys = testKeys
 
-	pk0, err := crypto.HexToECDSA(genKeys[0].PrivateKey)
+	pk0, err := crypto.HexToECDSA(testKeys[0])
 	if err != nil {
 		log.Fatalf("❌ Lỗi parse private key: %v", err)
 	}
@@ -189,4 +184,40 @@ func deployContract(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chai
 	}
 
 	return receipt.ContractAddress, nil
+}
+
+// loadPrivateKeys loads private keys either from an explicitly passed keys file,
+// or defaults to the keys defined in config.json.
+// It supports both []string format and []GeneratedKey (index, private_key, address) format.
+func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
+	if keysFilePath != "" {
+		raw, err := os.ReadFile(keysFilePath)
+		if err != nil {
+			log.Fatalf("❌ Lỗi đọc file keys %s: %v", keysFilePath, err)
+		}
+		var strKeys []string
+		if err := json.Unmarshal(raw, &strKeys); err == nil && len(strKeys) > 0 {
+			return strKeys
+		}
+		var genKeys []struct {
+			PrivateKey string `json:"private_key"`
+		}
+		if err := json.Unmarshal(raw, &genKeys); err == nil && len(genKeys) > 0 {
+			var res []string
+			for _, gk := range genKeys {
+				if gk.PrivateKey != "" {
+					res = append(res, gk.PrivateKey)
+				}
+			}
+			if len(res) > 0 {
+				return res
+			}
+		}
+		log.Fatalf("❌ Không thể parse private key nào từ file %s", keysFilePath)
+	}
+	if len(cfgKeys) > 0 {
+		return cfgKeys
+	}
+	log.Fatalf("❌ Không tìm thấy private key nào trong config.json hoặc file chỉ định")
+	return nil
 }

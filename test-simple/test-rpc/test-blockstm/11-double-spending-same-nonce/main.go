@@ -11,7 +11,6 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"log"
 	"math/big"
 	"os"
@@ -119,43 +118,51 @@ func main() {
 
 	wg.Wait()
 
-	fmt.Println("⏳ Chờ các giao dịch được confirm...")
+	fmt.Println("⏳ Chờ giao dịch được confirm...")
 	successCount := 0
 	failedCount := 0
+
+	// Chờ xem giao dịch nào được mine vào block
+	timeoutDuration := 40 * time.Second
+	deadline := time.Now().Add(timeoutDuration)
+	var confirmedTxHash common.Hash
+	var confirmedReceipt *types.Receipt
+
+	for time.Now().Before(deadline) {
+		for i := 0; i < 5; i++ {
+			hash := txHashes[i]
+			if hash == (common.Hash{}) {
+				continue
+			}
+			receipt, err := client.TransactionReceipt(context.Background(), hash)
+			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+				confirmedTxHash = hash
+				confirmedReceipt = receipt
+				break
+			}
+		}
+		if confirmedReceipt != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	for i := 0; i < 5; i++ {
 		hash := txHashes[i]
 		if hash == (common.Hash{}) {
 			failedCount++
 			continue
 		}
-		
-		// Wait for receipt with timeout
-		timeoutDuration := 60 * time.Second
-		deadline := time.Now().Add(timeoutDuration)
-		var receipt *types.Receipt
-		var err error
-		for time.Now().Before(deadline) {
-			receipt, err = client.TransactionReceipt(context.Background(), hash)
-			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		if err != nil && !strings.Contains(err.Error(), "not found") {
-			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-			os.Exit(1)
-		}
-		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
-			if receipt.Status != 1 {
+		if hash == confirmedTxHash && confirmedReceipt != nil {
+			if confirmedReceipt.Status == 1 {
+				fmt.Printf("✅ Tx %s THÀNH CÔNG trong block %d\n", hash.Hex(), confirmedReceipt.BlockNumber.Uint64())
+				successCount++
+			} else {
 				fmt.Printf("❌ Tx %s bị REVERT!\n", hash.Hex())
 				failedCount++
-			} else {
-				fmt.Printf("✅ Tx %s THÀNH CÔNG trong block %d\n", hash.Hex(), receipt.BlockNumber.Uint64())
-				successCount++
 			}
 		} else {
-			fmt.Printf("❌ Tx %s FAILED (Không được cho vào block, bị drop)\n", hash.Hex())
+			fmt.Printf("❌ Tx %s FAILED (Bị Mempool/Block-STM loại bỏ do trùng Nonce)\n", hash.Hex())
 			failedCount++
 		}
 	}

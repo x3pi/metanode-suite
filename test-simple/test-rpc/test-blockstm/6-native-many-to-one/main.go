@@ -63,11 +63,10 @@ func main() {
 		log.Fatalf("❌ Cần ít nhất 2 private keys để test")
 	}
 
-	// Chọn ví 0 làm ví nhận tiền
-	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
-	receiverAddr := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
+	// Dùng địa chỉ chuyên biệt làm đích nhận tiền (để không bị trừ phí gas làm sai lệch balance)
+	receiverAddr := common.HexToAddress("0x0000000000000000000000000000000000000088")
 
-	fmt.Printf("🚀 Mục tiêu: 10 ví gửi tiền ĐỒNG THỜI đến 1 ví nhận: %s\n", receiverAddr.Hex())
+	fmt.Printf("🚀 Mục tiêu: %d ví gửi tiền ĐỒNG THỜI đến 1 ví nhận: %s\n", len(cfg.PrivateKeys), receiverAddr.Hex())
 
 	initialBalance, _ := client.BalanceAt(context.Background(), receiverAddr, nil)
 	fmt.Printf("💰 Số dư ban đầu của ví nhận: %s wei\n\n", initialBalance.String())
@@ -79,10 +78,10 @@ func main() {
 	txHashes := make([]common.Hash, len(cfg.PrivateKeys))
 	sendAmount := big.NewInt(1000) // Gửi 1000 wei mỗi ví
 
-	fmt.Printf("🔥 Gửi %d giao dịch Native Transfer đồng thời...\n", len(cfg.PrivateKeys)-1)
+	fmt.Printf("🔥 Gửi %d giao dịch Native Transfer đồng thời...\n", len(cfg.PrivateKeys))
 	start := time.Now()
 
-	for i := 1; i < len(cfg.PrivateKeys); i++ {
+	for i := 0; i < len(cfg.PrivateKeys); i++ {
 		wg.Add(1)
 		go func(idx int, pKeyHex string) {
 			defer wg.Done()
@@ -134,7 +133,7 @@ func main() {
 	}
 
 	fmt.Println("⏳ Chờ các giao dịch được confirm...")
-	for i := 1; i < len(txHashes); i++ {
+	for i := 0; i < len(txHashes); i++ {
 		hash := txHashes[i]
 		if hash == (common.Hash{}) {
 			continue
@@ -166,7 +165,7 @@ func main() {
 	finalBalance, _ := client.BalanceAt(context.Background(), receiverAddr, nil)
 	elapsed := time.Since(start)
 
-	expectedAdded := new(big.Int).Mul(sendAmount, big.NewInt(int64(len(cfg.PrivateKeys)-1)))
+	expectedAdded := new(big.Int).Mul(sendAmount, big.NewInt(int64(len(cfg.PrivateKeys))))
 	expectedFinal := new(big.Int).Add(initialBalance, expectedAdded)
 
 	fmt.Println("\n📊 KẾT QUẢ NATIVE TRANSFER (MANY-TO-ONE):")

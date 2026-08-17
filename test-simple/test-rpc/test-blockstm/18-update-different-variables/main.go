@@ -37,6 +37,7 @@ type ContractData struct {
 }
 
 type Config struct {
+	PrivateKeys []string                  `json:"private_keys"`
 	RPCUrl      string                  `json:"rpc_url"`
 	ChainID     int64                   `json:"chain_id"`
 	Contracts   map[string]ContractData `json:"contracts"`
@@ -54,12 +55,12 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("📖 MÔ TẢ   : Gửi nhiều giao dịch (tx) cùng lúc để gọi hàm update (ghi vào mapping) trên cùng một Smart Contract.")
 	fmt.Println("⚡ GỌI     : Giao dịch gọi hàm EVM update state độc lập cho từng ví.")
-	fmt.Println("🎯 KỲ VỌNG : Block-STM phát hiện KHÔNG CÓ read/write conflict, toàn bộ 5000 txs chạy song song thành công mượt mà, không abort.")
+	fmt.Println("🎯 KỲ VỌNG : Block-STM phát hiện KHÔNG CÓ read/write conflict, toàn bộ 10 txs chạy song song thành công mượt mà, không abort.")
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
 	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
-	keysFile := flag.String("keys", "../../../../test_tps/gen_spam_keys/generated_keys.json", "Đường dẫn file chứa private keys")
+	keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
 	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
 	waitByBlock := flag.Bool("wait-by-block", false, "Kiểm tra confirm bằng giao dịch cuối cùng để giảm tải RPC")
 	flag.Parse()
@@ -84,30 +85,17 @@ func main() {
 	}
 
 	parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["AbortRollback"].ABI))
-	if err != nil { log.Fatalf("ABI parse err: %v", err) }
 	if err != nil {
 		log.Fatalf("❌ Lỗi parse ABI: %v", err)
 	}
 
 	bytecode, err := hexutil.Decode("0x" + cfg.Contracts["AbortRollback"].Bytecode)
-	if err != nil { log.Fatalf("Bytecode err: %v", err) }
 	if err != nil {
 		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
 	}
 
-	keysRaw, err := os.ReadFile(*keysFile)
-	if err != nil {
-		log.Fatalf("❌ Lỗi đọc file keys %s: %v", *keysFile, err)
-	}
-	var genKeys []GeneratedKey
-	if err := json.Unmarshal(keysRaw, &genKeys); err != nil {
-		log.Fatalf("❌ Lỗi parse keys: %v", err)
-	}
-
-	var testKeys []string
-	for _, gk := range genKeys {
-		testKeys = append(testKeys, gk.PrivateKey)
-	}
+	testKeys := loadPrivateKeys(*keysFile, cfg.PrivateKeys)
+	cfg.PrivateKeys = testKeys
 
 	if *numKeys > 0 && len(testKeys) > *numKeys {
 		testKeys = testKeys[:*numKeys]
@@ -192,7 +180,7 @@ func main() {
 			if err != nil {
 				fmt.Printf("❌ Lỗi chờ receipt của tx cuối: %v\n", err)
 			} else {
-				fmt.Printf("✅ Đã confirm tx cuối (%s) trong block %d. Giả định toàn bộ 5000 TX đã xong!\n", lastHash.Hex()[:10], receipt.BlockNumber.Uint64())
+				fmt.Printf("✅ Đã confirm tx cuối (%s) trong block %d. Toàn bộ %d TX đã xong!\n", lastHash.Hex()[:10], receipt.BlockNumber.Uint64(), len(testKeys))
 			}
 		} else {
 			fmt.Println("❌ Không có giao dịch nào được gửi thành công.")
@@ -318,4 +306,40 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// loadPrivateKeys loads private keys either from an explicitly passed keys file,
+// or defaults to the keys defined in config.json.
+// It supports both []string format and []GeneratedKey (index, private_key, address) format.
+func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
+	if keysFilePath != "" {
+		raw, err := os.ReadFile(keysFilePath)
+		if err != nil {
+			log.Fatalf("❌ Lỗi đọc file keys %s: %v", keysFilePath, err)
+		}
+		var strKeys []string
+		if err := json.Unmarshal(raw, &strKeys); err == nil && len(strKeys) > 0 {
+			return strKeys
+		}
+		var genKeys []struct {
+			PrivateKey string `json:"private_key"`
+		}
+		if err := json.Unmarshal(raw, &genKeys); err == nil && len(genKeys) > 0 {
+			var res []string
+			for _, gk := range genKeys {
+				if gk.PrivateKey != "" {
+					res = append(res, gk.PrivateKey)
+				}
+			}
+			if len(res) > 0 {
+				return res
+			}
+		}
+		log.Fatalf("❌ Không thể parse private key nào từ file %s", keysFilePath)
+	}
+	if len(cfgKeys) > 0 {
+		return cfgKeys
+	}
+	log.Fatalf("❌ Không tìm thấy private key nào trong config.json hoặc file chỉ định")
+	return nil
 }
