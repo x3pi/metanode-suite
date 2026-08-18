@@ -676,74 +676,117 @@ func main() {
 			time.Sleep(20 * time.Second)
 		}
 
-		var isPassed bool = true
+		var isPassed bool = false
 		var checkErr error
 		var failedNodes []int
 		var nodeResults []uint64
 		var nodeBlocks []uint64
 
-		for nodeIdx, node := range checkNodes {
-			var roundActual uint64
-			var nodePassed bool
+		syncTimeout := 4 * time.Minute
+		syncStart := time.Now()
+		firstCheck := true
 
-			blockNum, errBlock := node.Client.BlockNumber(context.Background())
-			if errBlock != nil {
-				log.Printf("⚠️ Lỗi lấy BlockNumber node %s (%s): %v", node.Name, node.Role, errBlock)
-				blockNum = 0
-			}
-			nodeBlocks = append(nodeBlocks, blockNum)
+		for {
+			isPassed = true
+			failedNodes = nil
+			nodeResults = nil
+			nodeBlocks = nil
+			checkErr = nil
 
-			if *useXapian {
-				if *useParallel {
-					userVal, err := getUserDataFromDB(node.Client, contractAddr, parsedABI, from0)
-					if err != nil {
-						log.Printf("❌ Lỗi đọc state Xapian Parallel sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
-						checkErr = err
+			var maxBlock uint64 = 0
+
+			for nodeIdx, node := range checkNodes {
+				var roundActual uint64
+				var nodePassed bool
+
+				ctxB, cancelB := context.WithTimeout(context.Background(), 5*time.Second)
+				blockNum, errBlock := node.Client.BlockNumber(ctxB)
+				cancelB()
+				if errBlock != nil {
+					log.Printf("⚠️ Lỗi lấy BlockNumber node %s (%s): %v", node.Name, node.Role, errBlock)
+					blockNum = 0
+				}
+				nodeBlocks = append(nodeBlocks, blockNum)
+				if blockNum > maxBlock {
+					maxBlock = blockNum
+				}
+
+				if *useXapian {
+					if *useParallel {
+						userVal, err := getUserDataFromDB(node.Client, contractAddr, parsedABI, from0)
+						if err != nil {
+							log.Printf("⚠️ Đang thử đọc state Xapian Parallel round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
+							checkErr = err
+						} else {
+							roundActual = userVal.Uint64()
+							nodePassed = (roundActual == uint64(r))
+						}
 					} else {
-						roundActual = userVal.Uint64()
-						nodePassed = (roundActual == uint64(r))
+						var err error
+						roundActual, err = getSharedDataFromDB(node.Client, contractAddr, parsedABI)
+						if err != nil {
+							log.Printf("⚠️ Đang thử đọc state Xapian Shared round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
+							checkErr = err
+						} else {
+							nodePassed = (uint64(totalSuccess) == roundActual)
+						}
 					}
 				} else {
-					var err error
-					roundActual, err = getSharedDataFromDB(node.Client, contractAddr, parsedABI)
-					if err != nil {
-						log.Printf("❌ Lỗi đọc state Xapian Shared sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
-						checkErr = err
+					if *useParallel {
+						userVal, err := getUserDataEVM(node.Client, contractAddr, parsedABI, from0)
+						if err != nil {
+							log.Printf("⚠️ Đang thử đọc state EVM Parallel round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
+							checkErr = err
+						} else {
+							roundActual = userVal.Uint64()
+							nodePassed = (roundActual == 1)
+						}
 					} else {
-						nodePassed = (uint64(totalSuccess) == roundActual)
+						var err error
+						roundActual, err = getCount(node.Client, contractAddr, parsedABI)
+						if err != nil {
+							log.Printf("⚠️ Đang thử đọc state EVM count round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
+							checkErr = err
+						} else {
+							nodePassed = (uint64(totalSuccess) == roundActual)
+						}
 					}
 				}
-			} else {
-				if *useParallel {
-					userVal, err := getUserDataEVM(node.Client, contractAddr, parsedABI, from0)
-					if err != nil {
-						log.Printf("❌ Lỗi đọc state EVM Parallel sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
-						checkErr = err
-					} else {
-						roundActual = userVal.Uint64()
-						nodePassed = (roundActual == 1)
-					}
-				} else {
-					var err error
-					roundActual, err = getCount(node.Client, contractAddr, parsedABI)
-					if err != nil {
-						log.Printf("❌ Lỗi đọc state EVM count sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
-						checkErr = err
-					} else {
-						nodePassed = (uint64(totalSuccess) == roundActual)
-					}
+
+				nodeResults = append(nodeResults, roundActual)
+				if checkErr != nil || !nodePassed {
+					isPassed = false
+					failedNodes = append(failedNodes, nodeIdx)
 				}
 			}
 
-			if checkErr != nil {
+			// Kiểm tra xem tất cả các node đã đồng bộ block chưa
+			allBlocksSynced := true
+			for _, b := range nodeBlocks {
+				if b < maxBlock {
+					allBlocksSynced = false
+					break
+				}
+			}
+
+			// Nếu tất cả node đều pass và block đã đồng bộ -> hoàn thành kiểm tra round này
+			if isPassed && allBlocksSynced {
 				break
 			}
 
-			nodeResults = append(nodeResults, roundActual)
-			if !nodePassed {
-				isPassed = false
-				failedNodes = append(failedNodes, nodeIdx)
+			// Nếu chưa pass hoặc block chưa đồng bộ, kiểm tra xem còn trong thời gian timeout 4 phút không
+			if time.Since(syncStart) >= syncTimeout {
+				log.Printf("⏱️ [TIMEOUT 4 PHÚT] Đã chờ 4 phút nhưng các node vẫn chưa đồng bộ hoàn toàn!")
+				break
 			}
+
+			if firstCheck {
+				log.Printf("⏳ Phát hiện có node chưa đồng bộ block hoặc state (Block cao nhất: %d, Nodes chưa khớp: %v). Bắt đầu chờ tối đa 4 phút...", maxBlock, failedNodes)
+				firstCheck = false
+			} else {
+				log.Printf("   [⏳ Sync Waiting %v/4m] Block cao nhất: %d | Nodes chưa khớp: %v (Đang thử lại sau 5s...)", time.Since(syncStart).Round(time.Second), maxBlock, failedNodes)
+			}
+			time.Sleep(5 * time.Second)
 		}
 
 		if checkErr != nil {
