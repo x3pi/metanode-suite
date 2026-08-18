@@ -19,6 +19,7 @@ TESTS=(
     "15-xapian-shared-update"
     "16-xapian-evm-contract"
     "17-xapian-parallel-read-write"
+    "17.1-xapian-parallel-delete"
     "18-update-different-variables"
     "19-xapian-parallel-update"
     "20-xapian-read-after-write-same-block"

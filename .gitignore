@@ -63,3 +63,4 @@ test-simple/test-rpc/test-blockstm/10-cross-contract-payable/test_main
 test-simple/test-rpc/test-blockstm/test_report.md
 test_tps/tps_contract_parallel/tps_blast_parallel
 test_tps/tps_contract_parallel/reports
+test-simple/test-rpc/test-blockstm/17.1-xapian-parallel-delete/17.1-xapian-parallel-delete
