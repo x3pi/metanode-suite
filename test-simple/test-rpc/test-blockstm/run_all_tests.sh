@@ -31,6 +31,8 @@ TESTS=(
     "27-eip4844-edge-cases"
     "28-eip7702-delegated-execution-and-revocation"
     "29-blockhash-opcode-verifier"
+    "30-eip7702-parallel-contention"
+    "31-mixed-all-types-block"
 )
 
 TOTAL_TEST_CASES=${#TESTS[@]}

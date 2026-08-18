@@ -161,6 +161,7 @@ type ContractData struct {
 }
 
 type Config struct {
+	PrivateKeys []string                  `json:"private_keys"`
 	RPCUrl    string                  `json:"rpc_url"`
 	RPCNodes  map[string]string       `json:"rpc_nodes"`
 	ChainID   int64                   `json:"chain_id"`
@@ -176,7 +177,7 @@ type GeneratedKey struct {
 func main() {
 	rounds := flag.Int("rounds", 1, "Số round muốn test")
 	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
-	keysFile := flag.String("keys", "../../../../test_tps/gen_spam_keys/generated_keys.json", "Đường dẫn file chứa private keys")
+keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
 	multiNodes := flag.Bool("multi", false, "Chế độ gửi giao dịch dàn trải lên nhiều RPC node từ config.json")
 	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
 	waitMethod := flag.String("wait-method", "block", "Phương thức chờ giao dịch: 'block' hoặc 'receipt'")
@@ -309,19 +310,8 @@ func main() {
 		}
 	}
 
-	keysRaw, err := os.ReadFile(*keysFile)
-	if err != nil {
-		log.Fatalf("❌ Lỗi đọc file keys %s: %v", *keysFile, err)
-	}
-	var genKeys []GeneratedKey
-	if err := json.Unmarshal(keysRaw, &genKeys); err != nil {
-		log.Fatalf("❌ Lỗi parse keys: %v", err)
-	}
-
-	var testKeys []string
-	for _, gk := range genKeys {
-		testKeys = append(testKeys, gk.PrivateKey)
-	}
+	testKeys := loadPrivateKeys(*keysFile, cfg.PrivateKeys)
+	cfg.PrivateKeys = testKeys
 
 	if *numKeys > 0 && len(testKeys) > *numKeys {
 		testKeys = testKeys[:*numKeys]
@@ -1235,4 +1225,40 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 	}
 
 	return totalSuccess, nil
+}
+
+// loadPrivateKeys loads private keys either from an explicitly passed keys file,
+// or defaults to the keys defined in config.json.
+// It supports both []string format and []GeneratedKey (index, private_key, address) format.
+func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
+	if keysFilePath != "" {
+		raw, err := os.ReadFile(keysFilePath)
+		if err != nil {
+			log.Fatalf("❌ Lỗi đọc file keys %s: %v", keysFilePath, err)
+		}
+		var strKeys []string
+		if err := json.Unmarshal(raw, &strKeys); err == nil && len(strKeys) > 0 {
+			return strKeys
+		}
+		var genKeys []struct {
+			PrivateKey string `json:"private_key"`
+		}
+		if err := json.Unmarshal(raw, &genKeys); err == nil && len(genKeys) > 0 {
+			var res []string
+			for _, gk := range genKeys {
+				if gk.PrivateKey != "" {
+					res = append(res, gk.PrivateKey)
+				}
+			}
+			if len(res) > 0 {
+				return res
+			}
+		}
+		log.Fatalf("❌ Không thể parse private key nào từ file %s", keysFilePath)
+	}
+	if len(cfgKeys) > 0 {
+		return cfgKeys
+	}
+	log.Fatalf("❌ Không tìm thấy private key nào trong config.json hoặc file chỉ định")
+	return nil
 }
