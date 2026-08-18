@@ -162,9 +162,17 @@ type ContractData struct {
 	Bytecode string `json:"bytecode"`
 }
 
+type NodeTarget struct {
+	Name   string
+	URL    string
+	Role   string
+	Client *ethclient.Client
+}
+
 type Config struct {
 	RPCUrl    string                  `json:"rpc_url"`
 	RPCNodes  map[string]string       `json:"rpc_nodes"`
+	SyncNodes map[string]string       `json:"sync_nodes"`
 	ChainID   int64                   `json:"chain_id"`
 	Contracts map[string]ContractData `json:"contracts"`
 }
@@ -251,7 +259,7 @@ func main() {
 			if c, e := dialOptimizedClient(url); e == nil {
 				rpcClients = append(rpcClients, c)
 			} else {
-				log.Printf("⚠️ Lỗi kết nối node %s (%s): %v", name, url, e)
+				log.Printf("⚠️ Lỗi kết nối validator node %s (%s): %v", name, url, e)
 			}
 		}
 	}
@@ -261,8 +269,48 @@ func main() {
 		}
 		rpcClients = append(rpcClients, client)
 	} else {
-		log.Printf("🌐 Đã kết nối tới %d nodes RPC (Chế độ multi)", len(rpcClients))
+		log.Printf("🌐 Đã kết nối tới %d Validator RPC nodes (để gửi giao dịch)", len(rpcClients))
 	}
+
+	var checkNodes []NodeTarget
+	nodeRoleMap := make(map[string]string)
+	urlMap := make(map[string]string)
+
+	for k, v := range cfg.RPCNodes {
+		urlMap[k] = v
+		nodeRoleMap[k] = "Validator"
+	}
+	for k, v := range cfg.SyncNodes {
+		urlMap[k] = v
+		nodeRoleMap[k] = "SyncOnly"
+	}
+	if len(urlMap) == 0 {
+		urlMap["m0"] = cfg.RPCUrl
+		nodeRoleMap["m0"] = "Validator"
+	}
+
+	var allKeys []string
+	for k := range urlMap {
+		allKeys = append(allKeys, k)
+	}
+	sort.Strings(allKeys)
+
+	for _, name := range allKeys {
+		url := urlMap[name]
+		role := nodeRoleMap[name]
+
+		if c, e := dialOptimizedClient(url); e == nil {
+			checkNodes = append(checkNodes, NodeTarget{
+				Name:   name,
+				URL:    url,
+				Role:   role,
+				Client: c,
+			})
+		} else {
+			log.Printf("⚠️ Lỗi kết nối check node %s (%s): %v", name, url, e)
+		}
+	}
+	log.Printf("🔍 Đã thiết lập %d nodes để kiểm tra đồng bộ (Validator + SyncOnly)", len(checkNodes))
 
 	var parsedABI abi.ABI
 	var bytecode []byte
@@ -350,34 +398,34 @@ func main() {
 	if *checkAddr != "" {
 		cAddr := common.HexToAddress(*checkAddr)
 		log.Printf("🔍 Đang kiểm tra state của Contract: %s", cAddr.Hex())
-		for i, rpcClient := range rpcClients {
+		for _, node := range checkNodes {
 			var actual uint64
 			var err error
 			if *useXapian {
 				if *useParallel {
-					val, e := getUserDataFromDB(rpcClient, &cAddr, parsedABI, from0)
+					val, e := getUserDataFromDB(node.Client, &cAddr, parsedABI, from0)
 					if e == nil {
 						actual = val.Uint64()
 					}
 					err = e
 				} else {
-					actual, err = getSharedDataFromDB(rpcClient, &cAddr, parsedABI)
+					actual, err = getSharedDataFromDB(node.Client, &cAddr, parsedABI)
 				}
 			} else {
 				if *useParallel {
-					val, e := getUserDataEVM(rpcClient, &cAddr, parsedABI, from0)
+					val, e := getUserDataEVM(node.Client, &cAddr, parsedABI, from0)
 					if e == nil {
 						actual = val.Uint64()
 					}
 					err = e
 				} else {
-					actual, err = getCount(rpcClient, &cAddr, parsedABI)
+					actual, err = getCount(node.Client, &cAddr, parsedABI)
 				}
 			}
 			if err != nil {
-				log.Printf("   - Node %d: LỖI %v", i, err)
+				log.Printf("   - Node %s [%-9s]: LỖI %v", node.Name, node.Role, err)
 			} else {
-				log.Printf("   - Node %d: State = %d", i, actual)
+				log.Printf("   - Node %s [%-9s]: State = %d", node.Name, node.Role, actual)
 			}
 		}
 		os.Exit(0)
@@ -634,22 +682,22 @@ func main() {
 		var nodeResults []uint64
 		var nodeBlocks []uint64
 
-		for nodeIdx, rpcClient := range rpcClients {
+		for nodeIdx, node := range checkNodes {
 			var roundActual uint64
 			var nodePassed bool
 
-			blockNum, errBlock := rpcClient.BlockNumber(context.Background())
+			blockNum, errBlock := node.Client.BlockNumber(context.Background())
 			if errBlock != nil {
-				log.Printf("⚠️ Lỗi lấy BlockNumber node %d: %v", nodeIdx, errBlock)
+				log.Printf("⚠️ Lỗi lấy BlockNumber node %s (%s): %v", node.Name, node.Role, errBlock)
 				blockNum = 0
 			}
 			nodeBlocks = append(nodeBlocks, blockNum)
 
 			if *useXapian {
 				if *useParallel {
-					userVal, err := getUserDataFromDB(rpcClient, contractAddr, parsedABI, from0)
+					userVal, err := getUserDataFromDB(node.Client, contractAddr, parsedABI, from0)
 					if err != nil {
-						log.Printf("❌ Lỗi đọc state Xapian Parallel sau round %d từ node %d: %v", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state Xapian Parallel sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
 						checkErr = err
 					} else {
 						roundActual = userVal.Uint64()
@@ -657,9 +705,9 @@ func main() {
 					}
 				} else {
 					var err error
-					roundActual, err = getSharedDataFromDB(rpcClient, contractAddr, parsedABI)
+					roundActual, err = getSharedDataFromDB(node.Client, contractAddr, parsedABI)
 					if err != nil {
-						log.Printf("❌ Lỗi đọc state Xapian Shared sau round %d từ node %d: %v", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state Xapian Shared sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
 						checkErr = err
 					} else {
 						nodePassed = (uint64(totalSuccess) == roundActual)
@@ -667,9 +715,9 @@ func main() {
 				}
 			} else {
 				if *useParallel {
-					userVal, err := getUserDataEVM(rpcClient, contractAddr, parsedABI, from0)
+					userVal, err := getUserDataEVM(node.Client, contractAddr, parsedABI, from0)
 					if err != nil {
-						log.Printf("❌ Lỗi đọc state EVM Parallel sau round %d từ node %d: %v", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state EVM Parallel sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
 						checkErr = err
 					} else {
 						roundActual = userVal.Uint64()
@@ -677,9 +725,9 @@ func main() {
 					}
 				} else {
 					var err error
-					roundActual, err = getCount(rpcClient, contractAddr, parsedABI)
+					roundActual, err = getCount(node.Client, contractAddr, parsedABI)
 					if err != nil {
-						log.Printf("❌ Lỗi đọc state EVM count sau round %d từ node %d: %v", r, nodeIdx, err)
+						log.Printf("❌ Lỗi đọc state EVM count sau round %d từ node %s (%s): %v", r, node.Name, node.Role, err)
 						checkErr = err
 					} else {
 						nodePassed = (uint64(totalSuccess) == roundActual)
@@ -701,7 +749,7 @@ func main() {
 		if checkErr != nil {
 			log.Printf("❌ Lỗi đọc state sau round %d: %v", r, checkErr)
 		} else {
-			log.Printf("\n📊 KẾT QUẢ ROUND %d (Đã check %d nodes):", r, len(rpcClients))
+			log.Printf("\n📊 KẾT QUẢ ROUND %d (Đã check %d nodes):", r, len(checkNodes))
 			log.Printf("   - Số tx thành công round này : %d", roundSuccess)
 			log.Printf("   - Tổng tx thành công đến hiện tại: %d", totalSuccess)
 
@@ -728,10 +776,11 @@ func main() {
 			log.Printf("   - Giá trị kỳ vọng (%s): %d", valName, expectedVal)
 			log.Println("   - Kết quả trên từng node:")
 			for i, val := range nodeResults {
+				target := checkNodes[i]
 				if val == expectedVal {
-					log.Printf("       + Node %d: %d (✅ KHỚP) - Block: %d", i, val, nodeBlocks[i])
+					log.Printf("       + Node %s [%-9s]: %d (✅ KHỚP) - Block: %d", target.Name, target.Role, val, nodeBlocks[i])
 				} else {
-					log.Printf("       + Node %d: %d (❌ LỆCH) - Block: %d", i, val, nodeBlocks[i])
+					log.Printf("       + Node %s [%-9s]: %d (❌ LỆCH) - Block: %d", target.Name, target.Role, val, nodeBlocks[i])
 				}
 			}
 
@@ -760,10 +809,10 @@ func main() {
 	var testPassed bool
 	var finalCheckErr error
 
-	for _, rpcClient := range rpcClients {
+	for _, node := range checkNodes {
 		if *useXapian {
 			if *useParallel {
-				val, err := getUserDataFromDB(rpcClient, contractAddr, parsedABI, from0)
+				val, err := getUserDataFromDB(node.Client, contractAddr, parsedABI, from0)
 				if err == nil {
 					actual = val.Uint64()
 					testPassed = (actual == uint64(*rounds))
@@ -771,7 +820,7 @@ func main() {
 					finalCheckErr = err
 				}
 			} else {
-				actual, err = getSharedDataFromDB(rpcClient, contractAddr, parsedABI)
+				actual, err = getSharedDataFromDB(node.Client, contractAddr, parsedABI)
 				if err == nil {
 					testPassed = (actual == uint64(totalSuccess))
 				} else {
@@ -780,7 +829,7 @@ func main() {
 			}
 		} else {
 			if *useParallel {
-				val, err := getUserDataEVM(rpcClient, contractAddr, parsedABI, from0)
+				val, err := getUserDataEVM(node.Client, contractAddr, parsedABI, from0)
 				if err == nil {
 					actual = val.Uint64()
 					testPassed = (actual == 1)
@@ -788,7 +837,7 @@ func main() {
 					finalCheckErr = err
 				}
 			} else {
-				actual, err = getCount(rpcClient, contractAddr, parsedABI)
+				actual, err = getCount(node.Client, contractAddr, parsedABI)
 				if err == nil {
 					testPassed = (actual == uint64(totalSuccess))
 				} else {
@@ -1165,7 +1214,7 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 			if err == nil {
 				return receipt, nil
 			}
-			if err != nil && err.Error() != "not found" {
+			if err.Error() != "not found" {
 				return nil, err
 			}
 		}

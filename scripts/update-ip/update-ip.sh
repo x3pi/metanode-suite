@@ -18,19 +18,37 @@ fi
 echo "Reading IPs and Proxy Ports from $RPC_NODES_FILE..."
 
 # 1. Update $SUITE_DIR/test_tps/tps_blast_cc/config-multi.json
-# Note: For config-multi.json, we exclude node 4 as requested.
 FILE1="$SUITE_DIR/test_tps/tps_blast_cc/config-multi.json"
 if [ -f "$FILE1" ]; then
-    echo "Updating $FILE1 using Nodes (excluding node 4)..."
+    echo "Updating $FILE1 using Validator Nodes..."
     
     new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
     new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+
+    role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
+    role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
+    role_3=$(jq -r '((.roles.m3 // "validator"))' "$RPC_NODES_FILE")
+
+    new_conn_1=""
+    new_rpc_1=""
+    if [ "$role_1" != "synconly" ]; then
+        new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
+
+    new_conn_2=""
+    new_rpc_2=""
+    if [ "$role_2" != "synconly" ]; then
+        new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
+
+    new_conn_3=""
+    new_rpc_3=""
+    if [ "$role_3" != "synconly" ]; then
+        new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
 
     jq --arg p "$new_parent" \
        --arg r0 "$new_rpc_0" \
@@ -47,10 +65,9 @@ else
 fi
 
 # 2. Update $SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json
-# Note: For test-history, we include node 4.
 FILE2="$SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json"
 if [ -f "$FILE2" ]; then
-    echo "Updating $FILE2 using Nodes (including node 4)..."
+    echo "Updating $FILE2 using Nodes (including sync nodes)..."
     
     new_rpc_url=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
     new_url_0=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
@@ -72,10 +89,9 @@ else
 fi
 
 # 3. Update $SUITE_DIR/block/block_hash_checker/config-m-nodes.json
-# Note: For checkhash, we include node 4 (m4).
 FILE3="$SUITE_DIR/block/block_hash_checker/config-m-nodes.json"
 if [ -f "$FILE3" ]; then
-    echo "Updating $FILE3 using Nodes (including node 4)..."
+    echo "Updating $FILE3 using Nodes (including sync nodes)..."
     
     new_m0=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
     new_m1=$(jq -r '((.nodes.m1 // "") // "")' "$RPC_NODES_FILE")
@@ -99,24 +115,15 @@ echo "Done updating configs to use Node endpoints."
 # 4. Update $SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json
 FILE4="$SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json"
 if [ -f "$FILE4" ]; then
-    echo "Updating $FILE4 using Nodes (including node 4)..."
+    echo "Updating $FILE4 using Validator RPC Nodes..."
     
     new_rpc_url=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-    new_url_0=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-    new_url_1=$(jq -r '((.nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-    new_url_2=$(jq -r '((.nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-    new_url_3=$(jq -r '((.nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-    new_url_4=$(jq -r '((.nodes.m4 // "") // "")' "$RPC_NODES_FILE")
-
+    
     jq --arg r "$new_rpc_url" \
-       --arg u0 "$new_url_0" \
-       --arg u1 "$new_url_1" \
-       --arg u2 "$new_url_2" \
-       --arg u3 "$new_url_3" \
-       --arg u4 "$new_url_4" \
-       '.rpc_url = $r | .rpc_urls = [$u0, $u1, $u2, $u3, $u4] | .rpc_urls |= map(select(. != ""))' \
+       --slurpfile rpc "$RPC_NODES_FILE" \
+       '.rpc_url = $r | .rpc_urls = [$rpc[0].nodes | to_entries[] | select($rpc[0].roles[.key] != "synconly") | .value]' \
        "$FILE4" > "${FILE4}.tmp" && mv "${FILE4}.tmp" "$FILE4"
-	else
+else
     echo "Warning: $FILE4 not found." >&2
 fi
 
@@ -148,39 +155,50 @@ fi
 # 6. Update $SUITE_DIR/test-simple/test-rpc/test-blockstm/config.json
 FILE6="$SUITE_DIR/test-simple/test-rpc/test-blockstm/config.json"
 if [ -f "$FILE6" ]; then
-    echo "Updating $FILE6 using RPC Node (node 0)..."
+    echo "Updating $FILE6 using RPC Nodes..."
     
     new_rpc_url=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-    new_url_0=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-    new_url_1=$(jq -r '((.nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-    new_url_2=$(jq -r '((.nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-    new_url_3=$(jq -r '((.nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-    new_url_4=$(jq -r '((.nodes.m4 // "") // "")' "$RPC_NODES_FILE")
-
+    
     jq --arg r "$new_rpc_url" \
-       --arg u0 "$new_url_0" \
-       --arg u1 "$new_url_1" \
-       --arg u2 "$new_url_2" \
-       --arg u3 "$new_url_3" \
-       --arg u4 "$new_url_4" \
-       '.rpc_url = $r | .rpc_nodes = {m4: $u4, m3: $u3, m2: $u2, m1: $u1, m0: $u0} | .rpc_nodes |= with_entries(select(.value != ""))' \
+       --slurpfile rpc "$RPC_NODES_FILE" \
+       'del(.all_nodes, .roles) | .rpc_url = $r | .rpc_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly")))' \
        "$FILE6" > "${FILE6}.tmp" && mv "${FILE6}.tmp" "$FILE6"
 else
     echo "Warning: $FILE6 not found." >&2
 fi
+
 # 7. Update $SUITE_DIR/test_tps/tps_contract/config-multi.json
 FILE7="$SUITE_DIR/test_tps/tps_contract/config-multi.json"
 if [ -f "$FILE7" ]; then
-    echo "Updating $FILE7 using Nodes (excluding node 4)..."
+    echo "Updating $FILE7 using Validator Nodes..."
     
     new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
     new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+
+    role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
+    role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
+    role_3=$(jq -r '((.roles.m3 // "validator"))' "$RPC_NODES_FILE")
+
+    new_conn_1=""
+    new_rpc_1=""
+    if [ "$role_1" != "synconly" ]; then
+        new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
+
+    new_conn_2=""
+    new_rpc_2=""
+    if [ "$role_2" != "synconly" ]; then
+        new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
+
+    new_conn_3=""
+    new_rpc_3=""
+    if [ "$role_3" != "synconly" ]; then
+        new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
 
     jq --arg p "$new_parent" \
        --arg r0 "$new_rpc_0" \
@@ -199,16 +217,35 @@ fi
 # 8. Update $SUITE_DIR/test_tps/tps_contract_parallel/config-multi.json
 FILE8="$SUITE_DIR/test_tps/tps_contract_parallel/config-multi.json"
 if [ -f "$FILE8" ]; then
-    echo "Updating $FILE8 using Nodes (excluding node 4)..."
+    echo "Updating $FILE8 using Validator Nodes..."
     
     new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
     new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-    new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-    new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+
+    role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
+    role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
+    role_3=$(jq -r '((.roles.m3 // "validator"))' "$RPC_NODES_FILE")
+
+    new_conn_1=""
+    new_rpc_1=""
+    if [ "$role_1" != "synconly" ]; then
+        new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
+
+    new_conn_2=""
+    new_rpc_2=""
+    if [ "$role_2" != "synconly" ]; then
+        new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
+
+    new_conn_3=""
+    new_rpc_3=""
+    if [ "$role_3" != "synconly" ]; then
+        new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+    fi
 
     jq --arg p "$new_parent" \
        --arg r0 "$new_rpc_0" \
