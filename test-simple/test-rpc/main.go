@@ -443,7 +443,7 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 		fmt.Printf("   ⚠️ EstimateGas Deploy thất bại: %v. Dùng GasLimit tĩnh (5.000.000).\n", err)
 		gasLimit = 5000000
 	} else {
-		gasLimit += 50000
+		gasLimit += 500000
 	}
 
 	tx := types.NewContractCreation(nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)

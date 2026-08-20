@@ -49,6 +49,50 @@ func dialOptimizedClient(rawURL string) (*ethclient.Client, error) {
 	return ethclient.NewClient(rpcClient), nil
 }
 
+type BlockEpochInfo struct {
+	BlockNumber uint64
+	Epoch       uint64
+	BlockHash   common.Hash
+}
+
+func getBlockAndEpoch(rpcURL string) (BlockEpochInfo, error) {
+	payload := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", false],"id":1}`)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", rpcURL, payload)
+	if err != nil {
+		return BlockEpochInfo{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return BlockEpochInfo{}, err
+	}
+	defer resp.Body.Close()
+
+	var res struct {
+		Result struct {
+			Number *hexutil.Uint64 `json:"number"`
+			Epoch  *hexutil.Uint64 `json:"epoch"`
+			Hash   common.Hash     `json:"hash"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return BlockEpochInfo{}, err
+	}
+	info := BlockEpochInfo{
+		BlockHash: res.Result.Hash,
+	}
+	if res.Result.Number != nil {
+		info.BlockNumber = uint64(*res.Result.Number)
+	}
+	if res.Result.Epoch != nil {
+		info.Epoch = uint64(*res.Result.Epoch)
+	}
+	return info, nil
+}
+
+
 // Xapian Contract ABI & Bytecode (Shared / Conflict)
 //
 // KEPT IN SYNC WITH: contracts/SharedXapianBlockSTMTest.{abi,bin}. These two
@@ -422,10 +466,11 @@ func main() {
 					actual, err = getCount(node.Client, &cAddr, parsedABI)
 				}
 			}
+			info, _ := getBlockAndEpoch(node.URL)
 			if err != nil {
-				log.Printf("   - Node %s [%-9s]: LỖI %v", node.Name, node.Role, err)
+				log.Printf("   - Node %s [%-9s]: LỖI %v | Block: %d | Epoch: %d", node.Name, node.Role, err, info.BlockNumber, info.Epoch)
 			} else {
-				log.Printf("   - Node %s [%-9s]: State = %d", node.Name, node.Role, actual)
+				log.Printf("   - Node %s [%-9s]: State = %d | Block = %d | Epoch = %d (Hash: %s)", node.Name, node.Role, actual, info.BlockNumber, info.Epoch, info.BlockHash.Hex())
 			}
 		}
 		os.Exit(0)
@@ -522,11 +567,18 @@ func main() {
 			}
 		}
 
-		header, err := client.HeaderByNumber(context.Background(), nil)
+		startInfo, err := getBlockAndEpoch(cfg.RPCUrl)
 		if err != nil {
-			log.Fatalf("❌ Lỗi lấy startBlock round %d: %v", r, err)
+			header, errH := client.HeaderByNumber(context.Background(), nil)
+			if errH != nil {
+				log.Fatalf("❌ Lỗi lấy startBlock round %d: %v", r, errH)
+			}
+			startInfo.BlockNumber = header.Number.Uint64()
 		}
-		startBlock := header.Number.Uint64()
+		startBlock := startInfo.BlockNumber
+		startEpoch := startInfo.Epoch
+
+		log.Printf("📌 [BẮT ĐẦU ROUND %d] Gửi giao dịch tại Block: %d | Epoch: %d (Hash: %s)", r, startBlock, startEpoch, startInfo.BlockHash.Hex())
 
 		txHashes := make([]common.Hash, len(testKeys))
 
@@ -630,7 +682,8 @@ func main() {
 						mu.Lock()
 						current := successCount
 						mu.Unlock()
-						log.Printf("   [⏳ Waiting Receipt] Đã confirm %d/%d txs... (Thời gian chờ: %v)", current, len(txHashes), time.Since(startTime).Round(time.Second))
+						currentInfo, _ := getBlockAndEpoch(cfg.RPCUrl)
+						log.Printf("   [⏳ Waiting Receipt] Đã confirm %d/%d txs... | Chờ: %v | Current: Block %d, Epoch %d", current, len(txHashes), time.Since(startTime).Round(time.Second), currentInfo.BlockNumber, currentInfo.Epoch)
 					case <-donePrint:
 						return
 					}
@@ -664,10 +717,11 @@ func main() {
 			log.Printf("✅ Đã confirm %d/%d giao dịch bằng Receipt trong round %d", roundSuccess, len(txHashes), r)
 		} else {
 			log.Println("⏳ Chờ các giao dịch được confirm bằng cách quét Block...")
-			successCount, err := waitForTxHashesByBlock(client, txHashes, startBlock, cfg.RPCNodes)
+			successCount, err := waitForTxHashesByBlock(client, txHashes, startBlock, startEpoch, cfg.RPCNodes, cfg.RPCUrl)
 			if err != nil {
-				log.Printf("❌ Lỗi khi chờ block: %v", err)
-				log.Fatalf("🚨 Dừng chương trình do Timeout 4 phút khi chờ confirm block!")
+				failInfo, _ := getBlockAndEpoch(cfg.RPCUrl)
+				log.Printf("❌ Lỗi khi chờ block round %d (Bắt đầu: Block %d | Epoch %d -> Hiện tại: Block %d | Epoch %d): %v", r, startBlock, startEpoch, failInfo.BlockNumber, failInfo.Epoch, err)
+				log.Fatalf("🚨 Dừng chương trình do Timeout khi chờ confirm block round %d!", r)
 			}
 			roundSuccess = successCount
 			totalSuccess += roundSuccess
@@ -681,6 +735,7 @@ func main() {
 		var failedNodes []int
 		var nodeResults []uint64
 		var nodeBlocks []uint64
+		var nodeEpochs []uint64
 
 		syncTimeout := 4 * time.Minute
 		syncStart := time.Now()
@@ -691,6 +746,7 @@ func main() {
 			failedNodes = nil
 			nodeResults = nil
 			nodeBlocks = nil
+			nodeEpochs = nil
 			checkErr = nil
 
 			var maxBlock uint64 = 0
@@ -699,14 +755,22 @@ func main() {
 				var roundActual uint64
 				var nodePassed bool
 
-				ctxB, cancelB := context.WithTimeout(context.Background(), 5*time.Second)
-				blockNum, errBlock := node.Client.BlockNumber(ctxB)
-				cancelB()
-				if errBlock != nil {
-					log.Printf("⚠️ Lỗi lấy BlockNumber node %s (%s): %v", node.Name, node.Role, errBlock)
-					blockNum = 0
+				info, errInfo := getBlockAndEpoch(node.URL)
+				var blockNum, epochNum uint64
+				if errInfo == nil {
+					blockNum = info.BlockNumber
+					epochNum = info.Epoch
+				} else {
+					ctxB, cancelB := context.WithTimeout(context.Background(), 5*time.Second)
+					bn, errB := node.Client.BlockNumber(ctxB)
+					cancelB()
+					if errB != nil {
+						log.Printf("⚠️ Lỗi lấy BlockNumber node %s (%s): %v", node.Name, node.Role, errB)
+					}
+					blockNum = bn
 				}
 				nodeBlocks = append(nodeBlocks, blockNum)
+				nodeEpochs = append(nodeEpochs, epochNum)
 				if blockNum > maxBlock {
 					maxBlock = blockNum
 				}
@@ -790,7 +854,11 @@ func main() {
 		}
 
 		if checkErr != nil {
-			log.Printf("❌ Lỗi đọc state sau round %d: %v", r, checkErr)
+			failInfo, _ := getBlockAndEpoch(cfg.RPCUrl)
+			log.Printf("❌ Lỗi đọc state sau round %d (Bắt đầu: Block %d | Epoch %d -> Hiện tại: Block %d | Epoch %d): %v", r, startBlock, startEpoch, failInfo.BlockNumber, failInfo.Epoch, checkErr)
+			teleMsg := fmt.Sprintf("🚨 <b>[SOAK TEST LỖI ROUND %d]</b>\nLỗi đọc state hoặc mất kết nối tới node sau 4 phút timeout!\nBắt đầu: Block %d, Epoch %d | Hiện tại: Block %d, Epoch %d\nLỗi: <code>%v</code>\nNodes lỗi: %v\nContract: <code>%s</code>", r, startBlock, startEpoch, failInfo.BlockNumber, failInfo.Epoch, checkErr, failedNodes, contractAddr.Hex())
+			sendTelegramAlert(teleMsg)
+			log.Fatalf("🚨 Dừng chương trình ngay lập tức do lỗi đọc state/kết nối ở Round %d: %v", r, checkErr)
 		} else {
 			log.Printf("\n📊 KẾT QUẢ ROUND %d (Đã check %d nodes):", r, len(checkNodes))
 			log.Printf("   - Số tx thành công round này : %d", roundSuccess)
@@ -821,20 +889,26 @@ func main() {
 			for i, val := range nodeResults {
 				target := checkNodes[i]
 				if val == expectedVal {
-					log.Printf("       + Node %s [%-9s]: %d (✅ KHỚP) - Block: %d", target.Name, target.Role, val, nodeBlocks[i])
+					log.Printf("       + Node %s [%-9s]: %d (✅ KHỚP) - Block: %d | Epoch: %d", target.Name, target.Role, val, nodeBlocks[i], nodeEpochs[i])
 				} else {
-					log.Printf("       + Node %s [%-9s]: %d (❌ LỆCH) - Block: %d", target.Name, target.Role, val, nodeBlocks[i])
+					log.Printf("       + Node %s [%-9s]: %d (❌ LỆCH) - Block: %d | Epoch: %d", target.Name, target.Role, val, nodeBlocks[i], nodeEpochs[i])
 				}
 			}
 
 			if isPassed {
-				log.Printf("   => ✅ ROUND PASSED")
+				log.Printf("   => ✅ ROUND PASSED (Bắt đầu: Block %d | Epoch %d -> Kết thúc: Block %d | Epoch %d)", startBlock, startEpoch, nodeBlocks[0], nodeEpochs[0])
 			} else {
 				log.Printf("   => ❌ ROUND FAILED")
 				log.Println("================================================--------------------------------")
-				log.Printf("🚨 [LỖI LỆCH KẾT QUẢ STATE TẠI ROUND %d] Các node có kết quả sai lệch: %v", r, failedNodes)
+				log.Printf("🚨 [LỖI LỆCH KẾT QUẢ STATE TẠI ROUND %d] (Bắt đầu gửi lúc: Block %d | Epoch %d)", r, startBlock, startEpoch)
+				for i, val := range nodeResults {
+					target := checkNodes[i]
+					log.Printf("   📌 Node %s [%s]: State=%d (kỳ vọng %d) | Block=%d | Epoch=%d", target.Name, target.Role, val, expectedVal, nodeBlocks[i], nodeEpochs[i])
+				}
 				log.Printf("📌 CONTRACT ADDRESS ĐỂ KIỂM TRA LẠI: %s", contractAddr.Hex())
 				log.Println("================================================--------------------------------")
+				teleMsg := fmt.Sprintf("🚨 <b>[SOAK TEST LỆCH KẾT QUẢ ROUND %d]</b>\nBắt đầu: Block %d, Epoch %d\nPhát hiện sai lệch state giữa các nodes sau 4 phút timeout!\nNodes sai: %v\nContract: <code>%s</code>", r, startBlock, startEpoch, failedNodes, contractAddr.Hex())
+				sendTelegramAlert(teleMsg)
 				log.Fatalf("🚨 Dừng chương trình ngay lập tức do phát hiện điểm sai ở Round %d!", r)
 			}
 
@@ -1285,7 +1359,7 @@ func sendTelegramAlert(msg string) {
 	}
 }
 
-func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, startBlock uint64, rpcNodes map[string]string) (int, error) {
+func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, startBlock uint64, startEpoch uint64, rpcNodes map[string]string, mainRpcUrl string) (int, error) {
 	pending := make(map[common.Hash]bool)
 	for _, h := range txHashes {
 		if h != (common.Hash{}) {
@@ -1301,7 +1375,7 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 	totalSuccess := 0
 	totalTxs := len(pending)
 
-	log.Printf("   [Info] Đang chờ %d giao dịch từ block %d...", totalTxs, lastChecked)
+	log.Printf("   [Info] Đang chờ %d giao dịch từ Block: %d | Epoch: %d...", totalTxs, lastChecked, startEpoch)
 
 	startTime := time.Now()     // Tổng thời gian chờ toàn bộ round
 	lastBlockTime := time.Now() // Thời gian block mới nhất được tìm thấy
@@ -1313,26 +1387,85 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 
 	for len(pending) > 0 {
 		waitingForBlock := time.Since(lastBlockTime)
-		
-		if waitingForBlock > 10*time.Minute {
-			log.Printf("\n⏰ [TIMEOUT 10 PHÚT / BLOCK] Không có block mới trong 10 phút! Dừng chương trình.")
-			log.Printf("\n🔍 TIẾN HÀNH KIỂM TRA BLOCK HEIGHT CỦA TẤT CẢ CÁC NODE TẠI THỜI ĐIỂM TIMEOUT 10 PHÚT:")
+		totalRoundTime := time.Since(startTime)
+
+		// 1. TIMEOUT TỔNG 20 PHÚT CHO TOÀN BỘ ROUND
+		if totalRoundTime > 20*time.Minute {
+			log.Printf("\n⏰ [TIMEOUT 20 PHÚT / ROUND] Tổng thời gian chờ của round đã vượt quá 20 phút! Dừng chương trình.")
+			log.Printf("📌 [THÔNG TIN ROUND] Bắt đầu gửi tại Block: %d | Epoch: %d (Đã trôi qua: %v)", startBlock, startEpoch, totalRoundTime.Round(time.Second))
+			log.Printf("\n🔍 TIẾN HÀNH KIỂM TRA BLOCK VÀ EPOCH CỦA TẤT CẢ CÁC NODE TẠI THỜI ĐIỂM TIMEOUT 20 PHÚT:")
 			var nodeBlocksInfo []string
 			if len(rpcNodes) > 0 {
-				for nodeName, nodeUrl := range rpcNodes {
-					c, err := ethclient.Dial(nodeUrl)
+				var sortedNames []string
+				for n := range rpcNodes {
+					sortedNames = append(sortedNames, n)
+				}
+				sort.Strings(sortedNames)
+				for _, nodeName := range sortedNames {
+					nodeUrl := rpcNodes[nodeName]
+					info, err := getBlockAndEpoch(nodeUrl)
 					if err == nil {
-						h, err := c.HeaderByNumber(context.Background(), nil)
-						if err == nil {
-							info := fmt.Sprintf("   📌 %s: Block %d", nodeName, h.Number.Uint64())
-							log.Println(info)
-							nodeBlocksInfo = append(nodeBlocksInfo, info)
-						} else {
-							info := fmt.Sprintf("   📌 %s: Lỗi %v", nodeName, err)
-							log.Println(info)
-							nodeBlocksInfo = append(nodeBlocksInfo, info)
-						}
-						c.Close()
+						line := fmt.Sprintf("   📌 %s: Block %d | Epoch %d (Hash: %s)", nodeName, info.BlockNumber, info.Epoch, info.BlockHash.Hex())
+						log.Println(line)
+						nodeBlocksInfo = append(nodeBlocksInfo, line)
+					} else {
+						line := fmt.Sprintf("   📌 %s: Lỗi kết nối (%v)", nodeName, err)
+						log.Println(line)
+						nodeBlocksInfo = append(nodeBlocksInfo, line)
+					}
+				}
+			}
+
+			contractTarget := "Unknown"
+			for txHash := range pending {
+				tx, _, err := client.TransactionByHash(context.Background(), txHash)
+				if err == nil && tx.To() != nil {
+					contractTarget = tx.To().Hex()
+				}
+				break
+			}
+
+			timeoutMsg := fmt.Sprintf("🚨 [TIMEOUT ROUND 20 PHÚT] Bài test đã dừng do tổng thời gian round vượt quá 20 phút.\n👉 Bắt đầu gửi lúc: Block %d, Epoch %d\n👉 Contract đang gọi: %s\n\n📌 Trạng thái các node lúc timeout:\n%s", 
+				startBlock, startEpoch, contractTarget, strings.Join(nodeBlocksInfo, "\n"))
+			sendTelegramAlert(timeoutMsg)
+
+			log.Println("\n🛑 Dừng chương trình. Dưới đây là danh sách 5 giao dịch chưa xử lý để debug:")
+			log.Println("--------------------------------------------------------------------------------")
+			count := 0
+			for txHash := range pending {
+				count++
+				log.Printf("\n🔍 [%d/5] Unconfirmed TxHash: %s", count, txHash.Hex())
+				if count >= 5 {
+					break
+				}
+			}
+			log.Println("--------------------------------------------------------------------------------")
+			return totalSuccess, fmt.Errorf("timeout 20 phút cho toàn bộ round (bắt đầu: Block %d, Epoch %d -> block cuối: %d)", startBlock, startEpoch, lastSeenBlock)
+		}
+		
+		// 2. TIMEOUT 8 PHÚT CHO 1 BLOCK MỚI
+		if waitingForBlock > 8*time.Minute {
+			log.Printf("\n⏰ [TIMEOUT 8 PHÚT / BLOCK] Không có block mới trong 8 phút! Dừng chương trình.")
+			log.Printf("📌 [THÔNG TIN ROUND] Bắt đầu gửi tại Block: %d | Epoch: %d", startBlock, startEpoch)
+			log.Printf("\n🔍 TIẾN HÀNH KIỂM TRA BLOCK VÀ EPOCH CỦA TẤT CẢ CÁC NODE TẠI THỜI ĐIỂM TIMEOUT 8 PHÚT:")
+			var nodeBlocksInfo []string
+			if len(rpcNodes) > 0 {
+				var sortedNames []string
+				for n := range rpcNodes {
+					sortedNames = append(sortedNames, n)
+				}
+				sort.Strings(sortedNames)
+				for _, nodeName := range sortedNames {
+					nodeUrl := rpcNodes[nodeName]
+					info, err := getBlockAndEpoch(nodeUrl)
+					if err == nil {
+						line := fmt.Sprintf("   📌 %s: Block %d | Epoch %d (Hash: %s)", nodeName, info.BlockNumber, info.Epoch, info.BlockHash.Hex())
+						log.Println(line)
+						nodeBlocksInfo = append(nodeBlocksInfo, line)
+					} else {
+						line := fmt.Sprintf("   📌 %s: Lỗi kết nối (%v)", nodeName, err)
+						log.Println(line)
+						nodeBlocksInfo = append(nodeBlocksInfo, line)
 					}
 				}
 			}
@@ -1347,8 +1480,8 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 				break
 			}
 			
-			timeoutMsg := fmt.Sprintf("🚨 [TIMEOUT] Bài test đã dừng do chờ 10 phút không có block mới.\n👉 Contract đang gọi: %s\n\n📌 Block các node:\n%s", 
-				contractTarget, strings.Join(nodeBlocksInfo, "\n"))
+			timeoutMsg := fmt.Sprintf("🚨 [TIMEOUT BLOCK 8 PHÚT] Bài test đã dừng do chờ 8 phút không có block mới.\n👉 Bắt đầu gửi lúc: Block %d, Epoch %d\n👉 Contract đang gọi: %s\n\n📌 Trạng thái các node lúc timeout:\n%s", 
+				startBlock, startEpoch, contractTarget, strings.Join(nodeBlocksInfo, "\n"))
 			sendTelegramAlert(timeoutMsg)
 
 			log.Println("\n🛑 Dừng chương trình. Dưới đây là danh sách 5 giao dịch chưa xử lý để debug:")
@@ -1362,43 +1495,52 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 				}
 			}
 			log.Println("--------------------------------------------------------------------------------")
-			return totalSuccess, fmt.Errorf("timeout 10 phút chờ block mới (block cuối: %d)", lastSeenBlock)
+			return totalSuccess, fmt.Errorf("timeout 8 phút chờ block mới (bắt đầu: Block %d, Epoch %d -> block cuối: %d)", startBlock, startEpoch, lastSeenBlock)
 		} else if waitingForBlock > 4*time.Minute && !sent4MinWarning {
 			sent4MinWarning = true
-			log.Printf("\n⏰ [CẢNH BÁO 4 PHÚT] Không có block mới trong 4 phút. Kiểm tra đồng bộ các node...")
+			log.Printf("\n⏰ [CẢNH BÁO 4 PHÚT] Không có block mới trong 4 phút.")
+			log.Printf("📌 [THÔNG TIN ROUND] Bắt đầu gửi tại Block: %d | Epoch: %d", startBlock, startEpoch)
+			log.Printf("🔍 KIỂM TRA ĐỒNG BỘ CÁC NODE (Block & Epoch):")
 			
 			var nodeBlocksInfo []string
 			var allSame = true
 			var lastVal uint64
+			var lastEpoch uint64
 			var first = true
 
 			if len(rpcNodes) > 0 {
-				for nodeName, nodeUrl := range rpcNodes {
-					c, err := ethclient.Dial(nodeUrl)
+				var sortedNames []string
+				for n := range rpcNodes {
+					sortedNames = append(sortedNames, n)
+				}
+				sort.Strings(sortedNames)
+				for _, nodeName := range sortedNames {
+					nodeUrl := rpcNodes[nodeName]
+					info, err := getBlockAndEpoch(nodeUrl)
 					if err == nil {
-						h, err := c.HeaderByNumber(context.Background(), nil)
-						if err == nil {
-							bn := h.Number.Uint64()
-							info := fmt.Sprintf("   📌 %s: Block %d", nodeName, bn)
-							log.Println(info)
-							nodeBlocksInfo = append(nodeBlocksInfo, info)
-							if first {
-								lastVal = bn
-								first = false
-							} else if bn != lastVal {
-								allSame = false
-							}
+						line := fmt.Sprintf("   📌 %s: Block %d | Epoch %d (Hash: %s)", nodeName, info.BlockNumber, info.Epoch, info.BlockHash.Hex())
+						log.Println(line)
+						nodeBlocksInfo = append(nodeBlocksInfo, line)
+						if first {
+							lastVal = info.BlockNumber
+							lastEpoch = info.Epoch
+							first = false
+						} else if info.BlockNumber != lastVal || info.Epoch != lastEpoch {
+							allSame = false
 						}
-						c.Close()
+					} else {
+						line := fmt.Sprintf("   📌 %s: Lỗi kết nối (%v)", nodeName, err)
+						log.Println(line)
+						nodeBlocksInfo = append(nodeBlocksInfo, line)
 					}
 				}
 			}
 			
 			var teleMsg string
 			if !allSame {
-				teleMsg = fmt.Sprintf("⚠️ [CẢNH BÁO LỆCH BLOCK] Sau 4 phút chờ, các node đang KHÔNG đồng bộ block (lệch hash/height)! Dẫn đến chưa đủ giao dịch.\nTiếp tục chờ thêm 6 phút...\n\n%s", strings.Join(nodeBlocksInfo, "\n"))
+				teleMsg = fmt.Sprintf("⚠️ [CẢNH BÁO LỆCH NODE] Sau 4 phút chờ, các node đang KHÔNG đồng bộ block/epoch!\nBắt đầu gửi: Block %d, Epoch %d\nTiếp tục chờ thêm 4 phút...\n\n%s", startBlock, startEpoch, strings.Join(nodeBlocksInfo, "\n"))
 			} else {
-				teleMsg = fmt.Sprintf("⚠️ [CẢNH BÁO ĐỨNG BLOCK] Sau 4 phút chờ, các node ĐỀU DỪNG ở block %d! Dẫn đến chưa đủ giao dịch.\nTiếp tục chờ thêm 6 phút...\n\n%s", lastVal, strings.Join(nodeBlocksInfo, "\n"))
+				teleMsg = fmt.Sprintf("⚠️ [CẢNH BÁO ĐỨNG BLOCK] Sau 4 phút chờ, các node ĐỀU DỪNG ở Block %d, Epoch %d!\nBắt đầu gửi: Block %d, Epoch %d\nTiếp tục chờ thêm 4 phút...\n\n%s", lastVal, lastEpoch, startBlock, startEpoch, strings.Join(nodeBlocksInfo, "\n"))
 			}
 			sendTelegramAlert(teleMsg)
 		}
@@ -1454,11 +1596,13 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 		if len(pending) > 0 {
 			if time.Since(lastLogTime) > 3*time.Second {
 				waitingForBlock = time.Since(lastBlockTime)
-				log.Printf("   [⏳ Waiting] Đã confirm %d/%d txs... | Tổng chờ: %v | Chờ block %d: %v\n",
+				curInfo, _ := getBlockAndEpoch(mainRpcUrl)
+				log.Printf("   [⏳ Waiting] Đã confirm %d/%d txs... | Tổng chờ: %v | Chờ block %d: %v | Hiện tại: Block %d | Epoch %d\n",
 					totalSuccess, totalTxs,
 					time.Since(startTime).Round(time.Second),
 					currentLatestBlock,
-					waitingForBlock.Round(time.Second))
+					waitingForBlock.Round(time.Second),
+					curInfo.BlockNumber, curInfo.Epoch)
 				lastLogTime = time.Now()
 			}
 			time.Sleep(100 * time.Millisecond)
