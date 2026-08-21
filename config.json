@@ -1,0 +1,22 @@
+{
+    "rpc_url": "http://192.168.1.233:10746",
+    "rpc_nodes": {
+        "m0": "http://192.168.1.233:10746",
+        "m1": "http://192.168.1.233:10747",
+        "m2": "http://192.168.1.233:10748"
+    },
+    "private_keys": [
+        "3f7a0514531a1485edc4270f06dbed62da4974c3b5bbd54a4534060514b8023d",
+        "2aad2565bed5347214de1c14752933e9a410a76daed530e80ed6ce7af9363cf4",
+        "1b62dc8e370379da49eacebe54bafe6a1abf22a9cd89a0c461f41ee26a4d0722",
+        "7c0ea8311b5aea187f3d716e67358f4d0b27b2a92d37d9582a708e6d2f51b8aa",
+        "0e81c71ec598dfef0d28604a38368c47ee433468db567065cf5c38f4fafd337a",
+        "afbfdbca0cc62de736f85bc00e8a54003f87ae510df6aa396e9e5e69fbf35be8",
+        "6bcf761ff5912cbc65653a8b0eec658213404eb88caedcdf42118a62edb663b8",
+        "70d12ba6bbf9932f5d438b934141c43dcbb2171cd73a1c43571e8771e64574fa",
+        "741cbc3e06ec8ea58513e2643c6935ac22ec1cb604307e9078a08160e4285fb3",
+        "44dd469934018aa38d377571595c94009ff1877173c2e28ba1abb784bfcfc6a0"
+    ],
+    "chain_id": 991,
+    "sync_nodes": {}
+}

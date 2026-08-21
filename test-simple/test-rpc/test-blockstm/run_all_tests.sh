@@ -34,6 +34,7 @@ TESTS=(
     "29-blockhash-opcode-verifier"
     "30-eip7702-parallel-contention"
     "31-mixed-all-types-block"
+    "32-xapian-parallel-stress"
 )
 
 TOTAL_TEST_CASES=${#TESTS[@]}
