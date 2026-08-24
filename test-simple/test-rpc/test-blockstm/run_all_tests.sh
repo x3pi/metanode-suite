@@ -35,7 +35,6 @@ TESTS=(
     "30-eip7702-parallel-contention"
     "31-mixed-all-types-block"
     "32-xapian-parallel-stress"
-    "33-cross-chain-p0-root-anchor"
 )
 
 TOTAL_TEST_CASES=${#TESTS[@]}

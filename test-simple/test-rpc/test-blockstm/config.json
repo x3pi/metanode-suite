@@ -5,6 +5,19 @@
     "m1": "http://192.168.1.233:10747",
     "m2": "http://192.168.1.233:10748"
   },
+  "private_chains": {
+    "chain_a": {
+      "chain_id": 101,
+      "rpc_url": "http://127.0.0.1:8546"
+    },
+    "chain_b": {
+      "chain_id": 102,
+      "rpc_url": "http://127.0.0.1:8547"
+    }
+  },
+  "gateway_precompile": {
+    "address": "0x0000000000000000000000000000000000000800"
+  },
   "private_keys": [
     "3f7a0514531a1485edc4270f06dbed62da4974c3b5bbd54a4534060514b8023d",
     "2aad2565bed5347214de1c14752933e9a410a76daed530e80ed6ce7af9363cf4",
