@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -48,10 +49,20 @@ func resolveNodeURL(input string, config *ConfigNode) string {
 	return ""
 }
 
+// formatLogData parses hex data and formats potential uint256 values as decimal for easy debugging
+func formatLogData(data []byte) string {
+	hexStr := hex.EncodeToString(data)
+	if len(data) >= 32 {
+		val := new(big.Int).SetBytes(data[:32])
+		return fmt.Sprintf("0x%s (uint256=%s)", hexStr, val.String())
+	}
+	return "0x" + hexStr
+}
+
 func main() {
 	blockNum := flag.Int64("block", -1, "Block number to check")
 	node1Flag := flag.String("node1", "m0", "Tên node 1 (VD: m0) hoặc RPC URL")
-	node2Flag := flag.String("node2", "m3", "Tên node 2 (VD: m3) hoặc RPC URL")
+	node2Flag := flag.String("node2", "m2", "Tên node 2 (VD: m2) hoặc RPC URL")
 	flag.Parse()
 
 	if *blockNum < 0 {
@@ -66,7 +77,7 @@ func main() {
 	url1 := resolveNodeURL(*node1Flag, config)
 	url2 := resolveNodeURL(*node2Flag, config)
 
-	fmt.Printf("Đang so sánh Block %d giữa:\n  Node 1: %s (%s)\n  Node 2: %s (%s)\n", *blockNum, *node1Flag, url1, *node2Flag, url2)
+	fmt.Printf("🔍 Đang so sánh Block %d giữa:\n  • Node 1: %s (%s)\n  • Node 2: %s (%s)\n\n", *blockNum, *node1Flag, url1, *node2Flag, url2)
 
 	client1, err := ethclient.Dial(url1)
 	if err != nil {
@@ -87,24 +98,35 @@ func main() {
 		log.Fatalf("Lỗi lấy block %d từ node2: %v", *blockNum, err)
 	}
 
-	if block1.ReceiptHash() != block2.ReceiptHash() {
-		fmt.Printf("❌ Block %d có ReceiptsRoot LỆCH NHAU:\n   Node1: %s\n   Node2: %s\n", *blockNum, block1.ReceiptHash().Hex(), block2.ReceiptHash().Hex())
-		fmt.Println("Đang so sánh chi tiết từng Receipt...")
-	} else {
-		fmt.Printf("✅ Block %d có ReceiptsRoot GIỐNG NHAU: %s\n", *blockNum, block1.ReceiptHash().Hex())
+	// 1. So sánh Header cơ bản
+	fmt.Println("📊 [BLOCK HEADER CHECK]")
+	fmt.Printf("   • Block Number      : %d\n", *blockNum)
+	fmt.Printf("   • StateRoot Match   : %v (m0: %s | m2: %s)\n", block1.Root() == block2.Root(), block1.Root().Hex(), block2.Root().Hex())
+	fmt.Printf("   • TxRoot Match      : %v (m0: %s | m2: %s)\n", block1.TxHash() == block2.TxHash(), block1.TxHash().Hex(), block2.TxHash().Hex())
+	fmt.Printf("   • ReceiptsRoot Match: %v\n", block1.ReceiptHash() == block2.ReceiptHash())
+	fmt.Printf("     - %s: %s\n", *node1Flag, block1.ReceiptHash().Hex())
+	fmt.Printf("     - %s: %s\n", *node2Flag, block2.ReceiptHash().Hex())
+
+	if block1.ReceiptHash() == block2.ReceiptHash() {
+		fmt.Printf("\n✅ Block %d có ReceiptsRoot GIỐNG NHAU 100%%. Không có lệch!\n", *blockNum)
 		return
 	}
+
+	fmt.Println("\n🚨 Phát hiện LỆCH ReceiptsRoot! Tiến hành phân tích sâu từng Receipt...")
 
 	txs1 := block1.Transactions()
 	txs2 := block2.Transactions()
 	if len(txs1) != len(txs2) {
-		log.Fatalf("Số lượng transaction không khớp! Node1: %d, Node2: %d", len(txs1), len(txs2))
+		log.Fatalf("❌ Số lượng transaction không khớp! Node1: %d, Node2: %d", len(txs1), len(txs2))
 	}
+
+	mismatchCount := 0
+	firstMismatchIdx := -1
 
 	for i, tx1 := range txs1 {
 		tx2 := txs2[i]
 		if tx1.Hash() != tx2.Hash() {
-			log.Fatalf("Transaction hash tại index %d không khớp! Node1: %s, Node2: %s", i, tx1.Hash().Hex(), tx2.Hash().Hex())
+			log.Fatalf("❌ Transaction hash tại index %d không khớp! Node1: %s, Node2: %s", i, tx1.Hash().Hex(), tx2.Hash().Hex())
 		}
 
 		rcp1, err := client1.TransactionReceipt(context.Background(), tx1.Hash())
@@ -116,42 +138,60 @@ func main() {
 			log.Fatalf("Lỗi lấy receipt từ node2 cho tx %s: %v", tx2.Hash().Hex(), err)
 		}
 
-		j1, _ := json.Marshal(rcp1)
-		j2, _ := json.Marshal(rcp2)
+		// So sánh các trường thực thi nội tại (BỎ QUA blockHash vì blockHash bị ảnh hưởng bởi receiptsRoot)
+		var diffs []string
 
-		if string(j1) != string(j2) {
-			fmt.Printf("\n🔴 TÌM THẤY RECEIPT KHÁC NHAU TẠI INDEX %d (Tx: %s)\n", i, tx1.Hash().Hex())
-			
-			var raw1, raw2 map[string]interface{}
-			json.Unmarshal(j1, &raw1)
-			json.Unmarshal(j2, &raw2)
-
-			fmt.Println("--- Các trường khác nhau ---")
-			allKeys := make(map[string]bool)
-			for k := range raw1 {
-				allKeys[k] = true
-			}
-			for k := range raw2 {
-				allKeys[k] = true
-			}
-			for k := range allKeys {
-				v1, ok1 := raw1[k]
-				v2, ok2 := raw2[k]
-				if !ok1 {
-					fmt.Printf("- %s: %s KHÔNG CÓ, %s = %v\n", k, *node1Flag, *node2Flag, v2)
-					continue
+		if rcp1.Status != rcp2.Status {
+			diffs = append(diffs, fmt.Sprintf("Status: %s=%d, %s=%d", *node1Flag, rcp1.Status, *node2Flag, rcp2.Status))
+		}
+		if rcp1.GasUsed != rcp2.GasUsed {
+			diffs = append(diffs, fmt.Sprintf("GasUsed: %s=%d, %s=%d", *node1Flag, rcp1.GasUsed, *node2Flag, rcp2.GasUsed))
+		}
+		if rcp1.CumulativeGasUsed != rcp2.CumulativeGasUsed {
+			diffs = append(diffs, fmt.Sprintf("CumulativeGasUsed: %s=%d, %s=%d", *node1Flag, rcp1.CumulativeGasUsed, *node2Flag, rcp2.CumulativeGasUsed))
+		}
+		if len(rcp1.Logs) != len(rcp2.Logs) {
+			diffs = append(diffs, fmt.Sprintf("LogsCount: %s=%d, %s=%d", *node1Flag, len(rcp1.Logs), *node2Flag, len(rcp2.Logs)))
+		} else {
+			for lIdx, l1 := range rcp1.Logs {
+				l2 := rcp2.Logs[lIdx]
+				if l1.Address != l2.Address {
+					diffs = append(diffs, fmt.Sprintf("Log[%d].Address: %s=%s, %s=%s", lIdx, *node1Flag, l1.Address.Hex(), *node2Flag, l2.Address.Hex()))
 				}
-				if !ok2 {
-					fmt.Printf("- %s: %s = %v, %s KHÔNG CÓ\n", k, *node1Flag, v1, *node2Flag)
-					continue
+				if len(l1.Topics) != len(l2.Topics) {
+					diffs = append(diffs, fmt.Sprintf("Log[%d].TopicsCount: %s=%d, %s=%d", lIdx, *node1Flag, len(l1.Topics), *node2Flag, len(l2.Topics)))
+				} else {
+					for tIdx, t1 := range l1.Topics {
+						t2 := l2.Topics[tIdx]
+						if t1 != t2 {
+							diffs = append(diffs, fmt.Sprintf("Log[%d].Topic[%d]: %s=%s, %s=%s", lIdx, tIdx, *node1Flag, t1.Hex(), *node2Flag, t2.Hex()))
+						}
+					}
 				}
-				v1Json, _ := json.Marshal(v1)
-				v2Json, _ := json.Marshal(v2)
-				if string(v1Json) != string(v2Json) {
-					fmt.Printf("- %s:\n    %s: %s\n    %s: %s\n", k, *node1Flag, string(v1Json), *node2Flag, string(v2Json))
+				if string(l1.Data) != string(l2.Data) {
+					diffs = append(diffs, fmt.Sprintf("Log[%d].Data:\n      %s: %s\n      %s: %s", lIdx, *node1Flag, formatLogData(l1.Data), *node2Flag, formatLogData(l2.Data)))
 				}
 			}
 		}
+
+		if len(diffs) > 0 {
+			mismatchCount++
+			if firstMismatchIdx == -1 {
+				firstMismatchIdx = i
+			}
+			fmt.Printf("\n🔴 [RECEIPT MISMATCH #%d] Tx Index: %d | Hash: %s\n", mismatchCount, i, tx1.Hash().Hex())
+			for _, d := range diffs {
+				fmt.Printf("   ⚠️  %s\n", d)
+			}
+		}
 	}
-	fmt.Println("Hoàn tất so sánh.")
+
+	fmt.Println("\n========================================================")
+	fmt.Printf("📊 [TỔNG KẾT SO SÁNH BLOCK %d]\n", *blockNum)
+	fmt.Printf("   • Tổng số transactions : %d\n", len(txs1))
+	fmt.Printf("   • Số receipts bị lệch  : %d / %d\n", mismatchCount, len(txs1))
+	if firstMismatchIdx != -1 {
+		fmt.Printf("   • Mismatch đầu tiên tại: Index %d (Tx: %s)\n", firstMismatchIdx, txs1[firstMismatchIdx].Hash().Hex())
+	}
+	fmt.Println("========================================================")
 }

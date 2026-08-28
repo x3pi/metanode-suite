@@ -8,7 +8,6 @@ Lỗi seed_from_execution_state trong Rust vi phạm nghiêm trọng nguyên t�
 
 
 
-
 stm.waitersMu[blockingVer].Lock()
     stm.waiters[blockingVer] = append(stm.waiters[blockingVer], uint32(txIndex))
     stm.waitersMu[blockingVer].Unlock()
