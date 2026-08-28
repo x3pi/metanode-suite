@@ -1,22 +1,53 @@
 {
-  "rpc_url": "http://192.168.1.233:10746",
+  "rpc_url": "http://192.168.1.233:8546",
   "rpc_nodes": {
     "m0": "http://192.168.1.233:10746",
     "m1": "http://192.168.1.233:10747",
-    "m2": "http://192.168.1.233:10748"
+    "m2": "http://192.168.1.232:10748"
   },
   "private_chains": {
     "chain_a": {
       "chain_id": 101,
-      "rpc_url": "http://127.0.0.1:8546"
+      "rpc_url": "http://192.168.1.233:8546",
+      "private_keys": [
+        "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106",
+        "edb63ea1c26ce5c5d29df010ddedf2c57b3a4af38d776290f9a789205366acea",
+        "7e6b1b687e6ac70d42ae2d4ab007bc3d9d78c24fb0af5affc601bc4abb25549b",
+        "37f2b66e37b3511e7510177457e959623da3f6e0e219d1905314d2da1cc06f63",
+        "fdf24aade8d4ad95c03a0528dda1a973467503410dde8d90e58d42f26147e60e",
+        "d2ba003dc705b5b802fa529e292ae83b91774f1c4c73c2a5ee822840179ab656"
+      ]
     },
     "chain_b": {
       "chain_id": 102,
-      "rpc_url": "http://127.0.0.1:8547"
+      "rpc_url": "http://192.168.1.232:8547",
+      "private_keys": [
+        "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",
+        "e9cd1c4831e3999edb9faf41a099e767754dcab285446b6d318f7e816788f506",
+        "973870d60e7ece6b391077fbeebcbd76d2486e1aaa0c3defe9bf5336574bffe2",
+        "c72db8b139044753754f3cc98306053d069a0d0fd6b4ce8a1b9e69e4b11b703e",
+        "cc8b620a56e75c1694e3c11f1d94fd706ea3984bd4dd73010f5c70f59767f8bc",
+        "f3d4eb300bae3654b268156af2a8b2f62db146d368249cd30a860956128310ec"
+      ]
+    },
+    "chain_c": {
+      "chain_id": 103,
+      "rpc_url": "http://192.168.1.232:8548",
+      "private_keys": []
+    },
+    "chain_d": {
+      "chain_id": 104,
+      "rpc_url": "http://192.168.1.233:8549",
+      "private_keys": []
     }
   },
+  "relayer_keys": {
+    "public_chain": "44dd469934018aa38d377571595c94009ff1877173c2e28ba1abb784bfcfc6a0",
+    "chain_a": "d2ba003dc705b5b802fa529e292ae83b91774f1c4c73c2a5ee822840179ab656",
+    "chain_b": "f3d4eb300bae3654b268156af2a8b2f62db146d368249cd30a860956128310ec"
+  },
   "gateway_precompile": {
-    "address": "0x0000000000000000000000000000000000000800"
+    "address": "0x0000000000000000000000000000000000001002"
   },
   "private_keys": [
     "3f7a0514531a1485edc4270f06dbed62da4974c3b5bbd54a4534060514b8023d",
@@ -30,7 +61,7 @@
     "741cbc3e06ec8ea58513e2643c6935ac22ec1cb604307e9078a08160e4285fb3",
     "44dd469934018aa38d377571595c94009ff1877173c2e28ba1abb784bfcfc6a0"
   ],
-  "chain_id": 991,
+  "chain_id": 101,
   "contracts": {
     "AMMSimulator": {
       "abi": "[{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amountIn\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amountOut\",\"type\":\"uint256\"}],\"name\":\"Swap\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"reserveA\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"reserveB\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"amountAIn\",\"type\":\"uint256\"}],\"name\":\"swapAToB\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",

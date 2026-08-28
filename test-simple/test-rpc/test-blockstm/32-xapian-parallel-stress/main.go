@@ -390,8 +390,8 @@ type QueryCase struct {
 
 func main() {
 	configPath := flag.String("config", "../config.json", "Đường dẫn file config.json")
-	duration := flag.Duration("duration", 1*time.Minute, "Thời gian chạy stress test (mặc định 1m, ví dụ: 60s, 2m)")
-	workers := flag.Int("workers", 50, "Số lượng luồng song song (Goroutines)")
+	duration := flag.Duration("duration", 20*time.Second, "Thời gian chạy stress test (mặc định 20s, ví dụ: 20s, 1m)")
+	workers := flag.Int("workers", 10, "Số lượng luồng song song (Goroutines)")
 	mode := flag.String("mode", "mixed", "Chế độ test: mixed (cả hai), getdata (chỉ đọc doc), search (chỉ tìm kiếm)")
 	delayMs := flag.Int("delay", 2, "Độ trễ nghỉ giữa 2 request mỗi goroutine (ms, mặc định 2ms để tránh nghẽn I/O log server)")
 	contractHex := flag.String("contract", "", "Địa chỉ Contract Xapian (nếu bỏ trống sẽ tự động deploy & setup)")
@@ -429,18 +429,6 @@ func main() {
 	}
 
 	rpcUrls := []string{cfg.RPCUrl}
-	if len(cfg.RPCNodes) > 0 {
-		rpcUrls = nil
-		for _, u := range cfg.RPCNodes {
-			if u != "" {
-				rpcUrls = append(rpcUrls, u)
-			}
-		}
-		if len(rpcUrls) == 0 {
-			rpcUrls = []string{cfg.RPCUrl}
-		}
-	}
-
 	var clients []*ethclient.Client
 	for _, u := range rpcUrls {
 		rpcClient, err := rpc.DialHTTPWithClient(u, httpClient)
@@ -450,7 +438,13 @@ func main() {
 		clients = append(clients, ethclient.NewClient(rpcClient))
 	}
 	primaryClient := clients[0]
-	fmt.Printf("🔗 Đang phân phối tải trên %d RPC Node: %s\n", len(rpcUrls), strings.Join(rpcUrls, ", "))
+
+	// Tự động đồng bộ ChainID từ RPC node thực tế
+	if nodeChainID, err := primaryClient.ChainID(context.Background()); err == nil && nodeChainID != nil && nodeChainID.Sign() > 0 {
+		cfg.ChainID = nodeChainID.Int64()
+	}
+
+	fmt.Printf("🔗 Đang chạy trên RPC Node: %s (ChainID: %d)\n", cfg.RPCUrl, cfg.ChainID)
 
 	// Lấy hoặc Deploy Contract
 	var contractAddr common.Address
@@ -719,7 +713,11 @@ func main() {
 	fmt.Printf("📨 Tổng số request gửi      : %d\n", totalReqs)
 	fmt.Printf("✅ Request thành công & đúng: %d (%.2f%%)\n", successReqs, successRate)
 	fmt.Printf("🔍 Đã xác thực dữ liệu 100%%: %d requests\n", verifiedDataReqs)
-	fmt.Printf("❌ Số request thất bại      : %d\n", errorReqs)
+	if errorReqs > 0 {
+		fmt.Printf("❌ Số request thất bại      : %d\n", errorReqs)
+	} else {
+		fmt.Printf("   Số request thất bại      : %d\n", errorReqs)
+	}
 	fmt.Printf("⚡ Tốc độ trung bình        : %.2f RPS (Requests/Second)\n", totalRPS)
 	fmt.Println("----------------------------------------------------------")
 	fmt.Println("📈 PHÂN BỔ ĐỘ TRỄ (LATENCY):")

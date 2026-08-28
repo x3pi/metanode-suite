@@ -161,8 +161,41 @@ if [ -f "$FILE6" ]; then
     
     jq --arg r "$new_rpc_url" \
        --slurpfile rpc "$RPC_NODES_FILE" \
-       'del(.all_nodes, .roles) | .rpc_url = $r | .rpc_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly")))' \
+       'del(.all_nodes, .roles) | .rpc_url = (if $r != "" then $r else .rpc_url end) | .rpc_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly")))' \
        "$FILE6" > "${FILE6}.tmp" && mv "${FILE6}.tmp" "$FILE6"
+
+    # Cập nhật thông tin Private Chains từ /tmp/private_chains.json (nếu có)
+    PRIV_CHAINS_FILE="/tmp/private_chains.json"
+    if [ -f "$PRIV_CHAINS_FILE" ]; then
+        echo "Updating Private Chains RPC in $FILE6 from $PRIV_CHAINS_FILE..."
+        python3 -c "
+import json
+with open('$FILE6') as f:
+    cfg = json.load(f)
+with open('$PRIV_CHAINS_FILE') as f:
+    p_data = json.load(f)
+
+nodes = p_data.get('nodes', {})
+if 'private_chains' not in cfg:
+    cfg['private_chains'] = {}
+
+name_map = {'101': 'chain_a', '102': 'chain_b', '103': 'chain_c', '104': 'chain_d'}
+for cid, rpc_url in nodes.items():
+    c_name = name_map.get(str(cid), f'chain_{cid}')
+    if c_name in cfg['private_chains']:
+        cfg['private_chains'][c_name]['rpc_url'] = rpc_url
+    else:
+        cfg['private_chains'][c_name] = {
+            'chain_id': int(cid),
+            'rpc_url': rpc_url,
+            'private_keys': []
+        }
+
+with open('$FILE6', 'w') as f:
+    json.dump(cfg, f, indent=2)
+print('✅ Updated private_chains in $FILE6')
+"
+    fi
 else
     echo "Warning: $FILE6 not found." >&2
 fi
