@@ -1,0 +1,137 @@
+{
+    "101": [
+        {
+            "private_key": "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106",
+            "address": "0xF6266Bbc0c65235E6A9eBA3f9e710862e2179E33",
+            "role": "Sender (A0)"
+        },
+        {
+            "private_key": "edb63ea1c26ce5c5d29df010ddedf2c57b3a4af38d776290f9a789205366acea",
+            "address": "0xE3784d5212FB306198d1f84231428B5ab2878f04",
+            "role": "Dev A1"
+        },
+        {
+            "private_key": "7e6b1b687e6ac70d42ae2d4ab007bc3d9d78c24fb0af5affc601bc4abb25549b",
+            "address": "0xA6E3C7A286F65862c37F9AD794B498ab13b8d3Fc",
+            "role": "Dev A2"
+        },
+        {
+            "private_key": "37f2b66e37b3511e7510177457e959623da3f6e0e219d1905314d2da1cc06f63",
+            "address": "0x0d038819f8aDE9e92B0A24d65582223c5Bf42546",
+            "role": "Dev A3"
+        },
+        {
+            "private_key": "fdf24aade8d4ad95c03a0528dda1a973467503410dde8d90e58d42f26147e60e",
+            "address": "0xE18d48129515D63D475a41093CaE23Ca004F8179",
+            "role": "Dev A4"
+        },
+        {
+            "private_key": "d2ba003dc705b5b802fa529e292ae83b91774f1c4c73c2a5ee822840179ab656",
+            "address": "0x45d90D4c9c5861404AA5186DA621C75Acad7bF06",
+            "role": "Relayer A (A5)"
+        }
+    ],
+    "102": [
+        {
+            "private_key": "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",
+            "address": "0x93eAc269F0d2E15bC7B4CeE49f0f4185b585E340",
+            "role": "Recipient (B0)"
+        },
+        {
+            "private_key": "e9cd1c4831e3999edb9faf41a099e767754dcab285446b6d318f7e816788f506",
+            "address": "0xd2452779F76B4EE7d8b0d1B39EE31FF8e34Aa330",
+            "role": "Dev B1"
+        },
+        {
+            "private_key": "973870d60e7ece6b391077fbeebcbd76d2486e1aaa0c3defe9bf5336574bffe2",
+            "address": "0xa03A7760e464f131f4b3Eb064679fc34a01fb1f5",
+            "role": "Dev B2"
+        },
+        {
+            "private_key": "c72db8b139044753754f3cc98306053d069a0d0fd6b4ce8a1b9e69e4b11b703e",
+            "address": "0x64A3D425F05d91002e3f25c16e77E7699622caA2",
+            "role": "Dev B3"
+        },
+        {
+            "private_key": "cc8b620a56e75c1694e3c11f1d94fd706ea3984bd4dd73010f5c70f59767f8bc",
+            "address": "0x7886B5D60c3a559251506e073052f4135c657688",
+            "role": "Dev B4"
+        },
+        {
+            "private_key": "f3d4eb300bae3654b268156af2a8b2f62db146d368249cd30a860956128310ec",
+            "address": "0xF0a6048c2F96843be0E273CCc297dfe296DDf805",
+            "role": "Relayer B (B5)"
+        }
+    ],
+    "common": [
+        {
+            "private_key": "44dd469934018aa38d377571595c94009ff1877173c2e28ba1abb784bfcfc6a0",
+            "address": "0x4bd11A56F174facBFe784C9c43E255622D2a02B1",
+            "role": "Relayer Public Master"
+        }
+    ],
+    "103": [
+        {
+            "private_key": "0x31bd12d0e40f395010878dc24ade735cc13ff97b8d3b26391985ea0617cad9aa",
+            "address": "0xe53BA73Ad77339b305ad1637E42d212c05dB1Bd9",
+            "role": "Sender (A0)"
+        },
+        {
+            "private_key": "0x61aba419832b744ee68ff922ab6dc23b2ef1c5bc52ef20cebd635bcce32b0aed",
+            "address": "0x9a9A8B1ce13ac35e69F2C669d726688cA0a4Ee70",
+            "role": "Dev A1"
+        },
+        {
+            "private_key": "0x2a2cf1fbfd8c34cd8cc6552a97e11f86c506d1c11d61bba49e5c282a044e990c",
+            "address": "0x54420b9B7FFAf6e31122337592d79AAbF91c70C4",
+            "role": "Dev A2"
+        },
+        {
+            "private_key": "0xd3a3c33b24497e27fb36807d08a292fb10ea3d43be8669e6d6608c3c83778128",
+            "address": "0x24186C7579e0607700d6E6a46d0208a224adaC74",
+            "role": "Dev A3"
+        },
+        {
+            "private_key": "0xe8cf54305b31e148b2ef5a90768b53ccea85f5751ee8a7cb22d35b77ff24fa8f",
+            "address": "0x9C0E2D1F8f2b4Ab4e9e59126cD02ff07C564faab",
+            "role": "Dev A4"
+        },
+        {
+            "private_key": "0x10fa4cc644bcd291eb2b613de610f030b049f4a39d8e1d2f6bc8920abeb22d10",
+            "address": "0x769932b78E92fF5D52260E5a9bECD3b22632586E",
+            "role": "Relayer A (A5)"
+        }
+    ],
+    "104": [
+        {
+            "private_key": "0x8236227413975e278bae6694f903f6fa29b37264097ad98a918c71e16443cc85",
+            "address": "0x00957eBA8C8ab009Ae16E43a8669bC49Cd344fe9",
+            "role": "Sender (B0)"
+        },
+        {
+            "private_key": "0xf8b15ae66e7c9b669c8f1666abb757f22f9fe2d8843949a27ac703f751d75103",
+            "address": "0x4706AAC164B76fe61515308a6c631844ecfCB012",
+            "role": "Dev B1"
+        },
+        {
+            "private_key": "0xce3e829822522d3d3d621f4defb6d5eb073419aec718b6999517abfa7a45702a",
+            "address": "0xCFBbb7cBa0763BBf64C587F2734aE4c8B6B84772",
+            "role": "Dev B2"
+        },
+        {
+            "private_key": "0x3ff5c64087fa0da25dc1262787163eb724a5d0b67159a139f2a7a06d2b56f7c2",
+            "address": "0x4b2A0C92940898649AF80448eACabFc20955BD9F",
+            "role": "Dev B3"
+        },
+        {
+            "private_key": "0x1488ea8768703e808a203d3c80491f6bcb38bd7b77f8a687ddc7440ba8473c3f",
+            "address": "0x30E337d21E2E1baCb9D7F7ABE8ea1AAcB271606e",
+            "role": "Dev B4"
+        },
+        {
+            "private_key": "0x8d24db1d311c44db6d20b14a89b62eb2b4a26cf167085e94fa29b704b03014fc",
+            "address": "0x4746386D9B0c83912fd1B745e0b66B412D1a3267",
+            "role": "Relayer B (B5)"
+        }
+    ]
+}

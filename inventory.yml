@@ -1,0 +1,32 @@
+all:
+  vars:
+    # URL RPC của Public Chain (Root Anchor Cluster - Chain 991)
+    root_anchor_rpc: "http://192.168.1.234:10746"
+    ansible_user: "abc"
+    ansible_ssh_pass: "1234@abcd"
+    ansible_become_pass: "1234@abcd"
+
+    # ECDSA private key của tài khoản submit giao dịch bootstrap & register lên Root Anchor
+    root_anchor_submitter_key: "d3d8157f2571153bcb664233f998a82b9b475fe509f92caf65ca2461bae7f1a9"
+
+  children:
+    private_chains:
+      hosts:
+        # Máy 1 (192.168.1.234): Chạy Private Chain 101 (Local)
+        server_234_chain_101:
+          ansible_host: 192.168.1.234
+          ansible_connection: local
+          chain_id: 101
+          rpc_port: 8546
+          port_offset: 10
+          install_dir: "/opt/metanode/chain-101"
+
+        # Máy 2 (192.168.1.234): Chạy Private Chain 102 (Local)
+        server_234_chain_102:
+          ansible_host: 192.168.1.234
+          ansible_connection: local
+          chain_id: 102
+          rpc_port: 8547
+          port_offset: 20
+          install_dir: "/opt/metanode/chain-102"
+
