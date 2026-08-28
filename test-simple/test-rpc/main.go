@@ -24,9 +24,11 @@ import (
 )
 
 type Config struct {
-	RPCUrl     string `json:"rpc_url"`
-	PrivateKey string `json:"private_key"`
-	ChainID    int64  `json:"chain_id"`
+	RPCUrl      string            `json:"rpc_url"`
+	PrivateKey  string            `json:"private_key"`
+	PrivateKeys []string          `json:"private_keys"`
+	ChainID     int64             `json:"chain_id"`
+	RPCNodes    map[string]string `json:"rpc_nodes"`
 }
 
 type ExpectedEvent struct {
@@ -54,6 +56,7 @@ func main() {
 	chainFlag := flag.Int64("chain", 0, "Ghi đè Chain ID (Override, ví dụ: 991)")
 	loopFlag := flag.Bool("loop", false, "Lặp vô hạn tất cả tasks cho đến khi Ctrl+C")
 	delayFlag := flag.Int("delay", 2, "Thời gian chờ (giây) giữa các vòng lặp khi dùng -loop")
+	saveContractFlag := flag.String("save-contract", "", "Lưu địa chỉ contract vừa deploy vào file chỉ định")
 	flag.Parse()
 
 	fmt.Println("==================================================")
@@ -206,6 +209,10 @@ func main() {
 						taskErr = err
 					} else if newAddr != nil {
 						lastDeployedAddress = newAddr
+						if *saveContractFlag != "" {
+							_ = os.WriteFile(*saveContractFlag, []byte(newAddr.Hex()), 0644)
+							fmt.Printf("   💾 Đã lưu địa chỉ contract vào file: %s\n", *saveContractFlag)
+						}
 					} else {
 						taskErr = fmt.Errorf("Tx Reverted (Lỗi hợp đồng)")
 					}
@@ -700,10 +707,15 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 func loadConfig(path string) *Config {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		log.Fatalf("❌ Lỗi đõc file config (%s): %v", path, err)
+		log.Fatalf("❌ Lỗi đọc file config (%s): %v", path, err)
 	}
 	var c Config
-	json.Unmarshal(b, &c)
+	if err := json.Unmarshal(b, &c); err != nil {
+		log.Fatalf("❌ Lỗi parse file config (%s): %v", path, err)
+	}
+	if c.PrivateKey == "" && len(c.PrivateKeys) > 0 {
+		c.PrivateKey = c.PrivateKeys[0]
+	}
 	return &c
 }
 

@@ -95,3 +95,12 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
 - **Mục đích:** Xác minh opcode `BLOCKHASH (0x40)` hoạt động chính xác theo đặc tả EVM thông qua cấu trúc `BlockContext` (loại bỏ runtime callback).
 - **Cách hoạt động:** Deploy contract gọi `BLOCKHASH`; so khớp hash EVM trả về với RPC block header; kiểm tra truy vấn block hiện tại/tương lai và block ngoài cửa sổ 256 trả về `0x0`.
 - **Kết quả kỳ vọng:** EVM trả về khớp 100% hash của block lịch sử và trả về `0x0` cho các truy vấn ngoài phạm vi hợp lệ.
+
+### 33. `33-cross-chain-p0-root-anchor/main.go` (Kiểm tra Toàn diện Đặc tả Kỹ thuật P0 Cross-Chain Root Anchor)
+- **Mục đích:** Kiểm chứng tính toàn vẹn và các bất biến mật mã/kinh tế của giai đoạn P0 (Tasks P0.1, P0.2, P0.3):
+  1. **P0.1 Schema & Invariant Fuzzing:** Kiểm tra serialization 8 struct lõi và chạy Fuzz property-based test 10.000 mutations để đảm bảo bất biến $\sum \text{per\_chain\_allocation} \equiv \text{genesis\_total\_supply}$ không bao giờ bị vi phạm.
+  2. **P0.2 On-Chain Governance:** Kiểm tra cơ chế quản trị 1-Chain-1-Vote, ngưỡng Quorum $\ge 2/3$ active chains, khóa thời gian Timelock bắt buộc 72 giờ và tính Idempotent của lệnh thực thi.
+  3. **P0.3 BLS12-381 PopVerify & Rogue-Key Guard:** Kiểm tra tạo và xác thực chữ ký Proof-of-Possession (`PopVerify`) khi đăng ký uỷ ban validator, ngăn chặn 100% các cuộc tấn công giả mạo public key (Rogue-Key Attacks).
+- **Cách hoạt động:** Đọc `config.json`, tự động lấy danh sách ví và kết nối RPC node, thực thi tuần tự 11 test scenarios chuyên sâu.
+- **Kết quả kỳ vọng:** Đạt 11/11 PASSED (100%), bảo toàn tuyệt đối bất biến tổng cung và logic quản trị/mật mã.
+

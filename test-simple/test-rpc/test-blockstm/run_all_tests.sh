@@ -34,6 +34,7 @@ TESTS=(
     "29-blockhash-opcode-verifier"
     "30-eip7702-parallel-contention"
     "31-mixed-all-types-block"
+    "32-xapian-parallel-stress"
 )
 
 TOTAL_TEST_CASES=${#TESTS[@]}
@@ -107,8 +108,8 @@ for test_dir in "${TESTS[@]}"; do
         fi
 
         # Các bài test khác: Nếu xuất hiện dấu ❌ thì coi như lỗi (giao dịch bị revert ngoài ý muốn)
-        # Loại trừ các bài test cố ý gây revert: 4-abort, 11-double-spending-same-nonce, 12-insufficient-balance-parallel, 14-selfdestruct-conflict
-        if [[ "$test_dir" != "4-abort" && "$test_dir" != "11-double-spending-same-nonce" && "$test_dir" != "12-insufficient-balance-parallel" && "$test_dir" != "14-selfdestruct-conflict" ]] && echo "$output" | grep -q "❌"; then
+        # Loại trừ các bài test cố ý gây revert: 4-abort, 11-double-spending-same-nonce, 12-insufficient-balance-parallel, 14-selfdestruct-conflict, 32-xapian-parallel-stress
+        if [[ "$test_dir" != "4-abort" && "$test_dir" != "11-double-spending-same-nonce" && "$test_dir" != "12-insufficient-balance-parallel" && "$test_dir" != "14-selfdestruct-conflict" && "$test_dir" != "32-xapian-parallel-stress" ]] && echo "$output" | grep -q "❌"; then
             FAILED=$((FAILED + 1))
             REASONS["${test_dir}_run${run_idx}"]="Có giao dịch bị Revert hoặc FAILED ngoài ý muốn"
             echo "❌ THẤT BẠI (Lỗi Tx Revert)"
