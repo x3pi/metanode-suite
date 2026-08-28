@@ -150,6 +150,23 @@ func formatMTN(wei *big.Int) string {
 	return fmt.Sprintf("%.4f", f)
 }
 
+// EncodeRelayPayload gắn tiền tố MTNRELAY1: cùng DestChainID cuối cùng
+func EncodeRelayPayload(finalDestChainID uint64, innerPayload []byte) []byte {
+	prefix := []byte("MTNRELAY1:")
+	buf := make([]byte, len(prefix)+8+len(innerPayload))
+	copy(buf, prefix)
+	buf[len(prefix)] = byte(finalDestChainID >> 56)
+	buf[len(prefix)+1] = byte(finalDestChainID >> 48)
+	buf[len(prefix)+2] = byte(finalDestChainID >> 40)
+	buf[len(prefix)+3] = byte(finalDestChainID >> 32)
+	buf[len(prefix)+4] = byte(finalDestChainID >> 24)
+	buf[len(prefix)+5] = byte(finalDestChainID >> 16)
+	buf[len(prefix)+6] = byte(finalDestChainID >> 8)
+	buf[len(prefix)+7] = byte(finalDestChainID)
+	copy(buf[len(prefix)+8:], innerPayload)
+	return buf
+}
+
 func waitForReceipt(url string, txHash common.Hash, timeout time.Duration) {
 	start := time.Now()
 	for time.Since(start) < timeout {
@@ -229,7 +246,21 @@ func main() {
 	gasLimit := uint64(500000)
 	gasPrice := big.NewInt(1000000000)
 
-	outboundTransferData, _ := parsedGatewayABI.Pack("outbound", big.NewInt(102), recipientAddr, []byte{}, big.NewInt(0), transferAmount, tipAmount, big.NewInt(0), uint8(1), false)
+	// Luân chuyển tiền 2 chặng qua Reserve (Chain 991) theo luật an ninh Invariant C8
+	reserveChainID := big.NewInt(991)
+	relayTransferPayload := EncodeRelayPayload(102, nil)
+	outboundTransferData, _ := parsedGatewayABI.Pack(
+		"outbound",
+		reserveChainID,       // DestChainID = 991 (Reserve Anchor)
+		recipientAddr,        // Target là địa chỉ ví nhận trên Chain 102
+		relayTransferPayload, // Gắn tag chuyển tiếp sang Chain 102
+		big.NewInt(0),        // AssetID (0 = Native MTN)
+		transferAmount,       // 500 MTN
+		tipAmount,
+		big.NewInt(0),
+		uint8(1),
+		false,
+	)
 	nonceA, errNonce := getNonce(rpcA, senderAddr.Hex())
 	if errNonce != nil {
 		fmt.Printf("❌ Lỗi lấy nonce: %v\n", errNonce)

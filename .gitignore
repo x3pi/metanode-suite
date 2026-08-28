@@ -64,3 +64,6 @@ test-simple/test-rpc/test-blockstm/test_report.md
 test_tps/tps_contract_parallel/tps_blast_parallel
 test_tps/tps_contract_parallel/reports
 test-simple/test-rpc/test-blockstm/17.1-xapian-parallel-delete/17.1-xapian-parallel-delete
+test-simple/test-rpc/test-blockstm/cross-chain/01-client-only-transfer/01-client-only-transfer
+test-simple/test-rpc/test-blockstm/cross-chain/02-cross-chain-caro-game/02-cross-chain-caro-game
+test-simple/test-rpc/test-blockstm/cross-chain/03-cross-chain-failure-refund/03-cross-chain-failure-refund

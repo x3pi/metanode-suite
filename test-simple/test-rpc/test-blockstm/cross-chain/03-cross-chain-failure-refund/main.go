@@ -153,6 +153,23 @@ func waitForReceipt(url string, txHash common.Hash, timeout time.Duration) *type
 	return nil
 }
 
+// EncodeRelayPayload gắn tiền tố MTNRELAY1: cùng DestChainID cuối cùng
+func EncodeRelayPayload(finalDestChainID uint64, innerPayload []byte) []byte {
+	prefix := []byte("MTNRELAY1:")
+	buf := make([]byte, len(prefix)+8+len(innerPayload))
+	copy(buf, prefix)
+	buf[len(prefix)] = byte(finalDestChainID >> 56)
+	buf[len(prefix)+1] = byte(finalDestChainID >> 48)
+	buf[len(prefix)+2] = byte(finalDestChainID >> 40)
+	buf[len(prefix)+3] = byte(finalDestChainID >> 32)
+	buf[len(prefix)+4] = byte(finalDestChainID >> 24)
+	buf[len(prefix)+5] = byte(finalDestChainID >> 16)
+	buf[len(prefix)+6] = byte(finalDestChainID >> 8)
+	buf[len(prefix)+7] = byte(finalDestChainID)
+	copy(buf[len(prefix)+8:], innerPayload)
+	return buf
+}
+
 func main() {
 	var rpcA, rpcB, keyA, keyB string
 	flag.StringVar(&rpcA, "rpcA", "http://127.0.0.1:8546", "RPC Chain A (Chain 101)")
@@ -264,10 +281,12 @@ func main() {
 	// TEST CASE 3: CHUYỂN TIỀN THÀNH CÔNG VỚI ĐỦ CẤP PHÁT & GAS FEE
 	// =========================================================================
 	fmt.Println("\n" + ColorBold + "🧪 [TEST CASE 3] CHUYỂN TIỀN HỢP LỆ VỚI HEADROOM & GAS FEE ĐẦY ĐỦ" + ColorReset)
-	fmt.Println("   Mô tả: Chuyển 200 MTN hợp lệ từ Chain A sang Chain B.")
+	fmt.Println("   Mô tả: Chuyển 200 MTN hợp lệ từ Chain A sang Chain B (2-hop qua Reserve 991).")
 
 	validTransferAmount := new(big.Int).Mul(big.NewInt(200), big.NewInt(1e18))
-	outboundValidData, _ := parsedGatewayABI.Pack("outbound", big.NewInt(102), recipientAddr, []byte{}, big.NewInt(0), validTransferAmount, tipAmount, big.NewInt(0), uint8(1), false)
+	reserveChainID := big.NewInt(991)
+	relayTransferPayload := EncodeRelayPayload(102, nil)
+	outboundValidData, _ := parsedGatewayABI.Pack("outbound", reserveChainID, recipientAddr, relayTransferPayload, big.NewInt(0), validTransferAmount, tipAmount, big.NewInt(0), uint8(1), false)
 	time.Sleep(1 * time.Second)
 	nonce3, _ := getNonce(rpcA, senderAddr.Hex())
 
