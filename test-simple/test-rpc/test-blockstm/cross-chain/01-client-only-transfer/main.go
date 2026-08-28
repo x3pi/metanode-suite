@@ -166,8 +166,8 @@ func main() {
 	var rpcA, rpcB, keyA, keyB string
 	flag.StringVar(&rpcA, "rpcA", "http://127.0.0.1:8546", "RPC Chain A")
 	flag.StringVar(&rpcB, "rpcB", "http://127.0.0.1:8547", "RPC Chain B")
-	flag.StringVar(&keyA, "keyA", "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106", "Private key Sender")
-	flag.StringVar(&keyB, "keyB", "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a", "Private key Recipient (dùng để deploy contract trên Chain B)")
+	flag.StringVar(&keyA, "keyA", "3f7a0514531a1485edc4270f06dbed62da4974c3b5bbd54a4534060514b8023d", "Private key Sender")
+	flag.StringVar(&keyB, "keyB", "2aad2565bed5347214de1c14752933e9a410a76daed530e80ed6ce7af9363cf4", "Private key Recipient (dùng để deploy contract trên Chain B)")
 	flag.Parse()
 
 	// Tự động tải endpoint RPC từ config.json của test-blockstm hoặc /tmp/private_chains.json
@@ -182,7 +182,8 @@ func main() {
 						RpcUrl string `json:"rpc_url"`
 					} `json:"chain_b"`
 				} `json:"private_chains"`
-				Nodes map[string]string `json:"nodes"`
+				Nodes       map[string]string `json:"nodes"`
+				PrivateKeys []string          `json:"private_keys"`
 			}
 			if err := json.Unmarshal(data, &bCfg); err == nil {
 				if rpcA == "http://127.0.0.1:8546" {
