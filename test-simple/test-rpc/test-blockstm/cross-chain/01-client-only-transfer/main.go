@@ -277,8 +277,7 @@ func main() {
 	totalBurnCall := new(big.Int).Add(tipAmount, gasFeeAmount)
 
 	outboundCallData, _ := parsedGatewayABI.Pack("outbound", big.NewInt(102), targetContractAddr, payloadIncrement, big.NewInt(0), big.NewInt(0), tipAmount, gasFeeAmount, uint8(1), false)
-	time.Sleep(1 * time.Second)
-	nonceCall, _ := getNonce(rpcA, senderAddr.Hex())
+	nonceCall := nonceA + 1
 
 	txCall := types.NewTransaction(nonceCall, GatewayAddress, totalBurnCall, gasLimit, gasPrice, outboundCallData)
 	signedTxCall, _ := types.SignTx(txCall, types.NewEIP155Signer(big.NewInt(101)), privKeySender)
@@ -336,6 +335,7 @@ func main() {
 		}
 
 		fmt.Printf(".")
+		os.Stdout.Sync()
 		time.Sleep(1 * time.Second)
 	}
 
