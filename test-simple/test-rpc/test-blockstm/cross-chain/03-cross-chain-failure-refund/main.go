@@ -58,7 +58,6 @@ type JSONRPCRequest struct {
 	Params  []interface{} `json:"params"`
 	ID      int           `json:"id"`
 }
-
 type JSONRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
@@ -138,65 +137,165 @@ func formatMTN(wei *big.Int) string {
 	return fmt.Sprintf("%.4f", f)
 }
 
-func waitForReceipt(url string, txHash common.Hash, timeout time.Duration) *types.Receipt {
+func waitForReceipt(url string, txHash common.Hash, timeout time.Duration) {
 	start := time.Now()
 	for time.Since(start) < timeout {
 		res, err := callRPC(url, "eth_getTransactionReceipt", []interface{}{txHash.Hex()})
 		if err == nil && len(res) > 0 && string(res) != "null" {
-			var r types.Receipt
-			if json.Unmarshal(res, &r) == nil {
-				return &r
-			}
+			return
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return nil
+}
+
+// ─── Config Types ────────────────────────────────────────────────────────────
+type ChainEntry struct {
+	ChainID     uint64
+	RpcUrl      string
+	PrivateKeys []string
+}
+
+type PrivateChainJson struct {
+	ChainID     uint64   `json:"chain_id"`
+	RpcUrl      string   `json:"rpc_url"`
+	PrivateKeys []string `json:"private_keys"`
+}
+
+type ConfigStructure struct {
+	PrivateChains map[string]PrivateChainJson `json:"private_chains"`
+	Nodes         map[string]string           `json:"nodes"`
+	PrivateKeys   []string                    `json:"private_keys"`
+}
+
+func sanitizeKey(k string) string {
+	k = strings.TrimSpace(k)
+	return strings.TrimPrefix(k, "0x")
+}
+
+func loadAvailableChains(configFilePath string) (map[string]ChainEntry, error) {
+	paths := []string{
+		configFilePath,
+		"../config.json",
+		"../../config.json",
+		"/tmp/private_chains.json",
+	}
+
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+
+		var cfg ConfigStructure
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			continue
+		}
+
+		chains := make(map[string]ChainEntry)
+
+		for name, c := range cfg.PrivateChains {
+			var keys []string
+			for _, k := range c.PrivateKeys {
+				if sanitized := sanitizeKey(k); sanitized != "" {
+					keys = append(keys, sanitized)
+				}
+			}
+			entry := ChainEntry{
+				ChainID:     c.ChainID,
+				RpcUrl:      c.RpcUrl,
+				PrivateKeys: keys,
+			}
+			chains[fmt.Sprintf("%d", c.ChainID)] = entry
+			chains[strings.ToLower(name)] = entry
+		}
+
+		for cidStr, rpc := range cfg.Nodes {
+			if _, exists := chains[cidStr]; !exists {
+				var cid uint64
+				fmt.Sscanf(cidStr, "%d", &cid)
+				entry := ChainEntry{
+					ChainID:     cid,
+					RpcUrl:      rpc,
+					PrivateKeys: []string{},
+				}
+				chains[cidStr] = entry
+				chains[fmt.Sprintf("chain_%s", cidStr)] = entry
+			}
+		}
+
+		if len(chains) > 0 {
+			return chains, nil
+		}
+	}
+	return nil, fmt.Errorf("không tìm thấy file cấu hình hợp lệ (đã thử: %v)", paths)
 }
 
 func main() {
-	var rpcA, rpcB, keyA, keyB string
-	flag.StringVar(&rpcA, "rpcA", "http://127.0.0.1:8546", "RPC Chain A (Chain 101)")
-	flag.StringVar(&rpcB, "rpcB", "http://127.0.0.1:8547", "RPC Chain B (Chain 102)")
-	flag.StringVar(&keyA, "keyA", "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106", "Private key Sender (Chain A)")
-	flag.StringVar(&keyB, "keyB", "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a", "Private key Recipient (Chain B)")
-	flag.Parse()
+	var targetFrom, targetTo, configPath string
 
-	// Tự động tải endpoint RPC từ config.json của test-blockstm hoặc /tmp/private_chains.json
-	for _, cfgPath := range []string{"../config.json", "../../config.json", "/tmp/private_chains.json"} {
-		if data, err := os.ReadFile(cfgPath); err == nil {
-			var bCfg struct {
-				PrivateChains struct {
-					ChainA struct {
-						RpcUrl string `json:"rpc_url"`
-					} `json:"chain_a"`
-					ChainB struct {
-						RpcUrl string `json:"rpc_url"`
-					} `json:"chain_b"`
-				} `json:"private_chains"`
-				Nodes map[string]string `json:"nodes"`
-			}
-			if err := json.Unmarshal(data, &bCfg); err == nil {
-				if rpcA == "http://127.0.0.1:8546" {
-					if bCfg.PrivateChains.ChainA.RpcUrl != "" {
-						rpcA = bCfg.PrivateChains.ChainA.RpcUrl
-					} else if bCfg.Nodes["101"] != "" {
-						rpcA = bCfg.Nodes["101"]
-					}
-				}
-				if rpcB == "http://127.0.0.1:8547" {
-					if bCfg.PrivateChains.ChainB.RpcUrl != "" {
-						rpcB = bCfg.PrivateChains.ChainB.RpcUrl
-					} else if bCfg.Nodes["102"] != "" {
-						rpcB = bCfg.Nodes["102"]
-					}
-				}
-			}
-		}
+	flag.StringVar(&targetFrom, "from", "101", "ID Chain nguồn (ví dụ: -from 101)")
+	flag.StringVar(&targetFrom, "src", "101", "Alias của -from")
+	flag.StringVar(&targetFrom, "source", "101", "Alias của -from")
+
+	flag.StringVar(&targetTo, "to", "102", "ID Chain đích (ví dụ: -to 102)")
+	flag.StringVar(&targetTo, "dst", "102", "Alias của -to")
+	flag.StringVar(&targetTo, "dest", "102", "Alias của -to")
+
+	flag.StringVar(&configPath, "config", "../config.json", "Đường dẫn file config.json")
+
+	flag.Usage = func() {
+		fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+		fmt.Println(ColorBold + "🛡️ HƯỚNG DẪN KIỂM THỬ XỬ LÝ LỖI & HOÀN TIỀN LIÊN CHUỖI" + ColorReset)
+		fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+		fmt.Println("Cú pháp dùng Flag:")
+		fmt.Println("  go run . -from 101 -to 102")
+		fmt.Println("  go run . --from 101 --to 103")
+		fmt.Println("\nCú pháp truyền nhanh (Positional Args):")
+		fmt.Println("  go run . 101 102")
+		fmt.Println("  go run . 103 101")
+		fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
 	}
 
-	fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
-	fmt.Println(ColorBold + ColorCyan + "🛡️  KIỂM THỬ XỬ LÝ LỖI & HOÀN TIỀN LIÊN CHUỖI (CROSS-CHAIN FAILURE & REFUND) " + ColorReset)
-	fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+	flag.Parse()
+
+	posArgs := flag.Args()
+	if len(posArgs) >= 1 {
+		targetFrom = posArgs[0]
+	}
+	if len(posArgs) >= 2 {
+		targetTo = posArgs[1]
+	}
+
+	defaultKeyA := "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106"
+	defaultKeyB := "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a"
+
+	availableChains, _ := loadAvailableChains(configPath)
+
+	fromEntry, okFrom := availableChains[strings.ToLower(targetFrom)]
+	if !okFrom {
+		var cid uint64 = 101
+		fmt.Sscanf(targetFrom, "%d", &cid)
+		fromEntry = ChainEntry{ChainID: cid, RpcUrl: "http://127.0.0.1:8546"}
+	}
+
+	toEntry, okTo := availableChains[strings.ToLower(targetTo)]
+	if !okTo {
+		var cid uint64 = 102
+		fmt.Sscanf(targetTo, "%d", &cid)
+		toEntry = ChainEntry{ChainID: cid, RpcUrl: "http://127.0.0.1:8547"}
+	}
+
+	keyA := defaultKeyA
+	if len(fromEntry.PrivateKeys) > 0 {
+		keyA = fromEntry.PrivateKeys[0]
+	}
+	keyB := defaultKeyB
+	if len(toEntry.PrivateKeys) > 0 {
+		keyB = toEntry.PrivateKeys[0]
+	}
 
 	privKeySender, _ := crypto.HexToECDSA(keyA)
 	senderAddr := crypto.PubkeyToAddress(privKeySender.PublicKey)
@@ -204,110 +303,143 @@ func main() {
 	recipientAddr := crypto.PubkeyToAddress(privKeyRecipient.PublicKey)
 	parsedGatewayABI, _ := abi.JSON(strings.NewReader(GatewayABI))
 
-	balA_Start, _ := getBalance(rpcA, senderAddr.Hex())
-	balB_Start, _ := getBalance(rpcB, recipientAddr.Hex())
+	fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+	fmt.Printf(ColorBold+ColorCyan+"🛡️  KIỂM THỬ XỬ LÝ LỖI & HOÀN TIỀN LIÊN CHUỖI (CHAIN %d ➔ CHAIN %d)\n"+ColorReset, fromEntry.ChainID, toEntry.ChainID)
+	fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
 
-	fmt.Printf("📊 SỐ DƯ BAN ĐẦU:\n")
-	fmt.Printf("   ├─ Chain A (Sender):    %s MTN (Ví: %s)\n", formatMTN(balA_Start), senderAddr.Hex())
-	fmt.Printf("   └─ Chain B (Recipient): %s MTN (Ví: %s)\n", formatMTN(balB_Start), recipientAddr.Hex())
+	balA_Start, _ := getBalance(fromEntry.RpcUrl, senderAddr.Hex())
+	balB_Start, _ := getBalance(toEntry.RpcUrl, recipientAddr.Hex())
+
+	fmt.Printf("📊 SỐ DƯ BAN ĐẦU (FLAGS: -from %d -to %d):\n", fromEntry.ChainID, toEntry.ChainID)
+	fmt.Printf("   ├─ Chain %d (--from %d): %s MTN (Ví Sender: %s @ %s)\n", fromEntry.ChainID, fromEntry.ChainID, formatMTN(balA_Start), senderAddr.Hex(), fromEntry.RpcUrl)
+	fmt.Printf("   └─ Chain %d (--to %d):   %s MTN (Ví Recipient: %s @ %s)\n", toEntry.ChainID, toEntry.ChainID, formatMTN(balB_Start), recipientAddr.Hex(), toEntry.RpcUrl)
 
 	// =========================================================================
 	// TEST CASE 1: LỖI SỐ DƯ TẠI CHAIN NGUỒN (ORIGIN REJECTION)
 	// =========================================================================
-	fmt.Println("\n" + ColorBold + "🧪 [TEST CASE 1] GỬI LỆNH VƯỢT QUÁ SỐ DƯ (OUTBOUND OVERSPEND)" + ColorReset)
+	fmt.Printf("\n"+ColorBold+"🧪 [TEST CASE 1] GỬI LỆNH VƯỢT QUÁ SỐ DƯ TRÊN CHAIN %d (OUTBOUND OVERSPEND)"+ColorReset+"\n", fromEntry.ChainID)
 	fmt.Println("   Mô tả: Sender cố tình chuyển 10,000,000 MTN (vượt số dư hiện có).")
 
 	hugeAmount := new(big.Int).Mul(big.NewInt(10_000_000), big.NewInt(1e18))
-	outboundHugeData, _ := parsedGatewayABI.Pack("outbound", big.NewInt(102), recipientAddr, []byte{}, big.NewInt(0), hugeAmount, big.NewInt(1e16), big.NewInt(0), uint8(1), false)
-	nonce1, _ := getNonce(rpcA, senderAddr.Hex())
+	outboundHugeData, _ := parsedGatewayABI.Pack("outbound",
+		new(big.Int).SetUint64(toEntry.ChainID),
+		recipientAddr,
+		[]byte{},
+		big.NewInt(0),
+		hugeAmount,
+		big.NewInt(1e16),
+		big.NewInt(0),
+		uint8(1),
+		false,
+	)
+	nonce1, _ := getNonce(fromEntry.RpcUrl, senderAddr.Hex())
 
 	txHuge := types.NewTransaction(nonce1, GatewayAddress, hugeAmount, 500000, big.NewInt(1000000000), outboundHugeData)
-	signedTxHuge, _ := types.SignTx(txHuge, types.NewEIP155Signer(big.NewInt(101)), privKeySender)
+	signedTxHuge, _ := types.SignTx(txHuge, types.NewEIP155Signer(new(big.Int).SetUint64(fromEntry.ChainID)), privKeySender)
 	rawTxHugeBytes, _ := signedTxHuge.MarshalBinary()
 
-	_, errHuge := sendRawTransaction(rpcA, rawTxHugeBytes)
+	_, errHuge := sendRawTransaction(fromEntry.RpcUrl, rawTxHugeBytes)
 	if errHuge != nil {
-		fmt.Printf("   %s✅ KẾT QUẢ ĐÚNG: Chain A từ chối giao dịch ngay tại chỗ! (%v)%s\n", ColorGreen, errHuge, ColorReset)
+		fmt.Printf("   %s✅ KẾT QUẢ ĐÚNG: Chain %d từ chối giao dịch ngay tại chỗ! (%v)%s\n", ColorGreen, fromEntry.ChainID, errHuge, ColorReset)
 	} else {
 		fmt.Printf("   %s⚠️ Giao dịch được submit, kiểm tra receipt...%s\n", ColorYellow, ColorReset)
 	}
 
-	balA_AfterCase1, _ := getBalance(rpcA, senderAddr.Hex())
+	balA_AfterCase1, _ := getBalance(fromEntry.RpcUrl, senderAddr.Hex())
 	fmt.Printf("   👉 Số dư Sender sau Case 1: %s MTN (Bảo toàn 100%% không mất tiền)\n", formatMTN(balA_AfterCase1))
 
 	// =========================================================================
 	// TEST CASE 2: GỌI SMART CONTRACT THIẾU GASFEE (ANTI-SPAM GUARD)
 	// =========================================================================
-	fmt.Println("\n" + ColorBold + "🧪 [TEST CASE 2] GỌI CONTRACT XUYÊN CHUỖI NHƯNG ĐỂ GASFEE = 0 (FAIL-CLOSED GUARD)" + ColorReset)
-	fmt.Println("   Mô tả: Gửi Contract Call sang Chain B nhưng gasFee = 0. Chain B phải bảo vệ không chạy miễn phí.")
+	fmt.Printf("\n"+ColorBold+"🧪 [TEST CASE 2] GỌI CONTRACT XUYÊN CHUỖI NHƯNG ĐỂ GASFEE = 0 (FAIL-CLOSED GUARD TRÊN CHAIN %d)"+ColorReset+"\n", toEntry.ChainID)
+	fmt.Printf("   Mô tả: Gửi Contract Call sang Chain %d nhưng gasFee = 0. Chain %d phải bảo vệ không chạy miễn phí.\n", toEntry.ChainID, toEntry.ChainID)
 
 	payloadDummy, _ := hexutil.Decode("0xd09de08a")
 	tipAmount := big.NewInt(1e16) // 0.01 MTN Tip
 	// Cố tình truyền gasFee = 0
-	outboundZeroGasData, _ := parsedGatewayABI.Pack("outbound", big.NewInt(102), recipientAddr, payloadDummy, big.NewInt(0), big.NewInt(0), tipAmount, big.NewInt(0), uint8(1), false)
-	nonce2, _ := getNonce(rpcA, senderAddr.Hex())
+	outboundZeroGasData, _ := parsedGatewayABI.Pack("outbound",
+		new(big.Int).SetUint64(toEntry.ChainID),
+		recipientAddr,
+		payloadDummy,
+		big.NewInt(0),
+		big.NewInt(0),
+		tipAmount,
+		big.NewInt(0),
+		uint8(1),
+		false,
+	)
+	nonce2, _ := getNonce(fromEntry.RpcUrl, senderAddr.Hex())
 
 	txZeroGas := types.NewTransaction(nonce2, GatewayAddress, tipAmount, 500000, big.NewInt(1000000000), outboundZeroGasData)
-	signedTxZeroGas, _ := types.SignTx(txZeroGas, types.NewEIP155Signer(big.NewInt(101)), privKeySender)
+	signedTxZeroGas, _ := types.SignTx(txZeroGas, types.NewEIP155Signer(new(big.Int).SetUint64(fromEntry.ChainID)), privKeySender)
 	rawTxZeroGasBytes, _ := signedTxZeroGas.MarshalBinary()
 
-	txHashZeroGas, errZeroGas := sendRawTransaction(rpcA, rawTxZeroGasBytes)
+	txHashZeroGas, errZeroGas := sendRawTransaction(fromEntry.RpcUrl, rawTxZeroGasBytes)
 	if errZeroGas == nil {
-		fmt.Printf("   🚀 Lệnh nộp lên Chain A thành công: %s\n", txHashZeroGas.Hex())
-		waitForReceipt(rpcA, txHashZeroGas, 10*time.Second)
-		fmt.Printf("   ⏳ Relayer bắt message và chuyển sang Chain B...\n")
+		fmt.Printf("   🚀 Lệnh nộp lên Chain %d thành công: %s\n", fromEntry.ChainID, txHashZeroGas.Hex())
+		waitForReceipt(fromEntry.RpcUrl, txHashZeroGas, 10*time.Second)
+		fmt.Printf("   ⏳ Relayer bắt message và chuyển sang Chain %d...\n", toEntry.ChainID)
 		time.Sleep(3 * time.Second)
-		fmt.Printf("   %s✅ KẾT QUẢ ĐÚNG: Chain B kích hoạt bảo vệ Fail-Closed (từ chối claimMessage vì CONTRACT_CALL thiếu gasFee)!%s\n", ColorGreen, ColorReset)
+		fmt.Printf("   %s✅ KẾT QUẢ ĐÚNG: Chain %d kích hoạt bảo vệ Fail-Closed (từ chối claimMessage vì CONTRACT_CALL thiếu gasFee)!%s\n", ColorGreen, toEntry.ChainID, ColorReset)
 	}
 
 	// =========================================================================
 	// TEST CASE 3: CHUYỂN TIỀN THÀNH CÔNG VỚI ĐỦ CẤP PHÁT & GAS FEE
 	// =========================================================================
-	fmt.Println("\n" + ColorBold + "🧪 [TEST CASE 3] CHUYỂN TIỀN HỢP LỆ VỚI HEADROOM & GAS FEE ĐẦY ĐỦ" + ColorReset)
-	fmt.Println("   Mô tả: Chuyển 200 MTN hợp lệ từ Chain A sang Chain B.")
+	fmt.Printf("\n"+ColorBold+"🧪 [TEST CASE 3] CHUYỂN TIỀN HỢP LỆ (CHUYỂN 200 MTN TỪ CHAIN %d SANG CHAIN %d)"+ColorReset+"\n", fromEntry.ChainID, toEntry.ChainID)
 
 	validTransferAmount := new(big.Int).Mul(big.NewInt(200), big.NewInt(1e18))
-	outboundValidData, _ := parsedGatewayABI.Pack("outbound", big.NewInt(102), recipientAddr, []byte{}, big.NewInt(0), validTransferAmount, tipAmount, big.NewInt(0), uint8(1), false)
+	outboundValidData, _ := parsedGatewayABI.Pack("outbound",
+		new(big.Int).SetUint64(toEntry.ChainID),
+		recipientAddr,
+		[]byte{},
+		big.NewInt(0),
+		validTransferAmount,
+		tipAmount,
+		big.NewInt(0),
+		uint8(1),
+		false,
+	)
 	time.Sleep(1 * time.Second)
-	nonce3, _ := getNonce(rpcA, senderAddr.Hex())
+	nonce3, _ := getNonce(fromEntry.RpcUrl, senderAddr.Hex())
 
 	totalBurnValid := new(big.Int).Add(validTransferAmount, tipAmount)
 	txValid := types.NewTransaction(nonce3, GatewayAddress, totalBurnValid, 500000, big.NewInt(1000000000), outboundValidData)
-	signedTxValid, _ := types.SignTx(txValid, types.NewEIP155Signer(big.NewInt(101)), privKeySender)
+	signedTxValid, _ := types.SignTx(txValid, types.NewEIP155Signer(new(big.Int).SetUint64(fromEntry.ChainID)), privKeySender)
 	rawTxValidBytes, _ := signedTxValid.MarshalBinary()
 
-	txHashValid, errValid := sendRawTransaction(rpcA, rawTxValidBytes)
+	txHashValid, errValid := sendRawTransaction(fromEntry.RpcUrl, rawTxValidBytes)
 	if errValid != nil {
 		fmt.Printf("   ❌ Lỗi nộp tx: %v\n", errValid)
 		return
 	}
-	fmt.Printf("   🚀 Gửi 200 MTN thành công lên Chain A (Tx: %s)...\n", txHashValid.Hex())
+	fmt.Printf("   🚀 Gửi 200 MTN thành công lên Chain %d (Tx: %s)...\n", fromEntry.ChainID, txHashValid.Hex())
 
-	balB_BeforeValid, _ := getBalance(rpcB, recipientAddr.Hex())
-	fmt.Printf("   ⏳ Chờ Relayer chuyển giao và Chain B mint tiền...\n")
+	balB_BeforeValid, _ := getBalance(toEntry.RpcUrl, recipientAddr.Hex())
+	fmt.Printf("   ⏳ Chờ Relayer chuyển giao và Chain %d mint tiền...\n", toEntry.ChainID)
 
 	for i := 0; i < 30; i++ {
 		time.Sleep(1 * time.Second)
-		balB_Cur, _ := getBalance(rpcB, recipientAddr.Hex())
+		balB_Cur, _ := getBalance(toEntry.RpcUrl, recipientAddr.Hex())
 		diff := new(big.Int).Sub(balB_Cur, balB_BeforeValid)
 		if diff.Cmp(new(big.Int).Mul(big.NewInt(190), big.NewInt(1e18))) >= 0 {
-			fmt.Printf("\n   %s🎉 XÁC NHẬN THÀNH CÔNG: Chain B đã mint +%s MTN vào ví người nhận!%s\n", ColorGreen, formatMTN(diff), ColorReset)
+			fmt.Printf("\n   %s🎉 XÁC NHẬN THÀNH CÔNG: Chain %d đã mint +%s MTN vào ví người nhận!%s\n", ColorGreen, toEntry.ChainID, formatMTN(diff), ColorReset)
 			break
 		}
 		fmt.Printf(".")
 	}
 
-	balA_Final, _ := getBalance(rpcA, senderAddr.Hex())
-	balB_Final, _ := getBalance(rpcB, recipientAddr.Hex())
+	balA_Final, _ := getBalance(fromEntry.RpcUrl, senderAddr.Hex())
+	balB_Final, _ := getBalance(toEntry.RpcUrl, recipientAddr.Hex())
 
 	fmt.Println("\n" + ColorBold + ColorPurple + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
 	fmt.Println(ColorBold + ColorPurple + "📊 BẢNG ĐỐI SOÁT SỐ DƯ & TRẠNG THÁI TRƯỚC VÀ SAU TOÀN BỘ BÀI TEST" + ColorReset)
 	fmt.Println(ColorBold + ColorPurple + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
-	fmt.Printf("   ├─ Chain A (Sender):\n")
+	fmt.Printf("   ├─ Chain %d (Sender):\n", fromEntry.ChainID)
 	fmt.Printf("   │  ├─ Số dư Ban đầu:   %s MTN\n", formatMTN(balA_Start))
 	fmt.Printf("   │  ├─ Số dư Kết thúc:  %s MTN\n", formatMTN(balA_Final))
 	fmt.Printf("   │  └─ Thay đổi:        -%s MTN (Chỉ trừ đúng 200 MTN chuyển + phí gas)\n", formatMTN(new(big.Int).Sub(balA_Start, balA_Final)))
-	fmt.Printf("   ├─ Chain B (Recipient):\n")
+	fmt.Printf("   ├─ Chain %d (Recipient):\n", toEntry.ChainID)
 	fmt.Printf("   │  ├─ Số dư Ban đầu:   %s MTN\n", formatMTN(balB_Start))
 	fmt.Printf("   │  ├─ Số dư Kết thúc:  %s MTN\n", formatMTN(balB_Final))
 	fmt.Printf("   │  └─ Thay đổi:        +%s MTN (Nhận và mint đúng 200 MTN)\n", formatMTN(new(big.Int).Sub(balB_Final, balB_Start)))

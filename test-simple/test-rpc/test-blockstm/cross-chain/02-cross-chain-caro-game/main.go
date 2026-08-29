@@ -58,12 +58,12 @@ const GatewayABI = `[
 
 const CaroContractABI = `[
 	{"inputs":[{"internalType":"address","name":"playerX","type":"address"},{"internalType":"address","name":"playerO","type":"address"}],"name":"createGame","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"payable","type":"function"},
-	{"inputs":[{"internalType":"uint256","name":"gameId","type":"uint256"},{"internalType":"uint8","name":"row","type":"uint8"},{"internalType":"uint8","name":"col","type":"uint8"},{"internalType":"uint8","name":"playerCell","type":"uint8"}],"name":"playMove","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
-	{"inputs":[{"internalType":"uint256","name":"gameId","type":"uint256"}],"name":"getBoard","outputs":[{"internalType":"uint8[3][3]","name":"boardResult","type":"uint8[3][3]"}],"stateMutability":"view","type":"function"},
-	{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"games","outputs":[{"internalType":"address","name":"playerX","type":"address"},{"internalType":"address","name":"playerO","type":"address"},{"internalType":"uint256","name":"wagerAmount","type":"uint256"},{"internalType":"uint8","name":"currentTurn","type":"uint8"},{"internalType":"uint8","name":"status","type":"uint8"},{"internalType":"uint8","name":"moveCount","type":"uint8"}],"stateMutability":"view","type":"function"}
+	{"inputs":[{"internalType":"uint256","name":"gameId","type":"uint256"},{"internalType":"uint8","name":"row","type":"uint8"},{"internalType":"uint8","name":"col","type":"uint8"},{"internalType":"uint8","name":"playerRole","type":"uint8"}],"name":"playMove","outputs":[],"stateMutability":"nonpayable","type":"function"},
+	{"inputs":[{"internalType":"uint256","name":"gameId","type":"uint256"}],"name":"getBoard","outputs":[{"internalType":"uint8[3][3]","name":"","type":"uint8[3][3]"}],"stateMutability":"view","type":"function"},
+	{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"games","outputs":[{"internalType":"address","name":"playerX","type":"address"},{"internalType":"address","name":"playerO","type":"address"},{"internalType":"uint8","name":"currentTurn","type":"uint8"},{"internalType":"uint8","name":"moveCount","type":"uint8"},{"internalType":"uint8","name":"status","type":"uint8"}],"stateMutability":"view","type":"function"}
 ]`
 
-const CaroBytecodeHex = "608060405260018055348015610013575f80fd5b50610dbe806100215f395ff3fe608060405260043610610049575f3560e01c8063117a5b901461004d5780632dc77c70146100cb57806345e09e54146100fa578063a6f979ff14610126578063b135bbb014610147575b5f80fd5b348015610058575f80fd5b506100b0610067366004610b40565b5f6020819052908152604090208054600182015460028301546006909301546001600160a01b0392831693919092169160ff808216916101008104821691620100009091041686565b6040516100c296959493929190610b8f565b60405180910390f35b3480156100d6575f80fd5b506100ea6100e5366004610bf1565b61015c565b60405190151581526020016100c2565b348015610105575f80fd5b50610119610114366004610b40565b6105b6565b6040516100c29190610c3b565b610139610134366004610cb4565b6106a2565b6040519081526020016100c2565b348015610152575f80fd5b5061013960015481565b5f848152602081905260408120816006820154610100900460ff16600381111561018857610188610b57565b146101cc5760405162461bcd60e51b815260206004820152600f60248201526e47616d65206e6f742061637469766560881b60448201526064015b60405180910390fd5b60038560ff161080156101e2575060038460ff16105b6102245760405162461bcd60e51b8152602060048201526013602482015272496e76616c696420636f6f7264696e6174657360681b60448201526064016101c3565b5f816003018660ff166003811061023d5761023d610ce5565b018560ff166003811061025257610252610ce5565b602081049091015460ff601f9092166101000a900416600281111561027957610279610b57565b146102be5760405162461bcd60e51b815260206004820152601560248201527410d95b1b08185b1c9958591e481bd8d8dd5c1a5959605a1b60448201526064016101c3565b5f8360ff1660028111156102d4576102d4610b57565b600683015490915060ff1660028111156102f0576102f0610b57565b81600281111561030257610302610b57565b1461033f5760405162461bcd60e51b815260206004820152600d60248201526c2737ba103cb7bab9103a3ab93760991b60448201526064016101c3565b80826003018760ff166003811061035857610358610ce5565b018660ff166003811061036d5761036d610ce5565b602091828204019190066101000a81548160ff0219169083600281111561039657610396610b57565b021790555060068201805462010000900460ff169060026103b683610d0d565b91906101000a81548160ff021916908360ff16021790555050867f186abf997d1d690189496edbd4fb7615ab41008858e22b21c45e4175e8fa8ca287878460405161040393929190610d2b565b60405180910390a2610415878261075c565b156104f457600181600281111561042e5761042e610b57565b1461043a57600261043d565b60015b60068301805461ff00191661010083600381111561045d5761045d610b57565b02179055505f600182600281111561047757610477610b57565b1461048f5760018301546001600160a01b031661049b565b82546001600160a01b03165b9050877f69137706d65cad5bb2a9a944e02d6c3474190ffcaf7c1eb0e70474b5a52ecc628460060160019054906101000a900460ff16836040516104e0929190610d4a565b60405180910390a2600193505050506105ae565b600682015462010000900460ff166009036105625760068201805461ff00191661030017905560405187907f69137706d65cad5bb2a9a944e02d6c3474190ffcaf7c1eb0e70474b5a52ecc629061054f906003905f90610d4a565b60405180910390a26001925050506105ae565b600181600281111561057657610576610b57565b14610582576001610585565b60025b60068301805460ff191660018360028111156105a3576105a3610b57565b02179055505f925050505b949350505050565b6105be610af5565b5f828152602081905260408120905b60038160ff16101561069b575f5b60038160ff16101561068857826003018260ff16600381106105ff576105ff610ce5565b018160ff166003811061061457610614610ce5565b602081049091015460ff601f9092166101000a900416600281111561063b5761063b610b57565b848360ff166003811061065057610650610ce5565b60200201518260ff166003811061066957610669610ce5565b60ff90921660209290920201528061068081610d0d565b9150506105db565b508061069381610d0d565b9150506105cd565b5050919050565b600180545f91829190826106b583610d70565b909155505f818152602081815260409182902080546001600160a01b038981166001600160a01b03199283168117845560018085018054938c16939094168317909355346002850181905560068501805461ffff1916909417909355855190815293840152828401529151929350909183917f6200407c0ea392b8107b21a9be480acd41fda186d04bed28cc7da2d4b53d56e2919081900360600190a25090505b92915050565b5f828152602081905260408120815b60038160ff16101561098f5783600281111561078957610789610b57565b826003018260ff16600381106107a1576107a1610ce5565b015460ff1660028111156107b7576107b7610b57565b14801561080657508360028111156107d1576107d1610b57565b826003018260ff16600381106107e9576107e9610ce5565b0154610100900460ff16600281111561080457610804610b57565b145b8015610855575083600281111561081f5761081f610b57565b826003018260ff166003811061083757610837610ce5565b015462010000900460ff16600281111561085357610853610b57565b145b1561086557600192505050610756565b83600281111561087757610877610b57565b600383015f018260ff166003811061089157610891610ce5565b602081049091015460ff601f9092166101000a90041660028111156108b8576108b8610b57565b14801561091357508360028111156108d2576108d2610b57565b6004830160ff8316600381106108ea576108ea610ce5565b602081049091015460ff601f9092166101000a900416600281111561091157610911610b57565b145b801561096d575083600281111561092c5761092c610b57565b6005830160ff83166003811061094457610944610ce5565b602081049091015460ff601f9092166101000a900416600281111561096b5761096b610b57565b145b1561097d57600192505050610756565b8061098781610d0d565b91505061076b565b508260028111156109a2576109a2610b57565b600382015460ff1660028111156109bb576109bb610b57565b1480156109f557508260028111156109d5576109d5610b57565b6004820154610100900460ff1660028111156109f3576109f3610b57565b145b8015610a2f5750826002811115610a0e57610a0e610b57565b600582015462010000900460ff166002811115610a2d57610a2d610b57565b145b15610a3e576001915050610756565b826002811115610a5057610a50610b57565b600382015462010000900460ff166002811115610a6f57610a6f610b57565b148015610aa95750826002811115610a8957610a89610b57565b6004820154610100900460ff166002811115610aa757610aa7610b57565b145b8015610add5750826002811115610ac257610ac2610b57565b600582015460ff166002811115610adb57610adb610b57565b145b15610aec576001915050610756565b505f9392505050565b60405180606001604052806003905b610b0c610b22565b815260200190600190039081610b045790505090565b60405180606001604052806003906020820280368337509192915050565b5f60208284031215610b50575f80fd5b5035919050565b634e487b7160e01b5f52602160045260245ffd5b60038110610b7b57610b7b610b57565b9052565b60048110610b7b57610b7b610b57565b6001600160a01b038781168252861660208201526040810185905260c08101610bbb6060830186610b6b565b610bc86080830185610b7f565b60ff831660a0830152979650505050505050565b803560ff81168114610bec575f80fd5b919050565b5f805f8060808587031215610c04575f80fd5b84359350610c1460208601610bdc565b9250610c2260408601610bdc565b9150610c3060608601610bdc565b905092959194509250565b610120810181835f805b6003808210610c545750610c94565b835185845b83811015610c7a57825160ff16825260209283019290910190600101610c59565b505050606094909401935060209290920191600101610c45565b5050505092915050565b80356001600160a01b0381168114610bec575f80fd5b5f8060408385031215610cc5575f80fd5b610cce83610c9e565b9150610cdc60208401610c9e565b90509250929050565b634e487b7160e01b5f52603260045260245ffd5b634e487b7160e01b5f52601160045260245ffd5b5f60ff821660ff8103610d2257610d22610cf9565b60010192915050565b60ff848116825283166020820152606081016105ae6040830184610b6b565b60408101610d588285610b7f565b6001600160a01b039290921660209190910152919050565b5f60018201610d8157610d81610cf9565b506001019056fea2646970667358221220c0f3f840faa9c3b1024a091b52ade82f774d8d5d3798f99de1a45f17a019e1ef64736f6c63430008140033"
+const CaroBytecodeHex = "608060405234801561000f575f80fd5b506109968061001d5f395ff3fe608060405234801561000f575f80fd5b506004361061004a575f3560e01c806307611ab41461004e5780631db9c17e1461007957806371cb7c5414610099578063b40097f4146100c4575b5f80fd5b610064600480360381019061005f9190610738565b6100e4565b604051610070919061079f565b60405180910390f35b610087600480360381019061008291906107b7565b610118565b6040516100909190610842565b60405180910390f35b6100af60048036038101906100aa9190610886565b61017d565b6040516100bb919061079f565b60405180910390f35b6100e260048036038101906100dd91906108b3565b610260565b005b5f8060015f8481526020019081526020015f2060020154915050919050565b60015f8281526020019081526020015f20805460010190555f805f80808060015f8881526020019081526020015f2080546001600160a01b031916968816969096179095556001860180546001600160a01b03191694871694909417909355600284018054600160ff1b1916600117905560038301805460ff1916905560048201805460ff191690555050508091505092915050565b5f805f808060015f8781526020019081526020015f2080546001600160a01b0316955060018201546001600160a01b03169450600282015460ff169350600382015460ff169250600482015460ff1691505091939550919395565b60015f8581526020019081526020015f206004015460ff161561027e576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610275906108f9565b60405180910390fd5b60015f8581526020019081526020015f206002015460ff168260ff16146102c8576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016102bf9061093c565b60405180910390fd5b60015f8581526020019081526020015f2084600381106102e7576102e661095a565b5b60030284600381106102fb576102fa61095a565b5b01600501015460ff1615610332576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161032990610986565b60405180910390fd5b8160015f8681526020019081526020015f2084600381106103525761035161095a565b5b60030284600381106103665761036561095a565b5b0160050101805460ff191660ff83161790555060015f8581526020019081526020015f206003018054600101905561039f84826103b4565b1561042c578160015f8681526020019081526020015f20600401805460ff191660ff83161790555060015f8581526020019081526020015f20600201805460ff19169055610497565b600960015f8681526020019081526020015f206003015460ff16141561046857600360015f8681526020019081526020015f20600401805460ff191660031790555060015f8581526020019081526020015f20600201805460ff19169055610496565b60018260ff161461047c57600161047f565b60025b60015f8681526020019081526020015f20600201805460ff191660ff8316179055505b5b50505050565b5f5f5b600381101561044a5760015f8581526020019081526020015f2082600381106103df576103de61095a565b5b6003025f600381106103f2576103f161095a565b5b01600501015460ff168460ff16148015610419575060015f8581526020019081526020015f2082600381106104235761042261095a565b5b6003026001600381106104375761043661095a565b5b01600501015460ff168460ff16145b801561045e575060015f8581526020019081526020015f2082600381106104685761046761095a565b5b60030260026003811061047c5761047b61095a565b5b01600501015460ff168460ff16145b1561043c576001915050610418565b5b80806001019150506103b7565b505f5b60038110156104dc5760015f8581526020019081526020015f205f600381106104715761047061095a565b5b60030283600381106104855761048461095a565b5b01600501015460ff168460ff161480156104ab575060015f8581526020019081526020015f206001600381106104b5576104b461095a565b5b60030283600381106104c9576104c861095a565b5b01600501015460ff168460ff16145b80156104ef575060015f8581526020019081526020015f206002600381106104f9576104f861095a565b5b600302836003811061050d5761050c61095a565b5b01600501015460ff168460ff16145b156104ce576001915050610418565b5b8080600101915050610449565b5060015f8481526020019081526020015f205f600381106104fa576104f961095a565b5b6003025f6003811061050e5761050d61095a565b5b01600501015460ff168360ff16148015610534575060015f8481526020019081526020015f2060016003811061053e5761053d61095a565b5b6003026001600381106105525761055161095a565b5b01600501015460ff168360ff16145b8015610578575060015f8481526020019081526020015f206002600381106105825761058161095a565b5b6003026002600381106105965761059561095a565b5b01600501015460ff168360ff16145b1561059e5760019050610418565b60015f8481526020019081526020015f205f600381106105bc576105bb61095a565b5b6003026002600381106105d0576105cf61095a565b5b01600501015460ff168360ff161480156105f6575060015f8481526020019081526020015f20600160038110610600576105ff61095a565b5b6003026001600381106106145761061361095a565b5b01600501015460ff168360ff16145b801561063a575060015f8481526020019081526020015f206002600381106106445761064361095a565b5b6003025f600381106106585761065761095a565b5b01600501015460ff168360ff16145b156106605760019050610418565b5f90505b92915050565b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6106968261066f565b9050919050565b6106a68161068c565b81146106b0575f80fd5b50565b5f813590506106c18161069d565b92915050565b5f604082840312156106db576106da61066b565b5b5f6106e8848285016106b3565b91505060206106f9848285016106b3565b90509250929050565b5f819050919050565b61071481610702565b811461071e575f80fd5b50565b5f8135905061072f8161070b565b92915050565b5f6020828403121561074d5761074c61066b565b5b5f61075a84828501610721565b91505092915050565b5f6020820190506107735f830184610702565b92915050565b5f81519050919050565b5f6060820190506107935f830186610779565b6107a06020830185610779565b6107ad6040830184610779565b949350505050565b5f6060820190506107c15f83018461077f565b92915050565b5f602082840312156107cc576107cb61066b565b5b5f6107d984828501610721565b91505092915050565b6107eb8161068c565b82525050565b60ff811682525050565b5f60a08201905061080b5f8301876107e2565b61081860208301866107e2565b61082560408301856107f1565b61083260608301846107f1565b61083f60808301836107f1565b95945050505050565b5f60a0820190506108545f8301876107e2565b61086160208301866107e2565b61086e60408301856107f1565b61087b60608301846107f1565b61088860808301836107f1565b95945050505050565b5f6020828403121561089b5761089a61066b565b5b5f6108a884828501610721565b91505092915050565b5f819050919050565b6108ca816108b8565b81146108d4575f80fd5b50565b5f813590506108e5816108c1565b92915050565b5f608082840312156109035761090261066b565b5b5f61091084828501610721565b94506020610920858286016108d7565b93506040610930858286016108d7565b92506060610940858286016108d7565b91505092959194509250565b5f6020820190506109595f8301846107f1565b92915050565b7f47616d65206973206f76657200000000000000000000000000000000000000005f82015250565b5f61099b600d83610947565b91506109a68261096b565b602082019050919050565b5f6020820190508181035f8301526109c88161098f565b9050919050565b7f4e6f7420796f7572207475726e000000000000000000000000000000000000005f82015250565b5f6109fc600e83610947565b9150610a07826109cc565b602082019050919050565b5f6020820190508181035f830152610a29816109f0565b9050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52603260045260245ffd5b7f43656c6c20616c72656164792074616b656e00000000000000000000000000005f82015250565b5f610a8b601283610947565b9150610a9682610a5b565b602082019050919050565b5f6020820190508181035f830152610ab881610a7f565b905091905056fea26469706673582212204561845f56ba8aa4fb5ef22201b17b2b64d48a3f8fa7bf7e5c9b68e9f50aaee764736f6c63430008230033"
 
 // ─── RPC Helpers ─────────────────────────────────────────────────────────────
 type JSONRPCRequest struct {
@@ -72,7 +72,6 @@ type JSONRPCRequest struct {
 	Params  []interface{} `json:"params"`
 	ID      int           `json:"id"`
 }
-
 type JSONRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
@@ -128,21 +127,6 @@ func sendRawTransaction(url string, rawTx []byte) (common.Hash, error) {
 	return common.HexToHash(txHashStr), nil
 }
 
-func waitForReceipt(url string, txHash common.Hash, timeout time.Duration) *types.Receipt {
-	start := time.Now()
-	for time.Since(start) < timeout {
-		res, err := callRPC(url, "eth_getTransactionReceipt", []interface{}{txHash.Hex()})
-		if err == nil && len(res) > 0 && string(res) != "null" {
-			var r types.Receipt
-			if json.Unmarshal(res, &r) == nil {
-				return &r
-			}
-		}
-		time.Sleep(400 * time.Millisecond)
-	}
-	return nil
-}
-
 func ethCall(url string, to common.Address, data []byte) (string, error) {
 	callObj := map[string]string{
 		"to":   to.Hex(),
@@ -152,18 +136,26 @@ func ethCall(url string, to common.Address, data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var hexResult string
-	if err := json.Unmarshal(res, &hexResult); err != nil {
-		return "", err
-	}
-	return hexResult, nil
+	var out string
+	json.Unmarshal(res, &out)
+	return out, nil
 }
 
-// ─── BOARD PRINTER ───────────────────────────────────────────────────────────
+func waitForReceipt(url string, txHash common.Hash, timeout time.Duration) {
+	start := time.Now()
+	for time.Since(start) < timeout {
+		res, err := callRPC(url, "eth_getTransactionReceipt", []interface{}{txHash.Hex()})
+		if err == nil && len(res) > 0 && string(res) != "null" {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// ─── CARO BOARD STATE ────────────────────────────────────────────────────────
 type CaroBoard struct {
-	Grid      [3][3]int
-	MoveCount int
-	Status    int // 0: InProgress, 1: X_Won, 2: O_Won, 3: Draw
+	Grid   [3][3]uint8
+	Status int
 }
 
 func (b *CaroBoard) PrintBoard(title string) {
@@ -209,52 +201,155 @@ func (b *CaroBoard) FindBestAIMove() (int, int) {
 	return 0, 0
 }
 
-func main() {
-	interactiveFlag := flag.Bool("interactive", false, "Chế độ người chơi tự tay nhập nước đi từ bàn phím")
-	flag.Parse()
+// ─── Config Types ────────────────────────────────────────────────────────────
+type ChainEntry struct {
+	ChainID     uint64
+	RpcUrl      string
+	PrivateKeys []string
+}
 
-	fmt.Println(ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
-	fmt.Println(ColorCyan + ColorBold + "🎮 GAME CARO XUYÊN CHUỖI PURE CLIENT (EVM GENERAL MESSAGE PASSING)          " + ColorReset)
-	fmt.Println(ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+type PrivateChainJson struct {
+	ChainID     uint64   `json:"chain_id"`
+	RpcUrl      string   `json:"rpc_url"`
+	PrivateKeys []string `json:"private_keys"`
+}
 
-	rpcA := "http://127.0.0.1:8546" // Chain 101
-	rpcB := "http://127.0.0.1:8547" // Chain 102
+type ConfigStructure struct {
+	PrivateChains map[string]PrivateChainJson `json:"private_chains"`
+	Nodes         map[string]string           `json:"nodes"`
+	PrivateKeys   []string                    `json:"private_keys"`
+}
 
-	// Tự động tải endpoint RPC từ config.json của test-blockstm hoặc /tmp/private_chains.json
-	for _, cfgPath := range []string{"../config.json", "../../config.json", "/tmp/private_chains.json"} {
-		if data, err := os.ReadFile(cfgPath); err == nil {
-			var bCfg struct {
-				PrivateChains struct {
-					ChainA struct {
-						RpcUrl string `json:"rpc_url"`
-					} `json:"chain_a"`
-					ChainB struct {
-						RpcUrl string `json:"rpc_url"`
-					} `json:"chain_b"`
-				} `json:"private_chains"`
-				Nodes map[string]string `json:"nodes"`
-			}
-			if err := json.Unmarshal(data, &bCfg); err == nil {
-				if rpcA == "http://127.0.0.1:8546" {
-					if bCfg.PrivateChains.ChainA.RpcUrl != "" {
-						rpcA = bCfg.PrivateChains.ChainA.RpcUrl
-					} else if bCfg.Nodes["101"] != "" {
-						rpcA = bCfg.Nodes["101"]
-					}
-				}
-				if rpcB == "http://127.0.0.1:8547" {
-					if bCfg.PrivateChains.ChainB.RpcUrl != "" {
-						rpcB = bCfg.PrivateChains.ChainB.RpcUrl
-					} else if bCfg.Nodes["102"] != "" {
-						rpcB = bCfg.Nodes["102"]
-					}
-				}
-			}
-		}
+func sanitizeKey(k string) string {
+	k = strings.TrimSpace(k)
+	return strings.TrimPrefix(k, "0x")
+}
+
+func loadAvailableChains(configFilePath string) (map[string]ChainEntry, error) {
+	paths := []string{
+		configFilePath,
+		"../config.json",
+		"../../config.json",
+		"/tmp/private_chains.json",
 	}
 
-	keyA := "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106"
-	keyB := "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a"
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+
+		var cfg ConfigStructure
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			continue
+		}
+
+		chains := make(map[string]ChainEntry)
+
+		for name, c := range cfg.PrivateChains {
+			var keys []string
+			for _, k := range c.PrivateKeys {
+				if sanitized := sanitizeKey(k); sanitized != "" {
+					keys = append(keys, sanitized)
+				}
+			}
+			entry := ChainEntry{
+				ChainID:     c.ChainID,
+				RpcUrl:      c.RpcUrl,
+				PrivateKeys: keys,
+			}
+			chains[fmt.Sprintf("%d", c.ChainID)] = entry
+			chains[strings.ToLower(name)] = entry
+		}
+
+		for cidStr, rpc := range cfg.Nodes {
+			if _, exists := chains[cidStr]; !exists {
+				var cid uint64
+				fmt.Sscanf(cidStr, "%d", &cid)
+				entry := ChainEntry{
+					ChainID:     cid,
+					RpcUrl:      rpc,
+					PrivateKeys: []string{},
+				}
+				chains[cidStr] = entry
+				chains[fmt.Sprintf("chain_%s", cidStr)] = entry
+			}
+		}
+
+		if len(chains) > 0 {
+			return chains, nil
+		}
+	}
+	return nil, fmt.Errorf("không tìm thấy file cấu hình hợp lệ (đã thử: %v)", paths)
+}
+
+func main() {
+	var targetFrom, targetTo, configPath string
+	interactiveFlag := flag.Bool("interactive", false, "Chế độ người chơi tự tay nhập nước đi từ bàn phím")
+
+	flag.StringVar(&targetFrom, "from", "101", "ID Chain Player X (ví dụ: -from 101)")
+	flag.StringVar(&targetFrom, "src", "101", "Alias của -from")
+	flag.StringVar(&targetFrom, "source", "101", "Alias của -from")
+
+	flag.StringVar(&targetTo, "to", "102", "ID Chain Player O & Game Contract (ví dụ: -to 102)")
+	flag.StringVar(&targetTo, "dst", "102", "Alias của -to")
+	flag.StringVar(&targetTo, "dest", "102", "Alias của -to")
+
+	flag.StringVar(&configPath, "config", "../config.json", "Đường dẫn file config.json")
+
+	flag.Usage = func() {
+		fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+		fmt.Println(ColorBold + "🎮 HƯỚNG DẪN CHƠI GAME CARO XUYÊN CHUỖI" + ColorReset)
+		fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+		fmt.Println("Cú pháp dùng Flag:")
+		fmt.Println("  go run . -from 101 -to 102")
+		fmt.Println("  go run . -from 101 -to 103 -interactive")
+		fmt.Println("\nCú pháp truyền nhanh (Positional Args):")
+		fmt.Println("  go run . 101 102")
+		fmt.Println("  go run . 103 101")
+		fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+	}
+
+	flag.Parse()
+
+	posArgs := flag.Args()
+	if len(posArgs) >= 1 {
+		targetFrom = posArgs[0]
+	}
+	if len(posArgs) >= 2 {
+		targetTo = posArgs[1]
+	}
+
+	defaultKeyA := "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106"
+	defaultKeyB := "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a"
+
+	availableChains, _ := loadAvailableChains(configPath)
+
+	fromEntry, okFrom := availableChains[strings.ToLower(targetFrom)]
+	if !okFrom {
+		var cid uint64 = 101
+		fmt.Sscanf(targetFrom, "%d", &cid)
+		fromEntry = ChainEntry{ChainID: cid, RpcUrl: "http://127.0.0.1:8546"}
+	}
+
+	toEntry, okTo := availableChains[strings.ToLower(targetTo)]
+	if !okTo {
+		var cid uint64 = 102
+		fmt.Sscanf(targetTo, "%d", &cid)
+		toEntry = ChainEntry{ChainID: cid, RpcUrl: "http://127.0.0.1:8547"}
+	}
+
+	keyA := defaultKeyA
+	if len(fromEntry.PrivateKeys) > 0 {
+		keyA = fromEntry.PrivateKeys[0]
+	}
+	keyB := defaultKeyB
+	if len(toEntry.PrivateKeys) > 0 {
+		keyB = toEntry.PrivateKeys[0]
+	}
 
 	privKey1, _ := crypto.HexToECDSA(keyA)
 	player1Addr := crypto.PubkeyToAddress(privKey1.PublicKey)
@@ -265,39 +360,42 @@ func main() {
 	parsedGatewayABI, _ := abi.JSON(strings.NewReader(GatewayABI))
 	parsedCaroABI, _ := abi.JSON(strings.NewReader(CaroContractABI))
 
-	fmt.Printf("👥 NGƯỜI CHƠI:\n")
-	fmt.Printf("   ├─ %sNgười chơi X%s (Chain 101): %s\n", ColorRed+ColorBold, ColorReset, player1Addr.Hex())
-	fmt.Printf("   └─ %sNgười chơi O%s (Chain 102): %s\n", ColorCyan+ColorBold, ColorReset, player2Addr.Hex())
+	fmt.Println(ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+	fmt.Printf(ColorCyan+ColorBold+"🎮 GAME CARO XUYÊN CHUỖI PURE CLIENT (CHAIN %d ➔ CHAIN %d)\n"+ColorReset, fromEntry.ChainID, toEntry.ChainID)
+	fmt.Println(ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+	fmt.Printf("👥 NGƯỜI CHƠI (FLAGS: -from %d -to %d):\n", fromEntry.ChainID, toEntry.ChainID)
+	fmt.Printf("   ├─ %sNgười chơi X%s (--from %d): %s (@ %s)\n", ColorRed+ColorBold, ColorReset, fromEntry.ChainID, player1Addr.Hex(), fromEntry.RpcUrl)
+	fmt.Printf("   └─ %sNgười chơi O%s (--to %d):   %s (@ %s)\n", ColorCyan+ColorBold, ColorReset, toEntry.ChainID, player2Addr.Hex(), toEntry.RpcUrl)
 
 	// ──────────────────────────────────────────────────────────────────────────
-	// BƯỚC 1: DEPLOY SMART CONTRACT CARO TRÊN CHAIN 102 (DESTINATION CHAIN)
+	// BƯỚC 1: DEPLOY SMART CONTRACT CARO TRÊN CHAIN ĐÍCH (DESTINATION CHAIN)
 	// ──────────────────────────────────────────────────────────────────────────
-	fmt.Println("\n" + ColorBold + "📜 BƯỚC 1: KHỞI TẠO BÀN CỜ CARO TRÊN CHAIN 102" + ColorReset)
+	fmt.Printf("\n"+ColorBold+"📜 BƯỚC 1: KHỞI TẠO BÀN CỜ CARO TRÊN CHAIN %d"+ColorReset+"\n", toEntry.ChainID)
 	caroBytecode, _ := hexutil.Decode("0x" + CaroBytecodeHex)
-	nonceDeploy, _ := getNonce(rpcB, player2Addr.Hex())
+	nonceDeploy, _ := getNonce(toEntry.RpcUrl, player2Addr.Hex())
 
 	deployTx := types.NewContractCreation(nonceDeploy, big.NewInt(0), 4_000_000, big.NewInt(1e9), caroBytecode)
-	signedDeployTx, _ := types.SignTx(deployTx, types.NewEIP155Signer(big.NewInt(102)), privKey2)
+	signedDeployTx, _ := types.SignTx(deployTx, types.NewEIP155Signer(new(big.Int).SetUint64(toEntry.ChainID)), privKey2)
 	rawDeployBytes, _ := signedDeployTx.MarshalBinary()
 
-	deployHash, errDeploy := sendRawTransaction(rpcB, rawDeployBytes)
+	deployHash, errDeploy := sendRawTransaction(toEntry.RpcUrl, rawDeployBytes)
 	if errDeploy != nil {
 		fmt.Printf("❌ Lỗi deploy Caro contract: %v\n", errDeploy)
 		return
 	}
-	waitForReceipt(rpcB, deployHash, 10*time.Second)
+	waitForReceipt(toEntry.RpcUrl, deployHash, 10*time.Second)
 	caroContractAddr := crypto.CreateAddress(player2Addr, nonceDeploy)
-	fmt.Printf("   ✅ Smart Contract Caro Address trên Chain 102: %s%s%s\n", ColorPurple, caroContractAddr.Hex(), ColorReset)
+	fmt.Printf("   ✅ Smart Contract Caro Address trên Chain %d: %s%s%s\n", toEntry.ChainID, ColorPurple, caroContractAddr.Hex(), ColorReset)
 
 	// Khởi tạo Game #1 trên Smart Contract
 	createGameData, _ := parsedCaroABI.Pack("createGame", player1Addr, player2Addr)
 	time.Sleep(1 * time.Second)
-	nonceCreate, _ := getNonce(rpcB, player2Addr.Hex())
+	nonceCreate, _ := getNonce(toEntry.RpcUrl, player2Addr.Hex())
 	txCreate := types.NewTransaction(nonceCreate, caroContractAddr, big.NewInt(0), 500000, big.NewInt(1e9), createGameData)
-	signedCreate, _ := types.SignTx(txCreate, types.NewEIP155Signer(big.NewInt(102)), privKey2)
+	signedCreate, _ := types.SignTx(txCreate, types.NewEIP155Signer(new(big.Int).SetUint64(toEntry.ChainID)), privKey2)
 	rawCreate, _ := signedCreate.MarshalBinary()
-	hashCreate, _ := sendRawTransaction(rpcB, rawCreate)
-	waitForReceipt(rpcB, hashCreate, 10*time.Second)
+	hashCreate, _ := sendRawTransaction(toEntry.RpcUrl, rawCreate)
+	waitForReceipt(toEntry.RpcUrl, hashCreate, 10*time.Second)
 	fmt.Printf("   ✅ Game ID #1 đã được tạo trên Smart Contract!\n")
 
 	board := &CaroBoard{}
@@ -309,25 +407,25 @@ func main() {
 	fmt.Println("\n" + ColorBold + "⚔️ BƯỚC 2: TIẾN TRÌNH THI ĐẤU (CLIENT CHỈ GỬI - RELAYER TỰ ĐỘNG CHUYỂN TIẾP)" + ColorReset)
 
 	scriptedMoves := [][2]int{
-		{1, 1}, // X (Chain 101): Tâm
-		{0, 1}, // O (Chain 102): Trên
-		{0, 0}, // X (Chain 101): Góc trái trên
-		{2, 1}, // O (Chain 102): Dưới
-		{2, 2}, // X (Chain 101): Góc phải dưới ➔ X Thắng chéo (0,0)-(1,1)-(2,2)
+		{1, 1}, // X (Chain Nguồn): Tâm
+		{0, 1}, // O (Chain Đích): Trên
+		{0, 0}, // X (Chain Nguồn): Góc trái trên
+		{2, 1}, // O (Chain Đích): Dưới
+		{2, 2}, // X (Chain Nguồn): Góc phải dưới ➔ X Thắng chéo (0,0)-(1,1)-(2,2)
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	turnCount := 1
-	currentTurnCell := 1 // 1: X (Chain 101), 2: O (Chain 102)
+	currentTurnCell := 1 // 1: X (Chain Nguồn), 2: O (Chain Đích)
 
 	for board.Status == 0 {
 		var row, col int
 
 		if currentTurnCell == 1 {
-			// LƯỢT CỦA PLAYER X (CHAIN 101 ➔ GỬI OUTBOUND SANG CHAIN 102)
+			// LƯỢT CỦA PLAYER X (CHAIN NGUỒN ➔ GỬI OUTBOUND SANG CHAIN ĐÍCH)
 			if *interactiveFlag {
 				for {
-					fmt.Printf("\n👉 %sLƯỢT CỦA BẠN (QUÂN [ X ] TRÊN CHAIN 101):%s Nhập 'hàng cột' (0-2), ví dụ '1 1': ", ColorRed+ColorBold, ColorReset)
+					fmt.Printf("\n👉 %sLƯỢT CỦA BẠN (QUÂN [ X ] TRÊN CHAIN %d):%s Nhập 'hàng cột' (0-2), ví dụ '1 1': ", ColorRed+ColorBold, fromEntry.ChainID, ColorReset)
 					if !scanner.Scan() {
 						break
 					}
@@ -360,38 +458,49 @@ func main() {
 				}
 			}
 
-			fmt.Printf("\n▶ %sNƯỚC %d: Người chơi X (Chain 101) ĐÁNH Ô (%d, %d)%s\n", ColorBold, turnCount, row, col, ColorReset)
+			fmt.Printf("\n▶ %sNƯỚC %d: Người chơi X (Chain %d) ĐÁNH Ô (%d, %d)%s\n", ColorBold, turnCount, fromEntry.ChainID, row, col, ColorReset)
 
 			// 1. Pack playMove payload
 			playMovePayload, _ := parsedCaroABI.Pack("playMove", big.NewInt(1), uint8(row), uint8(col), uint8(1))
 
-			// 2. Client gọi outbound trên Gateway Chain 101
+			// 2. Client gọi outbound trên Gateway Chain Nguồn
 			tipAmount := big.NewInt(1e16)                   // 0.01 MTN Tip
 			gasFeeAmount := big.NewInt(100_000_000_000_000) // 0.0001 MTN Gas Fee
 			totalBurn := new(big.Int).Add(tipAmount, gasFeeAmount)
 
-			outboundData, _ := parsedGatewayABI.Pack("outbound", big.NewInt(102), caroContractAddr, playMovePayload, big.NewInt(0), big.NewInt(0), tipAmount, gasFeeAmount, uint8(1), false)
+			outboundData, _ := parsedGatewayABI.Pack("outbound",
+				new(big.Int).SetUint64(toEntry.ChainID),
+				caroContractAddr,
+				playMovePayload,
+				big.NewInt(0),
+				big.NewInt(0),
+				tipAmount,
+				gasFeeAmount,
+				uint8(1),
+				false,
+			)
 			time.Sleep(500 * time.Millisecond)
-			nonceA, _ := getNonce(rpcA, player1Addr.Hex())
+			nonceA, _ := getNonce(fromEntry.RpcUrl, player1Addr.Hex())
 
 			txOutbound := types.NewTransaction(nonceA, GatewayAddress, totalBurn, 500000, big.NewInt(1e9), outboundData)
-			signedTxOutbound, _ := types.SignTx(txOutbound, types.NewEIP155Signer(big.NewInt(101)), privKey1)
+			signedTxOutbound, _ := types.SignTx(txOutbound, types.NewEIP155Signer(new(big.Int).SetUint64(fromEntry.ChainID)), privKey1)
 			rawTxBytes, _ := signedTxOutbound.MarshalBinary()
 
-			txHashOutbound, errSend := sendRawTransaction(rpcA, rawTxBytes)
+			txHashOutbound, errSend := sendRawTransaction(fromEntry.RpcUrl, rawTxBytes)
 			if errSend != nil {
-				fmt.Printf("   ❌ Lỗi gửi outbound trên Chain 101: %v\n", errSend)
+				fmt.Printf("   ❌ Lỗi gửi outbound trên Chain %d: %v\n", fromEntry.ChainID, errSend)
 				return
 			}
-			fmt.Printf("   🚀 Lệnh nộp lên Gateway Chain 101 (Tx: %s) ✅\n", txHashOutbound.Hex())
-			fmt.Printf("   ⏳ Client đứng đợi Relayer Daemon ngầm chuyển tiếp sang Chain 102...\n")
+			fmt.Printf("   🚀 Lệnh nộp lên Gateway Chain %d (Tx: %s) ✅\n", fromEntry.ChainID, txHashOutbound.Hex())
+			waitForReceipt(fromEntry.RpcUrl, txHashOutbound, 10*time.Second)
+			fmt.Printf("   ⏳ Client đứng đợi Relayer Daemon ngầm chuyển tiếp sang Chain %d...\n", toEntry.ChainID)
 
-			// 3. Client polling Smart Contract trên Chain 102 để xem nước đi đã được thực thi chưa
+			// 3. Client polling Smart Contract trên Chain Đích để xem nước đi đã được thực thi chưa
 			synced := false
 			for attempt := 0; attempt < 60; attempt++ {
 				time.Sleep(1 * time.Second)
 				getBoardData, _ := parsedCaroABI.Pack("getBoard", big.NewInt(1))
-				resHex, errCall := ethCall(rpcB, caroContractAddr, getBoardData)
+				resHex, errCall := ethCall(toEntry.RpcUrl, caroContractAddr, getBoardData)
 				if errCall == nil && resHex != "" && resHex != "0x" {
 					resBytes := common.FromHex(resHex)
 					out, unpackErr := parsedCaroABI.Unpack("getBoard", resBytes)
@@ -400,7 +509,7 @@ func main() {
 						if gridArr[row][col] == 1 {
 							synced = true
 							board.Grid[row][col] = 1
-							fmt.Printf("   %s🎉 RELAYER ĐÃ CHUYỂN THÀNH CÔNG! Smart Contract Chain 102 đã nhận nước đi (%d, %d)!%s\n", ColorGreen, row, col, ColorReset)
+							fmt.Printf("   %s🎉 RELAYER ĐÃ CHUYỂN THÀNH CÔNG! Smart Contract Chain %d đã nhận nước đi (%d, %d)!%s\n", ColorGreen, toEntry.ChainID, row, col, ColorReset)
 							break
 						}
 					}
@@ -414,7 +523,7 @@ func main() {
 			}
 
 		} else {
-			// LƯỢT CỦA PLAYER O (CHAIN 102)
+			// LƯỢT CỦA PLAYER O (CHAIN ĐÍCH)
 			scriptIdx := turnCount - 1
 			if scriptIdx < len(scriptedMoves) {
 				row = scriptedMoves[scriptIdx][0]
@@ -423,26 +532,26 @@ func main() {
 				row, col = board.FindBestAIMove()
 			}
 
-			fmt.Printf("\n▶ %sNƯỚC %d: Người chơi O (Chain 102) ĐÁNH Ô (%d, %d)%s\n", ColorBold, turnCount, row, col, ColorReset)
+			fmt.Printf("\n▶ %sNƯỚC %d: Người chơi O (Chain %d) ĐÁNH Ô (%d, %d)%s\n", ColorBold, turnCount, toEntry.ChainID, row, col, ColorReset)
 
-			// Player O gọi trực tiếp Smart Contract trên Chain 102
+			// Player O gọi trực tiếp Smart Contract trên Chain Đích
 			playMoveData, _ := parsedCaroABI.Pack("playMove", big.NewInt(1), uint8(row), uint8(col), uint8(2))
 			time.Sleep(500 * time.Millisecond)
-			nonceB, _ := getNonce(rpcB, player2Addr.Hex())
+			nonceB, _ := getNonce(toEntry.RpcUrl, player2Addr.Hex())
 
 			txMoveB := types.NewTransaction(nonceB, caroContractAddr, big.NewInt(0), 500000, big.NewInt(1e9), playMoveData)
-			signedTxB, _ := types.SignTx(txMoveB, types.NewEIP155Signer(big.NewInt(102)), privKey2)
+			signedTxB, _ := types.SignTx(txMoveB, types.NewEIP155Signer(new(big.Int).SetUint64(toEntry.ChainID)), privKey2)
 			rawTxB, _ := signedTxB.MarshalBinary()
 
-			txHashB, _ := sendRawTransaction(rpcB, rawTxB)
-			waitForReceipt(rpcB, txHashB, 10*time.Second)
+			txHashB, _ := sendRawTransaction(toEntry.RpcUrl, rawTxB)
+			waitForReceipt(toEntry.RpcUrl, txHashB, 10*time.Second)
 			board.Grid[row][col] = 2
-			fmt.Printf("   ✅ Đã đánh trực tiếp trên Chain 102 (Tx: %s)!\n", txHashB.Hex())
+			fmt.Printf("   ✅ Đã đánh trực tiếp trên Chain %d (Tx: %s)!\n", toEntry.ChainID, txHashB.Hex())
 		}
 
 		// Kiểm tra trạng thái Game trên Smart Contract
 		gamesData, _ := parsedCaroABI.Pack("games", big.NewInt(1))
-		gamesResHex, _ := ethCall(rpcB, caroContractAddr, gamesData)
+		gamesResHex, _ := ethCall(toEntry.RpcUrl, caroContractAddr, gamesData)
 		if gamesResHex != "" && gamesResHex != "0x" {
 			gamesResBytes := common.FromHex(gamesResHex)
 			gamesOut, errUnpackGames := parsedCaroABI.Unpack("games", gamesResBytes)
@@ -455,10 +564,10 @@ func main() {
 		board.PrintBoard(fmt.Sprintf("BÀN CỜ SAU NƯỚC %d (%s)", turnCount, map[int]string{1: "Quân [ X ]", 2: "Quân [ O ]"}[currentTurnCell]))
 
 		if board.Status == 1 {
-			fmt.Printf("\n🎉 %sCHIẾN THẮNG TUYỆT ĐỐI! Người chơi X (Chain 101) ĐÃ THẮNG TRÊN SMART CONTRACT CHAIN 102!%s\n", ColorGreen+ColorBold, ColorReset)
+			fmt.Printf("\n🎉 %sCHIẾN THẮNG TUYỆT ĐỐI! Người chơi X (Chain %d) ĐÃ THẮNG TRÊN SMART CONTRACT CHAIN %d!%s\n", ColorGreen+ColorBold, fromEntry.ChainID, toEntry.ChainID, ColorReset)
 			break
 		} else if board.Status == 2 {
-			fmt.Printf("\n🎉 %sCHIẾN THẮNG! Người chơi O (Chain 102) ĐÃ THẮNG TRÊN SMART CONTRACT!%s\n", ColorGreen+ColorBold, ColorReset)
+			fmt.Printf("\n🎉 %sCHIẾN THẮNG! Người chơi O (Chain %d) ĐÃ THẮNG TRÊN SMART CONTRACT!%s\n", ColorGreen+ColorBold, toEntry.ChainID, ColorReset)
 			break
 		} else if board.Status == 3 {
 			fmt.Printf("\n🤝 %sKẾT QUẢ HÒA! BÀN CỜ ĐÃ ĐIỀN ĐỦ 9 Ô!%s\n", ColorYellow+ColorBold, ColorReset)
@@ -475,6 +584,6 @@ func main() {
 	}
 
 	fmt.Println("\n" + ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
-	fmt.Println(ColorGreen + ColorBold + "🏆 TRẬN ĐẤU CARO XUYÊN CHUỖI PURE CLIENT ĐÃ THỰC THI QUA RELAYER THÀNH CÔNG 100%!" + ColorReset)
+	fmt.Printf(ColorGreen+ColorBold+"🏆 TRẬN ĐẤU CARO XUYÊN CHUỖI (CHAIN %d ➔ CHAIN %d) THÀNH CÔNG 100%%!\n"+ColorReset, fromEntry.ChainID, toEntry.ChainID)
 	fmt.Println(ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
 }
