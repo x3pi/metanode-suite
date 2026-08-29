@@ -522,6 +522,7 @@ func main() {
 		}
 
 		fmt.Printf(".")
+		os.Stdout.Sync()
 		time.Sleep(1 * time.Second)
 	}
 
