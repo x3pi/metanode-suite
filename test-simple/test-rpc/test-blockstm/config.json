@@ -1,14 +1,15 @@
 {
-  "rpc_url": "http://192.168.1.234:10746",
+  "rpc_url": "http://192.168.1.232:10746",
   "rpc_nodes": {
-    "m0": "http://192.168.1.234:10746",
-    "m1": "http://192.168.1.234:10747",
-    "m2": "http://192.168.1.234:10748"
+    "m0": "http://192.168.1.232:10746",
+    "m1": "http://192.168.1.232:10747",
+    "m2": "http://192.168.1.232:10748",
+    "m3": "http://192.168.1.232:10749"
   },
   "private_chains": {
     "chain_a": {
       "chain_id": 101,
-      "rpc_url": "http://192.168.1.234:8546",
+      "rpc_url": "http://127.0.0.1:8546",
       "private_keys": [
         "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106",
         "edb63ea1c26ce5c5d29df010ddedf2c57b3a4af38d776290f9a789205366acea",
@@ -20,7 +21,7 @@
     },
     "chain_b": {
       "chain_id": 102,
-      "rpc_url": "http://192.168.1.234:8547",
+      "rpc_url": "http://127.0.0.1:8547",
       "private_keys": [
         "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",
         "e9cd1c4831e3999edb9faf41a099e767754dcab285446b6d318f7e816788f506",
@@ -32,7 +33,7 @@
     },
     "chain_c": {
       "chain_id": 103,
-      "rpc_url": "http://192.168.1.234:8548",
+      "rpc_url": "http://127.0.0.1:8548",
       "private_keys": [
         "31bd12d0e40f395010878dc24ade735cc13ff97b8d3b26391985ea0617cad9aa",
         "61aba419832b744ee68ff922ab6dc23b2ef1c5bc52ef20cebd635bcce32b0aed",
@@ -44,7 +45,7 @@
     },
     "chain_d": {
       "chain_id": 104,
-      "rpc_url": "http://192.168.1.233:8549",
+      "rpc_url": "http://127.0.0.1:8549",
       "private_keys": [
         "8236227413975e278bae6694f903f6fa29b37264097ad98a918c71e16443cc85",
         "f8b15ae66e7c9b669c8f1666abb757f22f9fe2d8843949a27ac703f751d75103",
@@ -53,6 +54,11 @@
         "1488ea8768703e808a203d3c80491f6bcb38bd7b77f8a687ddc7440ba8473c3f",
         "8d24db1d311c44db6d20b14a89b62eb2b4a26cf167085e94fa29b704b03014fc"
       ]
+    },
+    "chain_105": {
+      "chain_id": 105,
+      "rpc_url": "http://127.0.0.1:8550",
+      "private_keys": []
     }
   },
   "relayer_keys": {

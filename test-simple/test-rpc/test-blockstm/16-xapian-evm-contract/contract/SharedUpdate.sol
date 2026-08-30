@@ -32,6 +32,7 @@ contract SharedUpdate {
     string constant DB_NAME = "blockstm_shared_xapian_evm";
     uint256 public sharedDocId;
     Counter public counterContract;
+    uint256 public dummyCounter;
 
     event SharedUpdated(address indexed wallet, uint256 newCounter, uint256 docId);
 
@@ -47,6 +48,7 @@ contract SharedUpdate {
     function incrementShared() external {
         // Increment EVM contract count
         counterContract.increase();
+        dummyCounter++;
 
         // 2. LÀM THEO ĐÚNG Ý BẠN: Đọc biến count trực tiếp từ Xapian
         bytes memory data = fullDB.getDataDocument(DB_NAME, sharedDocId);

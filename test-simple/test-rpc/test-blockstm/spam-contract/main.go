@@ -1065,7 +1065,8 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 		return nil, err
 	}
 
-	if err := client.SendTransaction(ctx, signedTx); err != nil {
+	log.Printf("TX HASH: %s", signedTx.Hash().Hex())
+if err := client.SendTransaction(ctx, signedTx); err != nil {
 		return nil, err
 	}
 
@@ -1097,7 +1098,8 @@ func sendIncrement(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64
 		return common.Hash{}, err
 	}
 
-	if err := client.SendTransaction(ctx, signedTx); err != nil {
+	log.Printf("TX HASH: %s", signedTx.Hash().Hex())
+if err := client.SendTransaction(ctx, signedTx); err != nil {
 		return common.Hash{}, err
 	}
 	return signedTx.Hash(), nil
@@ -1121,7 +1123,8 @@ func sendIncrementShared(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID
 		return common.Hash{}, err
 	}
 
-	if err := client.SendTransaction(ctx, signedTx); err != nil {
+	log.Printf("TX HASH: %s", signedTx.Hash().Hex())
+if err := client.SendTransaction(ctx, signedTx); err != nil {
 		return common.Hash{}, err
 	}
 	return signedTx.Hash(), nil
@@ -1145,7 +1148,8 @@ func sendUpdateDifferentVariables(client *ethclient.Client, pk *ecdsa.PrivateKey
 		return common.Hash{}, err
 	}
 
-	if err := client.SendTransaction(ctx, signedTx); err != nil {
+	log.Printf("TX HASH: %s", signedTx.Hash().Hex())
+if err := client.SendTransaction(ctx, signedTx); err != nil {
 		return common.Hash{}, err
 	}
 	return signedTx.Hash(), nil
@@ -1169,7 +1173,8 @@ func sendIncrementUser(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID i
 		return common.Hash{}, err
 	}
 
-	if err := client.SendTransaction(ctx, signedTx); err != nil {
+	log.Printf("TX HASH: %s", signedTx.Hash().Hex())
+if err := client.SendTransaction(ctx, signedTx); err != nil {
 		return common.Hash{}, err
 	}
 	return signedTx.Hash(), nil
@@ -1267,7 +1272,8 @@ func sendInitializeDoc(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID i
 		return common.Hash{}, err
 	}
 
-	if err := client.SendTransaction(ctx, signedTx); err != nil {
+	log.Printf("TX HASH: %s", signedTx.Hash().Hex())
+if err := client.SendTransaction(ctx, signedTx); err != nil {
 		return common.Hash{}, err
 	}
 	return signedTx.Hash(), nil

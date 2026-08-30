@@ -149,6 +149,7 @@ func main() {
 
 	for i, pkStr := range testKeys {
 		wg.Add(1)
+		time.Sleep(3 * time.Second)
 		go func(idx int, pKeyHex string) {
 			defer wg.Done()
 
