@@ -56,9 +56,6 @@ export async function pushFileInfo(
 ): Promise<Hex> {
   onProgress?.({ stage: "pushing" });
 
-  const requiredPayment = await calculatePrice(info.totalChunks);
-  console.log(`Required payment: ${requiredPayment.toString()} wei`);
-
   const fileInfoStruct = {
     owner: account.address,
     merkleRoot: info.merkleRoot,
@@ -72,16 +69,11 @@ export async function pushFileInfo(
     status: 0,
   };
 
-  if (!requiredPayment || requiredPayment === undefined) {
-    throw new Error("Failed to calculate price: requiredPayment is undefined");
-  }
-
   const hash = await walletClient.writeContract({
     address: contracts.File.address,
     abi: contracts.File.abi as Abi,
     functionName: "pushFileInfo",
     args: [fileInfoStruct],
-    value: requiredPayment,
     gas: 3000000n,
   });
 

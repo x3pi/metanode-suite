@@ -8,7 +8,7 @@
  * Frame format (Response ← Server):
  *   [4 byte BE uint32 length][2 byte BE uint16 JSON length][JSON header bytes][Optional Raw chunk bytes]
  */
-import { IS_PRODUCTION } from "../constants/customChain";
+import { IS_PRODUCTION, WT_SERVER_CERTIFICATE_HASH } from "../constants/customChain";
 
 export interface WtChunkRequest {
   id: string;
@@ -165,11 +165,7 @@ export function getWtOptions() {
     serverCertificateHashes: [
       {
         algorithm: "sha-256",
-        value: new Uint8Array([
-          0x5e, 0xc2, 0xee, 0x18, 0x16, 0x17, 0x36, 0xf5, 0xa2, 0xc3, 0xc4, 0xfe,
-          0xd4, 0xc9, 0xd0, 0x5b, 0xff, 0x23, 0xc2, 0x47, 0x76, 0xeb, 0x46, 0x86,
-          0x58, 0x2a, 0xda, 0x86, 0xd9, 0x13, 0x73, 0xd1
-        ]),
+        value: WT_SERVER_CERTIFICATE_HASH,
       },
     ],
   };
