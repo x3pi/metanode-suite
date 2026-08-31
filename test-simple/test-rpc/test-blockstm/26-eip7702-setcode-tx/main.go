@@ -7,9 +7,9 @@
 package main
 
 import (
+	"tool-test/test-simple/test-rpc/test-blockstm/config"
 	"context"
 	"crypto/ecdsa"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -23,11 +23,6 @@ import (
 	"github.com/holiman/uint256"
 )
 
-type Config struct {
-	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
-	ChainID     int64    `json:"chain_id"`
-}
 
 func main() {
 	fmt.Println("==========================================================")
@@ -44,13 +39,9 @@ func main() {
 		configPath = os.Args[1]
 	}
 
-	raw, err := os.ReadFile(configPath)
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi đọc config %s: %v", configPath, err)
-	}
-	var cfg Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		log.Fatalf("❌ Lỗi parse config: %v", err)
+		log.Fatalf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)

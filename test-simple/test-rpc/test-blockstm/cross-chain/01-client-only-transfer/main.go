@@ -408,22 +408,6 @@ func main() {
 	gasLimit := uint64(500000)
 	gasPrice := big.NewInt(1000000000)
 
-	// Luân chuyển tiền 2 chặng qua Reserve (Chain 991) theo luật an ninh Invariant C8
-	reserveChainID := big.NewInt(991)
-	relayTransferPayload := EncodeRelayPayload(102, nil)
-	outboundTransferData, _ := parsedGatewayABI.Pack(
-		"outbound",
-		reserveChainID,       // DestChainID = 991 (Reserve Anchor)
-		recipientAddr,        // Target là địa chỉ ví nhận trên Chain 102
-		relayTransferPayload, // Gắn tag chuyển tiếp sang Chain 102
-		big.NewInt(0),        // AssetID (0 = Native MTN)
-		transferAmount,       // 500 MTN
-		tipAmount,
-		big.NewInt(0),
-		uint8(1),
-		false,
-	)
-	nonceA, errNonce := getNonce(rpcA, senderAddr.Hex())
 	outboundTransferData, errPack := parsedGatewayABI.Pack("outbound",
 		new(big.Int).SetUint64(toEntry.ChainID),
 		recipientAddr,
