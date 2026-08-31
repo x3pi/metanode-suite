@@ -67,3 +67,5 @@ test-simple/test-rpc/test-blockstm/cross-chain/01-client-only-transfer/01-client
 test-simple/test-rpc/test-blockstm/cross-chain/02-cross-chain-caro-game/02-cross-chain-caro-game
 test-simple/test-rpc/test-blockstm/cross-chain/03-cross-chain-failure-refund/03-cross-chain-failure-refund
 file-storage/deployContract_file_registry/deployContract_file_registry
+file-storage/**/deploy/
+file-storage/**/deployment_*.json

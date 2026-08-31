@@ -322,28 +322,35 @@ func getEnv(key, defaultValue string) string {
 
 func saveDeploymentInfo(info map[string]interface{}) {
 	data, _ := json.MarshalIndent(info, "", "  ")
-	filename := fmt.Sprintf("deployment_%s.json", time.Now().Format("20060102_150405"))
+	_ = os.MkdirAll("deploy", 0755)
+	filename := fmt.Sprintf("deploy/deployment_%s.json", time.Now().Format("20060102_150405"))
 	os.WriteFile(filename, data, 0644)
 	log.Printf("\n💾 Deployment info saved to: %s", filename)
 }
 
 func findLatestFileProxy(dir string) string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	var latestFile string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), "deployment_") && strings.HasSuffix(e.Name(), ".json") {
-			if e.Name() > latestFile {
-				latestFile = e.Name()
+	searchDirs := []string{dir + "/deploy", dir}
+	var latestPath string
+	var latestName string
+
+	for _, d := range searchDirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), "deployment_") && strings.HasSuffix(e.Name(), ".json") {
+				if e.Name() > latestName {
+					latestName = e.Name()
+					latestPath = d + "/" + e.Name()
+				}
 			}
 		}
 	}
-	if latestFile == "" {
+	if latestPath == "" {
 		return ""
 	}
-	content, err := os.ReadFile(dir + "/" + latestFile)
+	content, err := os.ReadFile(latestPath)
 	if err != nil {
 		return ""
 	}
