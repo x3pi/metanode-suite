@@ -6,7 +6,7 @@ Ví dụ mẫu trực quan minh họa cơ chế **Cross-Chain Communication** qu
 
 ## 🏛️ Kiến trúc & Nguyên lý hoạt động
 
-Mỗi node/chain tích hợp sẵn một Gateway Precompile tại địa chỉ `0x1002` với hàm:
+Mỗi node/chain tích hợp sẵn một Gateway Precompile tại địa chỉ `0x0000000000000000000000000000000000001002` với hàm:
 ```solidity
 function outbound(
     uint256 destChainId,  // ID chain đích (hoặc Reserve Hub 991)
@@ -20,6 +20,14 @@ function outbound(
     bool ordered          // Thực thi tuần tự (true/false)
 ) external returns (bytes32 messageId);
 ```
+
+---
+
+## 📜 Danh mục Smart Contracts (`contracts/`)
+
+1. **[`contracts/TestCounter.sol`](./contracts/TestCounter.sol):** Smart Contract đích trên **Chain B**, tiếp nhận lệnh thực thi hàm `increment()` và cung cấp hàm `getCount()` để kiểm tra kết quả.
+2. **[`contracts/IGateway.sol`](./contracts/IGateway.sol):** Interface Solidity chuẩn của Metanode Gateway Precompile `0x1002`.
+3. **[`contracts/CrossChainSender.sol`](./contracts/CrossChainSender.sol):** Smart Contract mẫu trên **Chain A** thể hiện cách một hợp đồng Solidity có thể tự gọi Gateway để chuyển token hoặc gửi payload sang chain khác.
 
 ---
 
