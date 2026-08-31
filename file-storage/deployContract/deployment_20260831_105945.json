@@ -1,0 +1,15 @@
+{
+  "deployer": "0xC6E6474A8DEAD25B0e75b1aeA5d35FA19f69588a",
+  "implementationContract": "0xbe9c662Dd3F9311CDB4e1263BfdE177C7886c3Eb",
+  "proxyContract": "0xAdaEB4a529708E5354949DeCe06cBeF3a78d5933",
+  "rpcUrl": "http://192.168.1.233:8546",
+  "rustServerIPs": [
+    "192.168.1.233:7081",
+    "192.168.1.233:7082"
+  ],
+  "storageServerAddresses": [
+    "0xE21CC37677b652DfE753f94da98d79bbCF24E49a",
+    "0xa673952B9e4Bd85478070Eca4aBdF6f479a7fB2D"
+  ],
+  "timestamp": "2026-08-31T10:59:45+07:00"
+}
