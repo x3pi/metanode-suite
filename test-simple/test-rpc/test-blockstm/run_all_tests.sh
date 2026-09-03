@@ -176,5 +176,8 @@ if [ $FAILED -gt 0 ]; then
         echo "" >> "$REPORT_FILE"
     done
     echo "💾 Đã tự động xuất báo cáo chi tiết ra file: $REPORT_FILE"
+    exit 1
+else
+    exit 0
 fi
 
