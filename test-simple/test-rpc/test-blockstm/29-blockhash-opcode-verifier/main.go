@@ -1,9 +1,9 @@
 package main
 
 import (
+	"tool-test/test-simple/test-rpc/test-blockstm/config"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -18,11 +18,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
-type Config struct {
-	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
-	ChainID     int64    `json:"chain_id"`
-}
 
 // Runtime: 6000354060005260206000f3 (takes uint256 blockNumber, calls BLOCKHASH, returns 32-byte hash)
 // Deploy code: 600c600c600039600c6000f36000354060005260206000f3
@@ -75,13 +70,9 @@ func main() {
 		configPath = os.Args[1]
 	}
 
-	raw, err := os.ReadFile(configPath)
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi đọc config %s: %v", configPath, err)
-	}
-	var cfg Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		log.Fatalf("❌ Lỗi parse config: %v", err)
+		log.Fatalf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)

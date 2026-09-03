@@ -24,9 +24,8 @@ proof/rust-verifier/target/.rustc_info.json
 test_tps/tps_blast_cc/main
 block/block_hash_checker/block_hash_checker_ci
 register_bls/bls_keys.json
-scripts/.ci_monitor.pid
 .env
-test-simple/test-rpc/test-blockstm/2-read-write/main
+!file-storage/**/.env*
 test-simple/test-rpc/test-blockstm/1-update-same-contract/main
 test-simple/test-rpc/test-blockstm/3-amm-dex/main
 test-simple/test-rpc/test-blockstm/4-abort/main
@@ -64,3 +63,9 @@ test-simple/test-rpc/test-blockstm/test_report.md
 test_tps/tps_contract_parallel/tps_blast_parallel
 test_tps/tps_contract_parallel/reports
 test-simple/test-rpc/test-blockstm/17.1-xapian-parallel-delete/17.1-xapian-parallel-delete
+test-simple/test-rpc/test-blockstm/cross-chain/01-client-only-transfer/01-client-only-transfer
+test-simple/test-rpc/test-blockstm/cross-chain/02-cross-chain-caro-game/02-cross-chain-caro-game
+test-simple/test-rpc/test-blockstm/cross-chain/03-cross-chain-failure-refund/03-cross-chain-failure-refund
+file-storage/deployContract_file_registry/deployContract_file_registry
+file-storage/**/deploy/
+file-storage/**/deployment_*.json

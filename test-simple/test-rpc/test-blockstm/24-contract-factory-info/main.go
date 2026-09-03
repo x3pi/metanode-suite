@@ -6,6 +6,7 @@
 package main
 
 import (
+	"tool-test/test-simple/test-rpc/test-blockstm/config"
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -33,11 +34,6 @@ const bytecodeHex = "0x608060405234801561000f575f80fd5b5061034e8061001d5f395ff3f
 
 const abiJSON = `[{"anonymous":false,"inputs":[{"indexed":false,"internalType":"address","name":"childAddress","type":"address"}],"name":"ChildCreated","type":"event"},{"inputs":[{"internalType":"uint256","name":"_x","type":"uint256"}],"name":"createChild","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"nonpayable","type":"function"}]`
 
-type Config struct {
-	PrivateKeys []string                  `json:"private_keys"`
-	RPCUrl  string `json:"rpc_url"`
-	ChainID int64  `json:"chain_id"`
-}
 
 type GeneratedKey struct {
 	PrivateKey string `json:"private_key"`
@@ -63,13 +59,9 @@ func main() {
 keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
 	flag.Parse()
 
-	raw, err := os.ReadFile(*configFlag)
+	cfg, err := config.LoadConfig(*configFlag)
 	if err != nil {
-		log.Fatalf("❌ Lỗi đọc config: %v", err)
-	}
-	var cfg Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		log.Fatalf("❌ Lỗi parse config: %v", err)
+		log.Fatalf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)

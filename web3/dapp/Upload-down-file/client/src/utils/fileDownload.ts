@@ -29,21 +29,12 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
     const totalChunks = Number(fileInfo.totalChunks);
     if (totalChunks === 0) throw new Error("File rỗng hoặc không tồn tại");
 
-    onProgress?.(`File có ${totalChunks} chunks. Đang tính phí...`);
-    const requiredPayment = await publicClient.readContract({
-      address: contracts.File.address as `0x${string}`,
-      abi: contracts.File.abi,
-      functionName: "calculatePrice",
-      args: [BigInt(totalChunks)],
-    }) as bigint;
-
-    onProgress?.("Đang thanh toán để lấy DownloadKey...");
+    onProgress?.("Đang tạo DownloadKey...");
     const hash = await walletClient.writeContract({
       address: contracts.File.address as `0x${string}`,
       abi: contracts.File.abi,
       functionName: "payForDownload",
       args: [fileKey, 1n],
-      value: requiredPayment,
       gas: 3000000n,
     });
 
@@ -135,7 +126,6 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
       // === TẠO HÀNG ĐỢI GHI Ổ CỨNG (Disk Write Queue) ===
       const writeQueue: { chunkIndex: number; data: ArrayBuffer }[] = [];
       let isWriting = false;
-      let writerError: any = null;
 
       const processWriteQueue = async () => {
         if (isWriting || !writable) return;
@@ -151,10 +141,13 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
             });
           }
         } catch (e) {
-          writerError = e;
+          console.error("Write error:", e);
           hasError = true; // Dừng luôn các worker mạng
         } finally {
           isWriting = false;
+          if (writeQueue.length > 0 && !hasError) {
+            processWriteQueue();
+          }
         }
       };
 
@@ -171,11 +164,11 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
           for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
               const result = await fetchChunkOnStream(
-                transport, 
-                contracts.File.address, 
-                fileKey, 
-                downloadKeyStr, 
-                chunkIndex, 
+                transport,
+                contracts.File.address,
+                fileKey,
+                downloadKeyStr,
+                chunkIndex,
                 signatureHex
               );
               if (!result.ok) throw new Error(`Server báo lỗi: ${result.error}`);
@@ -209,7 +202,7 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
         }
       };
 
-      // Khởi chạy 20 workers cùng lúc
+      // Khởi chạy các workers cùng lúc
       const workers = [];
       for (let i = 0; i < CONCURRENCY_LIMIT; i++) {
         workers.push(worker());
@@ -217,6 +210,15 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
 
       // Đợi tất cả workers cày xong
       await Promise.all(workers);
+
+      // Đợi hàng đợi ghi ổ cứng hoàn tất 100%
+      if (writable) {
+        onProgress?.("Đang hoàn tất ghi dữ liệu xuống đĩa...");
+        while (writeQueue.length > 0 || isWriting) {
+          processWriteQueue();
+          await new Promise(r => setTimeout(r, 50));
+        }
+      }
     } finally {
       t1.close();
       t2.close();
@@ -236,8 +238,10 @@ export async function downloadFileAndSave(fileKey: string, onProgress?: (msg: st
       document.body.appendChild(a);
       a.click();
 
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 10000);
     }
 
     const endTime = Date.now();

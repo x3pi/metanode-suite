@@ -176,18 +176,24 @@ with open('$PRIV_CHAINS_FILE') as f:
     p_data = json.load(f)
 
 nodes = p_data.get('nodes', {})
+chain_nodes = p_data.get('chain_nodes', {})
 if 'private_chains' not in cfg:
     cfg['private_chains'] = {}
 
 name_map = {'101': 'chain_a', '102': 'chain_b', '103': 'chain_c', '104': 'chain_d'}
 for cid, rpc_url in nodes.items():
     c_name = name_map.get(str(cid), f'chain_{cid}')
+    c_info = chain_nodes.get(str(cid), {})
+    rpc_nodes_map = c_info.get('rpc_nodes', {'m0': rpc_url})
+
     if c_name in cfg['private_chains']:
         cfg['private_chains'][c_name]['rpc_url'] = rpc_url
+        cfg['private_chains'][c_name]['rpc_nodes'] = rpc_nodes_map
     else:
         cfg['private_chains'][c_name] = {
             'chain_id': int(cid),
             'rpc_url': rpc_url,
+            'rpc_nodes': rpc_nodes_map,
             'private_keys': []
         }
 

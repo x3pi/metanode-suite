@@ -1,5 +1,6 @@
 {
-  "rpc_url": "http://192.168.1.234:10746",
+  "target_chain": "",
+  "rpc_url": "http://192.168.1.233:10746",
   "rpc_nodes": {
     "m0": "http://192.168.1.234:10746",
     "m1": "http://192.168.1.230:10747",
@@ -8,7 +9,7 @@
   "private_chains": {
     "chain_a": {
       "chain_id": 101,
-      "rpc_url": "http://192.168.1.234:8546",
+      "rpc_url": "http://192.168.1.233:8546",
       "private_keys": [
         "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106",
         "edb63ea1c26ce5c5d29df010ddedf2c57b3a4af38d776290f9a789205366acea",
@@ -16,11 +17,16 @@
         "37f2b66e37b3511e7510177457e959623da3f6e0e219d1905314d2da1cc06f63",
         "fdf24aade8d4ad95c03a0528dda1a973467503410dde8d90e58d42f26147e60e",
         "d2ba003dc705b5b802fa529e292ae83b91774f1c4c73c2a5ee822840179ab656"
-      ]
+      ],
+      "rpc_nodes": {
+        "m0": "http://192.168.1.233:8546",
+        "m1": "http://192.168.1.233:8547",
+        "m2": "http://192.168.1.233:8548"
+      }
     },
     "chain_b": {
       "chain_id": 102,
-      "rpc_url": "http://192.168.1.234:8547",
+      "rpc_url": "http://192.168.1.233:8556",
       "private_keys": [
         "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",
         "e9cd1c4831e3999edb9faf41a099e767754dcab285446b6d318f7e816788f506",
@@ -28,11 +34,16 @@
         "c72db8b139044753754f3cc98306053d069a0d0fd6b4ce8a1b9e69e4b11b703e",
         "cc8b620a56e75c1694e3c11f1d94fd706ea3984bd4dd73010f5c70f59767f8bc",
         "f3d4eb300bae3654b268156af2a8b2f62db146d368249cd30a860956128310ec"
-      ]
+      ],
+      "rpc_nodes": {
+        "m0": "http://192.168.1.233:8556",
+        "m1": "http://192.168.1.233:8557",
+        "m2": "http://192.168.1.233:8558"
+      }
     },
     "chain_c": {
       "chain_id": 103,
-      "rpc_url": "http://192.168.1.234:8548",
+      "rpc_url": "http://192.168.1.233:8566",
       "private_keys": [
         "31bd12d0e40f395010878dc24ade735cc13ff97b8d3b26391985ea0617cad9aa",
         "61aba419832b744ee68ff922ab6dc23b2ef1c5bc52ef20cebd635bcce32b0aed",
@@ -40,11 +51,16 @@
         "d3a3c33b24497e27fb36807d08a292fb10ea3d43be8669e6d6608c3c83778128",
         "e8cf54305b31e148b2ef5a90768b53ccea85f5751ee8a7cb22d35b77ff24fa8f",
         "10fa4cc644bcd291eb2b613de610f030b049f4a39d8e1d2f6bc8920abeb22d10"
-      ]
+      ],
+      "rpc_nodes": {
+        "m0": "http://192.168.1.233:8566",
+        "m1": "http://192.168.1.233:8567",
+        "m2": "http://192.168.1.233:8568"
+      }
     },
     "chain_d": {
       "chain_id": 104,
-      "rpc_url": "http://192.168.1.233:8549",
+      "rpc_url": "http://127.0.0.1:8549",
       "private_keys": [
         "8236227413975e278bae6694f903f6fa29b37264097ad98a918c71e16443cc85",
         "f8b15ae66e7c9b669c8f1666abb757f22f9fe2d8843949a27ac703f751d75103",
@@ -53,6 +69,11 @@
         "1488ea8768703e808a203d3c80491f6bcb38bd7b77f8a687ddc7440ba8473c3f",
         "8d24db1d311c44db6d20b14a89b62eb2b4a26cf167085e94fa29b704b03014fc"
       ]
+    },
+    "chain_105": {
+      "chain_id": 105,
+      "rpc_url": "http://127.0.0.1:8550",
+      "private_keys": []
     }
   },
   "relayer_keys": {

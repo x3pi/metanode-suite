@@ -9,6 +9,7 @@
 package main
 
 import (
+	"tool-test/test-simple/test-rpc/test-blockstm/config"
 	"context"
 	"encoding/json"
 	"flag"
@@ -36,13 +37,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
-type Config struct {
-	RPCUrl      string            `json:"rpc_url"`
-	RPCNodes    map[string]string `json:"rpc_nodes"`
-	PrivateKeys []string          `json:"private_keys"`
-	PrivateKey  string            `json:"private_key"`
-	ChainID     int64             `json:"chain_id"`
-}
 
 type ExpectedEvent struct {
 	Name     string   `json:"name"`
@@ -60,7 +54,7 @@ type DataPayload struct {
 	ExpectedOutput []string        `json:"expected_output"`
 }
 
-func loadConfig(path string) (*Config, error) {
+func loadConfig(path string) (*config.Config, error) {
 	candidates := []string{
 		path,
 		"../config.json",
@@ -68,31 +62,15 @@ func loadConfig(path string) (*Config, error) {
 		"/home/abc/nhat/consensus-chain/metanode-suite/config.json",
 	}
 
-	var raw []byte
-	var err error
 	for _, p := range candidates {
 		if p == "" {
 			continue
 		}
-		raw, err = os.ReadFile(p)
-		if err == nil {
-			break
+		if cfg, err := config.LoadConfig(p); err == nil {
+			return cfg, nil
 		}
 	}
-	if err != nil {
-		return nil, fmt.Errorf("không thể đọc file config: %v", err)
-	}
-
-	var cfg Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return nil, fmt.Errorf("lỗi parse JSON config: %v", err)
-	}
-
-	if cfg.PrivateKey == "" && len(cfg.PrivateKeys) > 0 {
-		cfg.PrivateKey = cfg.PrivateKeys[0]
-	}
-
-	return &cfg, nil
+	return nil, fmt.Errorf("không thể đọc file config")
 }
 
 func loadABI() (abi.ABI, error) {
@@ -190,7 +168,7 @@ func prepareArgs(method abi.Method, jsonArgs []interface{}) []interface{} {
 }
 
 // deployAndSetupContract tự động chạy toàn bộ pipeline của data-xapian-v2.json
-func deployAndSetupContract(client *ethclient.Client, cfg *Config, contractAbi abi.ABI) (common.Address, error) {
+func deployAndSetupContract(client *ethclient.Client, cfg *config.Config, contractAbi abi.ABI) (common.Address, error) {
 	fmt.Println("\n📦 [AUTO DEPLOY] Đang Deploy Contract Xapian Products & Setup Dữ liệu...")
 
 	pk, err := crypto.HexToECDSA(cfg.PrivateKey)

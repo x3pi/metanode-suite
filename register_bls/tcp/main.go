@@ -114,7 +114,7 @@ func main() {
 
 	// 2. Kết nối tới Chain qua TCP
 	fmt.Printf("🔌 Connecting to TCP pool (Load balancing across %d nodes)\n", len(appCfg.ParentConnectionAddress))
-	poolSize := 300
+	poolSize := 20
 	var clientPool []*client_tcp.Client
 	for i := 0; i < poolSize; i++ {
 		cfgClone := *cfg
@@ -245,7 +245,7 @@ func main() {
 			fmt.Printf("📡 Đang kết nối RPC %s để kiểm tra %d giao dịch...\n", rpcHost, len(expectedTxHashes))
 			lastBlockNum := startBlockNum
 			totalConfirmed := 0
-			maxWait := 500 * time.Second
+			maxWait := 5 * time.Second
 			startTime := time.Now()
 
 			var firstTxBlockTime time.Time
@@ -525,7 +525,7 @@ func main() {
 	if totalFundTxsSent > 0 {
 		fmt.Printf("📡 Đang chờ block mới để kiểm tra số dư %d ví funding...\n", len(fundingWallets))
 		lastBlockNum := fundStartBlockNum
-		maxWait := 100 * time.Second
+		maxWait := 5 * time.Second
 		startTime := time.Now()
 
 		totalConfirmed := 0

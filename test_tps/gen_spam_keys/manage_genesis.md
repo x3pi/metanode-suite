@@ -6,15 +6,15 @@
 --genesis-out (File Đầu Ra - Destination/Target): Sau khi script tạo xong 100,000 keys mới trên RAM, nó sẽ nhét toàn bộ 100,000 keys này vào mảng alloc của cấu trúc vừa đọc từ in. Sau đó, nó sẽ LƯU (GHI) toàn bộ dữ liệu (file gốc + 100k account mới) ra file đường dẫn out. Đây chính là file bạn sẽ dùng để load thực tế khi chạy Node.
 
 
-go run main.go --count 100000 --genesis-in /home/abc/nhat/con-chain-v2/metanode/execution/cmd/simple_chain/genesis-main.json --genesis-out /home/abc/nhat/con-chain-v2/metanode/deploy/systemd/genesis.json.example
+go run main.go --count 100000 --genesis-in /home/abc/nhat/con-chain-v2/metanode/execution/cmd/simple_chain/genesis-main.json --genesis-out /home/abc/nhat/con-chain-v2/metanode/deploy/systemd/genesis.json
 ```
 
 ## Cú pháp sử dụng
 
-Script cần truyền vào 3 tham số: lệnh cần chạy (`add` hoặc `remove`), đường dẫn tới file genesis và đường dẫn tới file chứa danh sách key.
+Script cần truyền vào 4 tham số: lệnh cần chạy (`add` hoặc `remove`), đường dẫn tới file genesis đầu vào, đường dẫn tới file chứa danh sách key, và đường dẫn tới file genesis đầu ra.
 
 ```bash
-./manage_genesis.py <command> <genesis_file_path> <keys_file_path>
+./manage_genesis.py <command> <genesis_in_path> <keys_file_path> <genesis_out_path>
 ```
 
 ## Các lệnh hỗ trợ
@@ -23,27 +23,27 @@ Script cần truyền vào 3 tham số: lệnh cần chạy (`add` hoặc `remov
 Đọc danh sách keys từ file `generated_keys` và đưa các địa chỉ (address) chưa tồn tại vào mảng `alloc` của `genesis-main.json`. 
 - Nó sẽ tự động kiểm tra và **bỏ qua các địa chỉ bị trùng** (đã tồn tại sẵn).
 - Mỗi account mới sẽ được tự động gán số dư mặc định là `2000000000000000000000000000000` wei.
+- Dữ liệu kết quả sẽ được ghi vào file `<genesis_out_path>`. KHÔNG GHI ĐÈ FILE MẪU.
 
 **Ví dụ:**
 ```bash
-./manage_genesis.py add ../../../metanode/deploy/systemd/genesis.json.example generated_keys.json.test
-./manage_genesis.py add ../../../metanode/deploy/systemd/genesis.json generated_keys.json.test
-
+./manage_genesis.py add ../../../metanode/deploy/systemd/genesis.json.example generated_keys.json.test ../../../metanode/deploy/systemd/genesis.json
 ```
 
 ### 2. Lệnh `remove` (Xóa Accounts)
-Đọc danh sách keys từ file `generated_keys` và **xóa tất cả các địa chỉ tương ứng** khỏi mảng `alloc` của file `genesis-main.json`. 
+Đọc danh sách keys từ file `generated_keys` và **xóa tất cả các địa chỉ tương ứng** khỏi mảng `alloc` của file genesis đầu vào. 
+- Dữ liệu kết quả sẽ được ghi vào file `<genesis_out_path>`.
 
 **Ví dụ:**
 ```bash
-./manage_genesis.py remove ../../../metanode/deploy/systemd/genesis.json generated_keys.json.test
+./manage_genesis.py remove ../../../metanode/deploy/systemd/genesis.json generated_keys.json.test ../../../metanode/deploy/systemd/genesis_cleaned.json
 ```
-
 
 # simple-chain
 
 ```bash
 ./manage_genesis.py add \
-  /home/abc/nhat/consensus-chain/mtn-2026/cmd/simple_chain/genesis.json \
-  /home/abc/nhat/con-chain-v2/metanode-suite/test_tps/gen_spam_keys/generated_keys.json
-```bash
+  /home/abc/nhat/consensus-chain/mtn-2026/cmd/simple_chain/genesis.json.example \
+  /home/abc/nhat/con-chain-v2/metanode-suite/test_tps/gen_spam_keys/generated_keys.json \
+  /home/abc/nhat/consensus-chain/mtn-2026/cmd/simple_chain/genesis.json
+```

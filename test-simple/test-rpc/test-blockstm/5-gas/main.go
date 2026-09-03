@@ -7,9 +7,9 @@
 package main
 
 import (
+	"tool-test/test-simple/test-rpc/test-blockstm/config"
 	"context"
 	"crypto/ecdsa"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -26,17 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-type ContractData struct {
-	ABI      string `json:"abi"`
-	Bytecode string `json:"bytecode"`
-}
 
-type Config struct {
-	RPCUrl      string                  `json:"rpc_url"`
-	PrivateKeys []string                `json:"private_keys"`
-	ChainID     int64                   `json:"chain_id"`
-	Contracts   map[string]ContractData `json:"contracts"`
-}
 
 func main() {
 	fmt.Println("==========================================================")
@@ -53,9 +43,10 @@ func main() {
 		configPath = os.Args[1]
 	}
 
-	raw, _ := os.ReadFile(configPath)
-	var cfg Config
-	json.Unmarshal(raw, &cfg)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		log.Fatalf("❌ Lỗi load config: %v", err)
+	}
 
 	client, _ := ethclient.Dial(cfg.RPCUrl)
 

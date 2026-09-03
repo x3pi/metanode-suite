@@ -40,24 +40,28 @@ func main() {
 	fileAddrFlag := flag.String("file", "", "Address of the file contract to add/remove")
 	flag.Parse()
 
-	// Load environment variables
+	// Load environment variables từ file .env nội bộ
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Printf("Warning: Error loading .env file: %v", err)
 	}
 
+	contractToAdd := getEnv("CONTRACT_ADDRESS_TO_ADD", "")
+	if contractToAdd == "" {
+		contractToAdd = getEnv("FILE_CONTRACT_ADDRESS", "")
+	}
+	if contractToAdd == "" {
+		contractToAdd = getEnv("PROXY_ADDRESS", "")
+	}
+
 	config := &Config{
-		RPCUrl:              getEnv("RPC_URL", "http://192.168.1.234:8545"),
+		RPCUrl:              getEnv("RPC_URL", "http://192.168.1.233:8546"),
 		DeployerPrivateKey:  getEnv("PRIVATE_KEY", ""),
-		FileContractAddress: getEnv("FILE_CONTRACT_ADDRESS", ""),
+		FileContractAddress: contractToAdd,
 	}
 
 	if config.DeployerPrivateKey == "" {
 		log.Fatal("PRIVATE_KEY is required in .env file")
-	}
-
-	if *action == "deploy" && config.FileContractAddress == "" {
-		log.Fatal("FILE_CONTRACT_ADDRESS is required in .env file for deployment")
 	}
 
 	if (*action == "add" || *action == "remove") && (*registryAddrFlag == "" || *fileAddrFlag == "") {
@@ -109,14 +113,14 @@ func main() {
 	}
 
 	if *action == "deploy" {
-		log.Println("\n[1/3] Deploying Registry Implementation contract...")
+		log.Println("\n[1/2] Deploying Registry Implementation contract...")
 		implementationAddress, err := deployRegistryImplementation(client, deployerAuth, &parsedABI)
 		if err != nil {
 			log.Fatalf("Failed to deploy Registry implementation: %v", err)
 		}
 		log.Printf("✅ Registry Implementation deployed at: %s", implementationAddress.Hex())
 
-		log.Println("\n[2/3] Deploying Registry Proxy contract...")
+		log.Println("\n[2/2] Deploying Registry Proxy contract...")
 		// Tăng nonce
 		deployerAuth.Nonce = big.NewInt(0).Add(deployerAuth.Nonce, big.NewInt(1))
 		proxyAddress, err := deployRegistryProxy(client, deployerAuth, implementationAddress, &parsedABI)
@@ -125,24 +129,31 @@ func main() {
 		}
 		log.Printf("✅ Registry Proxy deployed at: %s", proxyAddress.Hex())
 
-		log.Println("\n[3/3] Registering File contract...")
-		registryContract := bind.NewBoundContract(proxyAddress, parsedABI, client, client, client)
-		fileAddr := common.HexToAddress(config.FileContractAddress)
-
-		deployerAuth.Nonce = big.NewInt(0).Add(deployerAuth.Nonce, big.NewInt(1))
-		if err := interactWithRegistry(client, deployerAuth, registryContract, "registerContract", fileAddr); err != nil {
-			log.Fatalf("❌ Failed to register contract: %v", err)
-		}
-		log.Printf("✅ Successfully registered File contract: %s", fileAddr.Hex())
-
-		saveDeploymentInfo(map[string]interface{}{
+		deploymentData := map[string]interface{}{
 			"registryImplementation": implementationAddress.Hex(),
 			"registryProxy":          proxyAddress.Hex(),
-			"fileContract":           fileAddr.Hex(),
 			"deployer":               deployerAuth.From.Hex(),
 			"rpcUrl":                 config.RPCUrl,
 			"timestamp":              time.Now().Format(time.RFC3339),
-		})
+		}
+
+		if config.FileContractAddress != "" {
+			log.Println("\n[3/3] Registering Initial File Contract into Registry...")
+			registryContract := bind.NewBoundContract(proxyAddress, parsedABI, client, client, client)
+			fileAddr := common.HexToAddress(config.FileContractAddress)
+
+			deployerAuth.Nonce = big.NewInt(0).Add(deployerAuth.Nonce, big.NewInt(1))
+			if err := interactWithRegistry(client, deployerAuth, registryContract, "registerContract", fileAddr); err != nil {
+				log.Fatalf("❌ Failed to register contract: %v", err)
+			}
+			log.Printf("✅ Successfully registered Initial File Contract: %s", fileAddr.Hex())
+			deploymentData["initialRegisteredContract"] = fileAddr.Hex()
+		} else {
+			log.Printf("\n💡 Gợi ý: Bạn có thể đăng ký (add) thêm File Contract vào Registry sau bằng lệnh:")
+			log.Printf("👉 go run . -action=add -registry=%s -file=<DIA_CHI_FILE_CONTRACT>", proxyAddress.Hex())
+		}
+
+		saveDeploymentInfo(deploymentData)
 	} else if *action == "add" || *action == "remove" {
 		registryAddr := common.HexToAddress(*registryAddrFlag)
 		fileAddr := common.HexToAddress(*fileAddrFlag)
@@ -259,9 +270,6 @@ func getDeployerAuth(client *ethclient.Client, privateKeyHex string, isDeploy bo
 	if err != nil {
 		return nil, err
 	}
-	if isDeploy && nonce != 1 {
-		return nil, fmt.Errorf("yêu cầu deploy thất bại: nonce phải là 1 (đang là %d)", nonce)
-	}
 	chainID, _ := client.ChainID(context.Background())
 	auth, _ := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	auth.Nonce = big.NewInt(int64(nonce))
@@ -314,7 +322,43 @@ func getEnv(key, defaultValue string) string {
 
 func saveDeploymentInfo(info map[string]interface{}) {
 	data, _ := json.MarshalIndent(info, "", "  ")
-	filename := fmt.Sprintf("deployment_%s.json", time.Now().Format("20060102_150405"))
+	_ = os.MkdirAll("deploy", 0755)
+	filename := fmt.Sprintf("deploy/deployment_%s.json", time.Now().Format("20060102_150405"))
 	os.WriteFile(filename, data, 0644)
 	log.Printf("\n💾 Deployment info saved to: %s", filename)
+}
+
+func findLatestFileProxy(dir string) string {
+	searchDirs := []string{dir + "/deploy", dir}
+	var latestPath string
+	var latestName string
+
+	for _, d := range searchDirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), "deployment_") && strings.HasSuffix(e.Name(), ".json") {
+				if e.Name() > latestName {
+					latestName = e.Name()
+					latestPath = d + "/" + e.Name()
+				}
+			}
+		}
+	}
+	if latestPath == "" {
+		return ""
+	}
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return ""
+	}
+	var data struct {
+		ProxyContract string `json:"proxyContract"`
+	}
+	if err := json.Unmarshal(content, &data); err == nil && data.ProxyContract != "" {
+		return data.ProxyContract
+	}
+	return ""
 }

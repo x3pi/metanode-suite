@@ -463,7 +463,12 @@ func saveDeploymentInfo(info map[string]interface{}) {
 		return
 	}
 
-	filename := fmt.Sprintf("deployment_%s.json", time.Now().Format("20060102_150405"))
+	if err := os.MkdirAll("deploy", 0755); err != nil {
+		log.Printf("Warning: Failed to create deploy directory: %v", err)
+		return
+	}
+
+	filename := fmt.Sprintf("deploy/deployment_%s.json", time.Now().Format("20060102_150405"))
 	if err := os.WriteFile(filename, data, 0644); err != nil {
 		log.Printf("Warning: Failed to save deployment info: %v", err)
 		return

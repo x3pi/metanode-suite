@@ -1,7 +1,7 @@
 all:
   vars:
     # URL RPC của Public Chain (Root Anchor Cluster - Chain 991)
-    root_anchor_rpc: "http://192.168.1.234:10746"
+    root_anchor_rpc: "http://192.168.1.233:10746"
     ansible_user: "abc"
     ansible_ssh_pass: "1234@abcd"
     ansible_become_pass: "1234@abcd"
@@ -12,21 +12,31 @@ all:
   children:
     private_chains:
       hosts:
-        # Máy 1 (192.168.1.234): Chạy Private Chain 101 (Local)
-        server_234_chain_101:
-          ansible_host: 192.168.1.234
+        # Máy 1 (192.168.1.233): Chạy Private Chain 101 (Local)
+        server_233_chain_101:
+          ansible_host: 192.168.1.233
           ansible_connection: local
           chain_id: 101
           rpc_port: 8546
           port_offset: 10
+          validators: 1              
           install_dir: "/opt/metanode/chain-101"
 
-        # Máy 2 (192.168.1.234): Chạy Private Chain 102 (Local)
-        server_234_chain_102:
-          ansible_host: 192.168.1.234
+        # Máy 2 (192.168.1.233): Chạy Private Chain 102 (Local)
+        server_233_chain_102:
+          ansible_host: 192.168.1.233
           ansible_connection: local
           chain_id: 102
-          rpc_port: 8547
+          rpc_port: 8556
           port_offset: 20
+          validators: 1              
           install_dir: "/opt/metanode/chain-102"
 
+        # server_233_chain_103:
+        #   ansible_host: 192.168.1.233
+        #   ansible_connection: local
+        #   chain_id: 103
+        #   rpc_port: 8566
+        #   port_offset: 30
+        #   validators: 3              
+        #   install_dir: "/opt/metanode/chain-103"

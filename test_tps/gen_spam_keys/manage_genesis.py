@@ -11,9 +11,9 @@ def save_json(data, filepath):
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=2)
 
-def add_keys(genesis_file, keys_file):
-    print(f"Đang đọc dữ liệu từ {genesis_file} và {keys_file}...")
-    genesis = load_json(genesis_file)
+def add_keys(genesis_in, keys_file, genesis_out):
+    print(f"Đang đọc dữ liệu từ {genesis_in} và {keys_file}...")
+    genesis = load_json(genesis_in)
     keys = load_json(keys_file)
 
     if "alloc" not in genesis:
@@ -37,13 +37,13 @@ def add_keys(genesis_file, keys_file):
             existing_addresses.add(addr.lower())
             added += 1
 
-    print(f"Đang lưu lại {genesis_file}...")
-    save_json(genesis, genesis_file)
-    print(f"✅ Đã THÊM {added} accounts mới vào {genesis_file}")
+    print(f"Đang lưu lại {genesis_out}...")
+    save_json(genesis, genesis_out)
+    print(f"✅ Đã THÊM {added} accounts mới vào {genesis_out}")
 
-def remove_keys(genesis_file, keys_file):
-    print(f"Đang đọc dữ liệu từ {genesis_file} và {keys_file}...")
-    genesis = load_json(genesis_file)
+def remove_keys(genesis_in, keys_file, genesis_out):
+    print(f"Đang đọc dữ liệu từ {genesis_in} và {keys_file}...")
+    genesis = load_json(genesis_in)
     keys = load_json(keys_file)
 
     if "alloc" not in genesis:
@@ -62,31 +62,32 @@ def remove_keys(genesis_file, keys_file):
     
     removed = original_count - len(genesis["alloc"])
 
-    print(f"Đang lưu lại {genesis_file}...")
-    save_json(genesis, genesis_file)
-    print(f"✅ Đã XÓA {removed} accounts khỏi {genesis_file}")
+    print(f"Đang lưu lại {genesis_out}...")
+    save_json(genesis, genesis_out)
+    print(f"✅ Đã XÓA {removed} accounts khỏi {genesis_out}")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 5:
         print("Sử dụng:")
-        print("  Thêm: python3 manage_genesis.py add <genesis.json> <generated_keys.json>")
-        print("  Xóa:  python3 manage_genesis.py remove <genesis.json> <generated_keys.json>")
+        print("  Thêm: python3 manage_genesis.py add <genesis_in.json> <generated_keys.json> <genesis_out.json>")
+        print("  Xóa:  python3 manage_genesis.py remove <genesis_in.json> <generated_keys.json> <genesis_out.json>")
         sys.exit(1)
 
     action = sys.argv[1].lower()
-    genesis_path = sys.argv[2]
+    genesis_in = sys.argv[2]
     keys_path = sys.argv[3]
+    genesis_out = sys.argv[4]
 
-    if not os.path.exists(genesis_path):
-        print(f"Lỗi: Không tìm thấy file {genesis_path}")
+    if not os.path.exists(genesis_in):
+        print(f"Lỗi: Không tìm thấy file {genesis_in}")
         sys.exit(1)
     if not os.path.exists(keys_path):
         print(f"Lỗi: Không tìm thấy file {keys_path}")
         sys.exit(1)
 
     if action == "add":
-        add_keys(genesis_path, keys_path)
+        add_keys(genesis_in, keys_path, genesis_out)
     elif action == "remove":
-        remove_keys(genesis_path, keys_path)
+        remove_keys(genesis_in, keys_path, genesis_out)
     else:
         print("Lệnh không hợp lệ. Chỉ hỗ trợ 'add' hoặc 'remove'")

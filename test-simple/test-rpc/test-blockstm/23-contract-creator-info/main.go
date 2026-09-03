@@ -5,6 +5,7 @@
 package main
 
 import (
+	"tool-test/test-simple/test-rpc/test-blockstm/config"
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -29,11 +30,6 @@ import (
 // Dùng tạm bytecode của bài 22 cho lẹ
 const bytecodeHex = "0x608060405234801561001057600080fd5b5061026a806100206000396000f3fe608060405234801561001057600080fd5b50600436106100625760003560e01c806307604a7e146100675780631b36fa78146100855780632abbd748146100a3578063433c070d146100c15780634840a051146100cb5780636e795a5d146100e9575b600080fd5b61006f610107565b60405161007c91906101bd565b60405180910390f35b61008d61010d565b60405161009a91906101bd565b60405180910390f35b6100ab610113565b6040516100b891906101bd565b60405180910390f35b6100c9610119565b005b6100d3610178565b6040516100e09190610219565b60405180910390f35b6100f161019e565b6040516100fe91906101bd565b60405180910390f35b60015481565b60005481565b60035481565b426000819055504360018190555041600260006101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055504660038190555048600481905550565b600260009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b60045481565b6000819050919050565b6101b7816101a4565b82525050565b60006020820190506101d260008301846101ae565b92915050565b600073ffffffffffffffffffffffffffffffffffffffff82169050919050565b6000610203826101d8565b9050919050565b610213816101f8565b82525050565b600060208201905061022e600083018461020a565b9291505056fea26469706673582212203fabbfb2a358eedd75490ab3dda10644672f328eb7d42191cc329ae08b5612fa64736f6c63430008140033"
 
-type Config struct {
-	PrivateKeys []string                  `json:"private_keys"`
-	RPCUrl  string `json:"rpc_url"`
-	ChainID int64  `json:"chain_id"`
-}
 
 type GeneratedKey struct {
 	PrivateKey string `json:"private_key"`
@@ -59,13 +55,9 @@ func main() {
 keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
 	flag.Parse()
 
-	raw, err := os.ReadFile(*configFlag)
+	cfg, err := config.LoadConfig(*configFlag)
 	if err != nil {
-		log.Fatalf("❌ Lỗi đọc config: %v", err)
-	}
-	var cfg Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		log.Fatalf("❌ Lỗi parse config: %v", err)
+		log.Fatalf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)

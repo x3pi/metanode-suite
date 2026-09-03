@@ -152,6 +152,23 @@ func formatMTN(wei *big.Int) string {
 	return fmt.Sprintf("%.4f", f)
 }
 
+// EncodeRelayPayload gắn tiền tố MTNRELAY1: cùng DestChainID cuối cùng
+func EncodeRelayPayload(finalDestChainID uint64, innerPayload []byte) []byte {
+	prefix := []byte("MTNRELAY1:")
+	buf := make([]byte, len(prefix)+8+len(innerPayload))
+	copy(buf, prefix)
+	buf[len(prefix)] = byte(finalDestChainID >> 56)
+	buf[len(prefix)+1] = byte(finalDestChainID >> 48)
+	buf[len(prefix)+2] = byte(finalDestChainID >> 40)
+	buf[len(prefix)+3] = byte(finalDestChainID >> 32)
+	buf[len(prefix)+4] = byte(finalDestChainID >> 24)
+	buf[len(prefix)+5] = byte(finalDestChainID >> 16)
+	buf[len(prefix)+6] = byte(finalDestChainID >> 8)
+	buf[len(prefix)+7] = byte(finalDestChainID)
+	copy(buf[len(prefix)+8:], innerPayload)
+	return buf
+}
+
 func waitForReceipt(url string, txHash common.Hash, timeout time.Duration) {
 	start := time.Now()
 	for time.Since(start) < timeout {

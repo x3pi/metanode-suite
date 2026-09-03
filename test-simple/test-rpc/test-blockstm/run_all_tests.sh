@@ -20,6 +20,7 @@ TESTS=(
     "16-xapian-evm-contract"
     "17-xapian-parallel-read-write"
     "17.1-xapian-parallel-delete"
+    "17.2-xapian-basic-read-write"
     "18-update-different-variables"
     "19-xapian-parallel-update"
     "20-xapian-read-after-write-same-block"
@@ -37,6 +38,25 @@ TESTS=(
     "32-xapian-parallel-stress"
 )
 
+# Xử lý tham số truyền vào: --chain=<tên_chain> (ví dụ: --chain=chain_a hoặc --chain=101)
+for arg in "$@"; do
+    case $arg in
+        --chain=*)
+            export TARGET_CHAIN="${arg#*=}"
+            ;;
+        --chain|-chain)
+            # nếu dùng dạng --chain chain_a
+            ;;
+        chain_*|[0-9]*)
+            export TARGET_CHAIN="$arg"
+            ;;
+    esac
+done
+
+if [ -n "$TARGET_CHAIN" ]; then
+    echo "🔗 TARGET CHAIN ĐƯỢC CHỈ ĐỊNH: $TARGET_CHAIN"
+fi
+
 TOTAL_TEST_CASES=${#TESTS[@]}
 TOTAL_RUNS=$((TOTAL_TEST_CASES * 3))
 SUCCESS=0
@@ -48,8 +68,6 @@ declare -A REASONS
 # Thư mục lưu log chi tiết
 LOG_DIR="test_logs"
 mkdir -p "$LOG_DIR"
-
-
 
 echo "🚀 BẮT ĐẦU CHẠY TỔNG HỢP $TOTAL_TEST_CASES BÀI TEST ($TOTAL_RUNS LƯỢT CHẠY) BLOCK-STM..."
 echo "=========================================================="
