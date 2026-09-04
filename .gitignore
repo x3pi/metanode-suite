@@ -69,3 +69,4 @@ test-simple/test-rpc/test-blockstm/cross-chain/03-cross-chain-failure-refund/03-
 file-storage/deployContract_file_registry/deployContract_file_registry
 file-storage/**/deploy/
 file-storage/**/deployment_*.json
+test-simple/test-rpc/test-blockstm/2-read-write/main

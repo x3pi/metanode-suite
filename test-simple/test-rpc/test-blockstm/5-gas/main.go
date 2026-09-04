@@ -77,13 +77,15 @@ func main() {
 			from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
 
 			var data []byte
+			gasPrice := big.NewInt(1e9)
 			if idx == 0 {
 				data, _ = parsedABI.Pack("setPhase", big.NewInt(2))
+				gasPrice = big.NewInt(2e9) // Ưu tiên xếp setPhase lên đầu block để kiểm thử rollback/revert một cách tất định
 			} else {
 				data, _ = parsedABI.Pack("updateIfPhase1", big.NewInt(888))
 			}
 
-			hash, err := sendTx(client, pk, cfg.ChainID, from, contractAddr, data)
+			hash, err := sendTx(client, pk, cfg.ChainID, from, contractAddr, data, gasPrice)
 			if err == nil {
 				txHashes[idx] = hash
 			}
@@ -106,7 +108,11 @@ func main() {
 			revertCount++
 		}
 
-		fmt.Printf("Wallet %d | Trạng thái: %-8s | Gas sử dụng (GasUsed): %d\n", i, status, receipt.GasUsed)
+		blockNum := uint64(0)
+		if receipt.BlockNumber != nil {
+			blockNum = receipt.BlockNumber.Uint64()
+		}
+		fmt.Printf("Wallet %d | Trạng thái: %-8s | Block: %-4d | TxIndex: %-2d | Gas sử dụng (GasUsed): %d\n", i, status, blockNum, receipt.TransactionIndex, receipt.GasUsed)
 	}
 
 	if revertCount == 0 {
@@ -129,9 +135,9 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	return &receipt.ContractAddress, nil
 }
 
-func sendTx(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, to *common.Address, data []byte) (common.Hash, error) {
+func sendTx(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, to *common.Address, data []byte, gasPrice *big.Int) (common.Hash, error) {
 	nonce, _ := client.PendingNonceAt(context.Background(), from)
-	tx := types.NewTransaction(nonce, *to, big.NewInt(0), 1000000, big.NewInt(1e9), data)
+	tx := types.NewTransaction(nonce, *to, big.NewInt(0), 1000000, gasPrice, data)
 	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
 	err := client.SendTransaction(context.Background(), signedTx)
 	return signedTx.Hash(), err

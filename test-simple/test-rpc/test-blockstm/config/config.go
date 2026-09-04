@@ -17,9 +17,10 @@ type ContractData struct {
 }
 
 type PrivateChainConfig struct {
-	ChainID     int64    `json:"chain_id"`
-	RPCUrl      string   `json:"rpc_url"`
-	PrivateKeys []string `json:"private_keys"`
+	ChainID     int64             `json:"chain_id"`
+	RPCUrl      string            `json:"rpc_url"`
+	PrivateKeys []string          `json:"private_keys"`
+	RPCNodes    map[string]string `json:"rpc_nodes"`
 }
 
 type Config struct {
@@ -115,11 +116,15 @@ func applyPrivateChain(cfg *Config, name string, pChain PrivateChainConfig) {
 		cfg.PrivateKey = cfg.PrivateKeys[0]
 	}
 	// Nếu chuyển sang Private Chain, cập nhật lại RPCNodes thành RPC của private chain đó
-	cfg.RPCNodes = map[string]string{
-		name: cfg.RPCUrl,
+	if len(pChain.RPCNodes) > 0 {
+		cfg.RPCNodes = pChain.RPCNodes
+	} else {
+		cfg.RPCNodes = map[string]string{
+			name: cfg.RPCUrl,
+		}
 	}
-	fmt.Printf("🔗 [TESTCONFIG] Đã chuyển sang Private Chain '%s' (ChainID: %d, RPC: %s, %d keys)\n",
-		name, cfg.ChainID, cfg.RPCUrl, len(cfg.PrivateKeys))
+	fmt.Printf("🔗 [TESTCONFIG] Đã chuyển sang Private Chain '%s' (ChainID: %d, RPC: %s, %d nodes, %d keys)\n",
+		name, cfg.ChainID, cfg.RPCUrl, len(cfg.RPCNodes), len(cfg.PrivateKeys))
 }
 
 // GetChainIDBig returns ChainID as *big.Int

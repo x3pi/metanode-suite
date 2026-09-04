@@ -207,8 +207,9 @@ func sanitizeKey(k string) string {
 func loadAvailableChains(configFilePath string) (map[string]ChainEntry, error) {
 	paths := []string{
 		configFilePath,
-		"../config.json",
 		"../../config.json",
+		"../config.json",
+		"./config.json",
 		"/tmp/private_chains.json",
 	}
 
@@ -285,7 +286,7 @@ func main() {
 	flag.Float64Var(&amountInput, "amt", 500.0, "Alias của -amount")
 	flag.Float64Var(&amountInput, "value", 500.0, "Alias của -amount")
 
-	flag.StringVar(&configPath, "config", "../config.json", "Đường dẫn file config.json")
+	flag.StringVar(&configPath, "config", "../../config.json", "Đường dẫn file config.json")
 	flag.StringVar(&rpcA, "rpcA", "", "Override RPC Chain nguồn")
 	flag.StringVar(&rpcB, "rpcB", "", "Override RPC Chain đích")
 	flag.StringVar(&keyA, "keyA", "", "Override Private key Sender")
@@ -322,27 +323,30 @@ func main() {
 		}
 	}
 
-	// Default fallback keys
-	defaultKeyA := "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106"
-	defaultKeyB := "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a"
-
 	availableChains, errCfg := loadAvailableChains(configPath)
 	if errCfg != nil {
-		fmt.Printf("⚠️ Cảnh báo đọc config: %v\n", errCfg)
+		fmt.Printf("❌ Không thể đọc file cấu hình (%s): %v\n", configPath, errCfg)
+		return
 	}
 
 	fromEntry, okFrom := availableChains[strings.ToLower(targetFrom)]
 	if !okFrom {
-		var cid uint64 = 101
-		fmt.Sscanf(targetFrom, "%d", &cid)
-		fromEntry = ChainEntry{ChainID: cid, RpcUrl: "http://127.0.0.1:8546"}
+		fmt.Printf("❌ Không tìm thấy thông tin Chain nguồn '%s' trong config.json (Các chain khả dụng: ", targetFrom)
+		for k := range availableChains {
+			fmt.Printf("%s ", k)
+		}
+		fmt.Println(")")
+		return
 	}
 
 	toEntry, okTo := availableChains[strings.ToLower(targetTo)]
 	if !okTo {
-		var cid uint64 = 102
-		fmt.Sscanf(targetTo, "%d", &cid)
-		toEntry = ChainEntry{ChainID: cid, RpcUrl: "http://127.0.0.1:8547"}
+		fmt.Printf("❌ Không tìm thấy thông tin Chain đích '%s' trong config.json (Các chain khả dụng: ", targetTo)
+		for k := range availableChains {
+			fmt.Printf("%s ", k)
+		}
+		fmt.Println(")")
+		return
 	}
 
 	// Áp dụng override nếu có
@@ -353,18 +357,24 @@ func main() {
 		toEntry.RpcUrl = rpcB
 	}
 
-	selectedKeyA := defaultKeyA
+	selectedKeyA := ""
 	if keyA != "" {
 		selectedKeyA = sanitizeKey(keyA)
 	} else if len(fromEntry.PrivateKeys) > 0 {
 		selectedKeyA = fromEntry.PrivateKeys[0]
+	} else {
+		fmt.Printf("❌ Không tìm thấy private key cho Chain nguồn %d trong config.json\n", fromEntry.ChainID)
+		return
 	}
 
-	selectedKeyB := defaultKeyB
+	selectedKeyB := ""
 	if keyB != "" {
 		selectedKeyB = sanitizeKey(keyB)
 	} else if len(toEntry.PrivateKeys) > 0 {
 		selectedKeyB = toEntry.PrivateKeys[0]
+	} else {
+		fmt.Printf("❌ Không tìm thấy private key cho Chain đích %d trong config.json\n", toEntry.ChainID)
+		return
 	}
 
 	privKeySender, errKeyA := crypto.HexToECDSA(selectedKeyA)

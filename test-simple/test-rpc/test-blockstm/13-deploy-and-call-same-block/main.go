@@ -131,6 +131,11 @@ func main() {
 
 	wg.Wait()
 
+	if txHashes[0] == (common.Hash{}) {
+		fmt.Println("❌ Không thể tiếp tục vì Deploy Tx gửi thất bại!")
+		os.Exit(1)
+	}
+
 	fmt.Println("⏳ Chờ các giao dịch được confirm trong cùng 1 Block...")
 	successCount := 0
 
@@ -143,7 +148,7 @@ func main() {
 		timeoutStart := time.Now()
 		for {
 			if time.Since(timeoutStart) > 60*time.Second {
-				fmt.Println("❌ Timeout waiting for receipt")
+				fmt.Printf("❌ Timeout waiting for receipt của Tx %s (sau 60s)\n", hash.Hex())
 				os.Exit(1)
 			}
 			receipt, err := client.TransactionReceipt(context.Background(), hash)

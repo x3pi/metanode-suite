@@ -47,8 +47,9 @@ for test_dir in "${TESTS[@]}"; do
         cd "$test_dir" || exit 1
         
         log_file="../$LOG_DIR/${test_key}.log"
-        go run . 2>&1 | tee "$log_file"
-        exit_code=${PIPESTATUS[0]}
+        go run . > "$log_file" 2>&1
+        exit_code=$?
+        cat "$log_file"
         
         output=$(cat "$log_file")
         

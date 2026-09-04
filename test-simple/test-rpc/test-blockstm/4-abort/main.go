@@ -80,16 +80,18 @@ func main() {
 
 			var data []byte
 			var actionName string
+			gasPrice := big.NewInt(1e9)
 			if idx == 0 {
 				actionName = "SET PHASE = 2"
 				data, _ = parsedABI.Pack("setPhase", big.NewInt(2))
+				gasPrice = big.NewInt(2e9) // Ưu tiên xếp setPhase lên đầu block để kiểm thử rollback/revert một cách tất định
 			} else {
 				actionName = "UPDATE IF PHASE = 1 (val: 888)"
 				data, _ = parsedABI.Pack("updateIfPhase1", big.NewInt(888))
 			}
 
 			fmt.Printf("⏳ Wallet %d đang gửi tx: %s\n", idx, actionName)
-			hash, err := sendTx(client, pk, cfg.ChainID, from, contractAddr, data)
+			hash, err := sendTx(client, pk, cfg.ChainID, from, contractAddr, data, gasPrice)
 			if err == nil {
 				receipt, _ := waitReceipt(client, hash)
 				if receipt.Status == 1 {
@@ -131,9 +133,9 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	return &receipt.ContractAddress, nil
 }
 
-func sendTx(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, to *common.Address, data []byte) (common.Hash, error) {
+func sendTx(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, to *common.Address, data []byte, gasPrice *big.Int) (common.Hash, error) {
 	nonce, _ := client.PendingNonceAt(context.Background(), from)
-	tx := types.NewTransaction(nonce, *to, big.NewInt(0), 1000000, big.NewInt(1e9), data)
+	tx := types.NewTransaction(nonce, *to, big.NewInt(0), 1000000, gasPrice, data)
 	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
 	err := client.SendTransaction(context.Background(), signedTx)
 	return signedTx.Hash(), err
