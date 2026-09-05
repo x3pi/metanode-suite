@@ -38,31 +38,88 @@ Script `./run_chains.sh` **tự động đọc cấu hình từ `inventory.yml`*
 Khi không truyền cờ `--chain`, script tự động áp dụng lệnh cho **tất cả các chain đang bật trong `inventory.yml`**:
 
 ```bash
+cd private_chain_kit
 
-# 🔹 XÓA TRẮNG toàn bộ, sinh mới keys/genesis và tự cập nhật gateway_register.json:
-./run_chains.sh --reset-all (xóa toàn bộ data)
-# 🔹 Kiểm tra trạng thái hoạt động & block height của tất cả các chain:
-./run_chains.sh --status
+# 🔹 1. Khởi chạy hệ thống chuỗi:
+./run_chains.sh --reset-all   # Xóa trắng toàn bộ, sinh mới keys/genesis (chạy lần đầu tiên)
+./run_chains.sh               # Khởi chạy các chain (giữ nguyên data, chạy các lần sau)
 
-# 🔹 Khởi chạy tất cả các chain (101, 102, ...):
-./run_chains.sh (giữa data chỉ khởi động lại)
-
-## Thực hiện giao dịch xuyên chain
-
-# 🔹 Đăng ký danh bạ các chain lên Gateway Contract (Root Anchor):
-./run_chains.sh --register
-
-# 🔹 Khởi chạy Cross-Chain Relayer Daemon: (chuyển tiếp các giao dịch xuyên chain)
+# 🔹 2. Bật Relayer chuyển tiếp giao dịch liên chuỗi (mở terminal riêng):
 ./run_chains.sh --relayer
 
+# 🔹 3. Kiểm tra trạng thái hoạt động & block height:
+./run_chains.sh --status
+```
 
-# 🔹 Dọn sạch database & logs của tất cả các chain, chạy lại từ block 0:
-./run_chains.sh --clean-data
-# 🔹 Dừng an toàn toàn bộ các Private Chain:
-./run_chains.sh --stop
-# 🔹 Khởi động lại toàn bộ các Private Chain:
+> 💡 **Sau khi hệ thống khởi động xong, bạn có thể thực hiện kiểm thử với 2 bài test bên dưới:**
+
+---
+
+### 🧪 1.1. Bài Test 1: Ví Trả Phí Hộ Gasless EIP-7702 (`01-sponsored-tx-eip7702`)
+
+Mô phỏng cơ chế **Account Abstraction theo chuẩn EIP-7702 (SetCodeTx - `0x04`)**: Cho phép ví Sponsor (Paymaster) nộp giao dịch và chi trả 100% phí gas thay cho người dùng (User EOA).
+
+```bash
+cd 01-sponsored-tx-eip7702
+
+# Chạy kịch bản kiểm thử:
+go run .
+```
+
+* **Cơ chế hoạt động:**
+  1. User ký offline ủy quyền (Authorization Tuple) delegate tới hợp đồng logic mà không tốn gas.
+  2. Sponsor nhận chữ ký, đóng gói vào `SetCodeTx` (TxType `0x04`), ký giao dịch và chịu toàn bộ gas fee.
+  3. Giao dịch được nộp lên Chain 101.
+* **Kết quả kỳ vọng:**
+  - Status: `1 (SUCCESS)`.
+  - User chi trả: `0 MTN (0 wei)` — số dư nguyên vẹn.
+  - Sponsor chi trả toàn bộ phí gas.
+  - User được gán mã ủy quyền delegation code: `0xef01000000000000000000000000000000000000007702`.
+
+---
+
+### 🌐 1.2. Bài Test 2: Chuyển Tiền & Gọi Smart Contract Xuyên Chuỗi (`01-client-only-transfer`)
+
+Kiểm thử giao dịch liên chuỗi thực tế từ **Chain 101 ➔ Chain 102** thông qua hệ thống Gateway precompile (`0x...1002`) và Relayer Daemon.
+
+> ⚠️ **Yêu cầu:** Đảm bảo Relayer đang chạy (`./run_chains.sh --relayer` trong `private_chain_kit`).
+
+```bash
+cd 01-client-only-transfer
+
+# Cách 1: Chạy mặc định (Chuyển 500 MTN từ Chain 101 sang 102 & gọi hàm TestCounter):
+go run .
+
+# Cách 2: Truyền tham số nhanh [Chain_Nguồn] [Chain_Đích] [Số_MTN]:
+go run . 101 102 100      # Chuyển 100 MTN từ 101 sang 102
+go run . 102 101 50       # Chuyển 50 MTN ngược lại từ 102 sang 101
+
+# Cách 3: Sử dụng flags:
+go run . -from 101 -to 102 -amount 200
+```
+
+* **Kịch bản thực hiện:**
+  1. **Cross-Chain Transfer**: User trừ 500 MTN ở Chain 101, Relayer gom Quorum Certificate BLS từ Root Anchor và mint sang Chain 102 sau ~4 giây.
+  2. **Cross-Chain Contract Call**: Client deploy `TestCounter.sol` trên Chain 102, nộp lệnh gọi hàm `increment()` từ Chain 101, Relayer chuyển tiếp và kích hoạt tăng biến đếm (`Counter = 1`) trên Chain 102 sau ~6 giây.
+
+---
+
+### 🛠️ 1.3. Các Lệnh Quản Trị Hệ Thống Thường Dùng (`private_chain_kit/`)
+
+```bash
+cd private_chain_kit
+
+# 🔹 Khởi động lại toàn bộ các Private Chain (giữ nguyên database):
 ./run_chains.sh --restart
 
+# 🔹 Đăng ký danh bạ committee BLS các chain lên Gateway Contract (Root Anchor):
+./run_chains.sh --register
+
+# 🔹 Dọn sạch database & logs của tất cả các chain (chạy lại từ block 0, giữ keys):
+./run_chains.sh --clean-data
+
+# 🔹 Dừng an toàn toàn bộ các node của Private Chain:
+./run_chains.sh --stop
 ```
 
 ---
