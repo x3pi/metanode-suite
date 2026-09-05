@@ -451,13 +451,8 @@ start_chain_node() {
     local bin_path="$SCRIPT_DIR/bin/simple_chain"
 
     if [ ! -f "$bin_path" ]; then
-        if [ -d "$SCRIPT_DIR/../../execution/cmd/simple_chain" ]; then
-            echo -e "🔨 Đang biên dịch binary simple_chain..."
-            (cd "$SCRIPT_DIR/../../execution/cmd/simple_chain" && go build -o "$bin_path" .)
-        else
-            echo -e "${RED}❌ LỖI: Không tìm thấy binary $bin_path!${NC}"
-            exit 1
-        fi
+        echo -e "🔨 Đang biên dịch binary simple_chain..."
+        (cd "$SCRIPT_DIR/../../execution/cmd/simple_chain" && go build -o "$bin_path" .)
     fi
 
     if [ ! -d "$cdir" ] || [ ! -f "$cdir/node-0/config.json" ]; then
@@ -745,6 +740,9 @@ case "$ACTION" in
         ;;
 
     relayer)
+        # Dừng tiến trình relayer cũ nếu đang chạy để tránh xung đột nonce
+        pkill -f "cross_chain_relayer" 2>/dev/null || true
+        sleep 1
         update_gateway_register_json
         echo -e "\n🌉 Khởi chạy Cross-Chain Relayer Daemon..."
         "$SCRIPT_DIR/bin/cross_chain_relayer" --config "$GATEWAY_JSON"
