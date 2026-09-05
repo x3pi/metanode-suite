@@ -446,6 +446,7 @@ func main() {
 	rawTxTransferBytes, _ := signedTxTransfer.MarshalBinary()
 
 	fmt.Printf("\n🚀 CLIENT NỘP LỆNH CHUYỂN TIỀN LÊN CHAIN %d (Nonce=%d)...\n", fromEntry.ChainID, nonceA)
+	timeTransferSent := time.Now()
 	txHashTransfer, errSend := sendRawTransaction(fromEntry.RpcUrl, rawTxTransferBytes)
 	if errSend != nil {
 		fmt.Printf("   ❌ SendRawTransaction Transfer error: %v\n", errSend)
@@ -498,6 +499,7 @@ func main() {
 	rawTxCallBytes, _ := signedTxCall.MarshalBinary()
 
 	fmt.Printf("\n🚀 CLIENT NỘP LỆNH CONTRACT CALL LÊN CHAIN %d (Nonce=%d)...\n", fromEntry.ChainID, nonceCall)
+	timeCallSent := time.Now()
 	txHashCall, errSendCall := sendRawTransaction(fromEntry.RpcUrl, rawTxCallBytes)
 	if errSendCall != nil {
 		fmt.Printf("   ❌ SendRawTransaction Call error: %v\n", errSendCall)
@@ -513,6 +515,8 @@ func main() {
 
 	successTransfer := false
 	successCall := false
+	var durTransfer time.Duration
+	var durCall time.Duration
 
 	expectedThreshold := new(big.Int)
 	new(big.Float).Mul(big.NewFloat(amountInput*0.95), big.NewFloat(1e18)).Int(expectedThreshold)
@@ -525,7 +529,9 @@ func main() {
 				diff := new(big.Int).Sub(balB_Current, balB_Before)
 				if diff.Cmp(expectedThreshold) >= 0 {
 					successTransfer = true
-					fmt.Printf("\n%s🎉 BINGOOOO! TIỀN ĐÃ MINT TRÊN CHAIN %d THÀNH CÔNG! (+%s MTN)%s\n", ColorGreen, toEntry.ChainID, formatMTN(diff), ColorReset)
+					durTransfer = time.Since(timeTransferSent)
+					fmt.Printf("\n%s🎉 BINGOOOO! TIỀN ĐÃ MINT TRÊN CHAIN %d THÀNH CÔNG! (+%s MTN) ➔ Thời gian: %s%.2fs%s (%v)%s\n",
+						ColorGreen, toEntry.ChainID, formatMTN(diff), ColorBold+ColorYellow, durTransfer.Seconds(), ColorReset+ColorGreen, durTransfer.Round(time.Millisecond), ColorReset)
 				}
 			}
 		}
@@ -538,13 +544,23 @@ func main() {
 				val := new(big.Int).SetBytes(common.FromHex(result))
 				if val != nil && val.Cmp(big.NewInt(1)) == 0 {
 					successCall = true
-					fmt.Printf("\n%s🎉 BINGOOOO! SMART CONTRACT CHAIN %d ĐÃ NHẬN LỆNH TỪ CHAIN %d VÀ THỰC THI THÀNH CÔNG! (Counter = 1)%s\n", ColorGreen, toEntry.ChainID, fromEntry.ChainID, ColorReset)
+					durCall = time.Since(timeCallSent)
+					fmt.Printf("\n%s🎉 BINGOOOO! SMART CONTRACT CHAIN %d ĐÃ NHẬN LỆNH TỪ CHAIN %d VÀ THỰC THI THÀNH CÔNG! (Counter = 1) ➔ Thời gian: %s%.2fs%s (%v)%s\n",
+						ColorGreen, toEntry.ChainID, fromEntry.ChainID, ColorBold+ColorYellow, durCall.Seconds(), ColorReset+ColorGreen, durCall.Round(time.Millisecond), ColorReset)
 				}
 			}
 		}
 
 		if successTransfer && successCall {
-			fmt.Printf("\n✅ HOÀN TẤT KỊCH BẢN CLIENT (Chain %d ➔ Chain %d)!\n", fromEntry.ChainID, toEntry.ChainID)
+			fmt.Println()
+			fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+			fmt.Printf(ColorBold+"⏱️  KẾT QUẢ ĐO ĐẠC THỜI GIAN THỰC THI CROSS-CHAIN (CHAIN %d ➔ CHAIN %d):\n"+ColorReset, fromEntry.ChainID, toEntry.ChainID)
+			fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+			fmt.Printf("   ├─ 💸 Chuyển tiền (Transfer & Mint):         %s%s%.2fs%s (%v)\n", ColorBold, ColorGreen, durTransfer.Seconds(), ColorReset, durTransfer.Round(time.Millisecond))
+			fmt.Printf("   ├─ 📜 Gọi Smart Contract (Increment Call):   %s%s%.2fs%s (%v)\n", ColorBold, ColorGreen, durCall.Seconds(), ColorReset, durCall.Round(time.Millisecond))
+			fmt.Printf("   └─ ⚡ Độ trễ trung bình Relayer xử lý:      %s%.2fs%s\n", ColorBold+ColorYellow, (durTransfer.Seconds()+durCall.Seconds())/2, ColorReset)
+			fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+			fmt.Printf("✅ HOÀN TẤT KỊCH BẢN CLIENT (Chain %d ➔ Chain %d)!\n", fromEntry.ChainID, toEntry.ChainID)
 			return
 		}
 
