@@ -1,0 +1,11 @@
+# Ignore everything in private_chain_kit
+/*
+
+# Whitelist required files only
+!/run_chains.sh
+!/README.md
+!/private_dev_keys.json
+!/inventory.yml
+!/genesis.json
+!/gen_single_chain.py
+!/.gitignore

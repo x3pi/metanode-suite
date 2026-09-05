@@ -41,13 +41,18 @@ Ví dụ mẫu trực quan mô phỏng cơ chế **Account Abstraction theo chu�
 
 ---
 
+## 📁 Smart Contract Minh Họa (`contracts/`)
+- [`contracts/SimpleSmartAccount.sol`](contracts/SimpleSmartAccount.sol): Hợp đồng logic mẫu mà User EOA ủy quyền (delegate) tới theo chuẩn EIP-7702, hỗ trợ `execute(...)` đơn lẻ và `executeBatch(...)` nhiều giao dịch gộp cùng lúc.
+
+---
+
 ## 🚀 Cách chạy
 
 ```bash
-cd /home/abc/nhat/consensus-chain/metanode-suite/private-chain-v1/01-sponsored-tx-eip7702
+cd /home/abc/nhat/con-chain-v2/metanode-suite/private-chain-v1/01-sponsored-tx-eip7702
 
 # Chạy trực tiếp với cấu hình mặc định (tự động đọc ../config.json)
-go run main.go
+go run .
 
 # Hoặc tùy biến thông số thông qua flags:
 go run main.go \

@@ -43,9 +43,16 @@ type Config struct {
 
 func formatMTN(wei *big.Int) string {
 	if wei == nil {
-		return "0.0000"
+		return "0.0000 MTN"
+	}
+	if wei.Sign() == 0 {
+		return "0 MTN (0 wei)"
 	}
 	f := new(big.Float).Quo(new(big.Float).SetInt(wei), big.NewFloat(1e18))
+	// Nếu số wei nhỏ hơn 1e12 (0.000001 MTN), hiển thị chi tiết cả wei và số thập phân sâu để không bị làm tròn về 0
+	if wei.Cmp(big.NewInt(1e12)) < 0 {
+		return fmt.Sprintf("%.10f MTN (%s wei)", f, wei.String())
+	}
 	return fmt.Sprintf("%.6f MTN", f)
 }
 
