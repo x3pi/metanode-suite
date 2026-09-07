@@ -211,18 +211,7 @@ print(json.dumps(res))
     echo "   - RPC m2:   $P_M2_RPC (TCP: $P_M2_TCP)"
     echo "   - RPC m3:   $P_M3_RPC (TCP: $P_M3_TCP)"
 
-    # 1. Update tps_blast_cc
-    FILE1="$SUITE_DIR/test_tps/tps_blast_cc/config-multi.json"
-    if [ -f "$FILE1" ]; then
-        echo "Updating $FILE1 using Private Chain $TARGET_CID..."
-        jq --arg p "$P_M0_TCP" --arg r0 "$P_M0_RPC_CLEAN" \
-           --arg c1 "$P_M1_TCP" --arg r1 "$P_M1_RPC_CLEAN" \
-           --arg c2 "$P_M2_TCP" --arg r2 "$P_M2_RPC_CLEAN" \
-           --arg c3 "$P_M3_TCP" --arg r3 "$P_M3_RPC_CLEAN" \
-           --argjson cid "$TARGET_CID" \
-           '.chain_id = $cid | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | with_entries(select(.value != ""))' \
-           "$FILE1" > "${FILE1}.tmp" && mv "${FILE1}.tmp" "$FILE1"
-    fi
+    # (Các bài test TPS tps_blast_cc, tps_contract, tps_contract_parallel được đồng bộ dùng chung FILE6 ở cuối script)
 
     # 2. Update test-history
     FILE2="$SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json"
@@ -265,10 +254,13 @@ print(json.dumps(res))
            "$FILE5" > "${FILE5}.tmp" && mv "${FILE5}.tmp" "$FILE5"
     fi
 
-    # 6. Update test-blockstm
-    FILE6="$SUITE_DIR/test-simple/test-rpc/test-blockstm/config.json"
+    # 6. Update configs/config.json (Unified Single Source of Truth for RPC & TPS)
+    FILE6="$SUITE_DIR/configs/config.json"
+    if [ ! -f "$FILE6" ]; then
+        FILE6="$SUITE_DIR/test-simple/test-rpc/test-chain/config.json"
+    fi
     if [ -f "$FILE6" ]; then
-        echo "Updating $FILE6 using Private Chain $TARGET_CID..."
+        echo "Updating $FILE6 using Private Chain $TARGET_CID (Unified RPC & TCP)..."
         python3 -c "
 import json
 with open('$FILE6') as f:
@@ -281,11 +273,26 @@ chain_nodes = p_data.get('chain_nodes', {})
 nodes = p_data.get('nodes', {})
 c_info = chain_nodes.get(cid_str, {})
 rpc_nodes_map = c_info.get('rpc_nodes', {'m0': '$P_M0_RPC'})
+tcp_nodes_map = c_info.get('tcp_nodes', {'m0': '$P_M0_TCP'})
 
 cfg['target_chain'] = '$TARGET_NAME'
 cfg['chain_id'] = int(cid_str)
 cfg['rpc_url'] = '$P_M0_RPC'
 cfg['rpc_nodes'] = rpc_nodes_map
+cfg['tcp_nodes'] = tcp_nodes_map
+cfg['parent_connection_address'] = '$P_M0_TCP'
+cfg['connection_node_1'] = '$P_M1_TCP'
+cfg['connection_node_2'] = '$P_M2_TCP'
+cfg['connection_node_3'] = '$P_M3_TCP'
+cfg['rpc_0'] = '$P_M0_RPC_CLEAN'
+cfg['rpc_1'] = '$P_M1_RPC_CLEAN'
+cfg['rpc_2'] = '$P_M2_RPC_CLEAN'
+cfg['rpc_3'] = '$P_M3_RPC_CLEAN'
+cfg['parent_address'] = cfg.get('parent_address', '0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041')
+cfg['parent_connection_type'] = 'client'
+cfg['version'] = '0.0.1.0'
+if not cfg.get('private_key'):
+    cfg['private_key'] = '2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b'
 
 name_map = {'101': 'chain_a', '102': 'chain_b', '103': 'chain_c', '104': 'chain_d'}
 if 'private_chains' not in cfg:
@@ -295,16 +302,19 @@ for cid, rpc_url in nodes.items():
     c_name = name_map.get(str(cid), f'chain_{cid}')
     cur_info = chain_nodes.get(str(cid), {})
     cur_rpc_map = cur_info.get('rpc_nodes', {'m0': rpc_url})
+    cur_tcp_map = cur_info.get('tcp_nodes', {'m0': p_data.get('tcp_nodes', {}).get(str(cid), '')})
 
     if c_name in cfg['private_chains']:
         cfg['private_chains'][c_name]['chain_id'] = int(cid)
         cfg['private_chains'][c_name]['rpc_url'] = rpc_url
         cfg['private_chains'][c_name]['rpc_nodes'] = cur_rpc_map
+        cfg['private_chains'][c_name]['tcp_nodes'] = cur_tcp_map
     else:
         cfg['private_chains'][c_name] = {
             'chain_id': int(cid),
             'rpc_url': rpc_url,
             'rpc_nodes': cur_rpc_map,
+            'tcp_nodes': cur_tcp_map,
             'private_keys': []
         }
 
@@ -312,32 +322,6 @@ with open('$FILE6', 'w') as f:
     json.dump(cfg, f, indent=2)
 print('✅ Updated private_chains and target_chain in $FILE6')
 "
-    fi
-
-    # 7. Update tps_contract
-    FILE7="$SUITE_DIR/test_tps/tps_contract/config-multi.json"
-    if [ -f "$FILE7" ]; then
-        echo "Updating $FILE7 using Private Chain $TARGET_CID..."
-        jq --arg p "$P_M0_TCP" --arg r0 "$P_M0_RPC_CLEAN" \
-           --arg c1 "$P_M1_TCP" --arg r1 "$P_M1_RPC_CLEAN" \
-           --arg c2 "$P_M2_TCP" --arg r2 "$P_M2_RPC_CLEAN" \
-           --arg c3 "$P_M3_TCP" --arg r3 "$P_M3_RPC_CLEAN" \
-           --argjson cid "$TARGET_CID" \
-           '.chain_id = $cid | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | with_entries(select(.value != ""))' \
-           "$FILE7" > "${FILE7}.tmp" && mv "${FILE7}.tmp" "$FILE7"
-    fi
-
-    # 8. Update tps_contract_parallel
-    FILE8="$SUITE_DIR/test_tps/tps_contract_parallel/config-multi.json"
-    if [ -f "$FILE8" ]; then
-        echo "Updating $FILE8 using Private Chain $TARGET_CID..."
-        jq --arg p "$P_M0_TCP" --arg r0 "$P_M0_RPC_CLEAN" \
-           --arg c1 "$P_M1_TCP" --arg r1 "$P_M1_RPC_CLEAN" \
-           --arg c2 "$P_M2_TCP" --arg r2 "$P_M2_RPC_CLEAN" \
-           --arg c3 "$P_M3_TCP" --arg r3 "$P_M3_RPC_CLEAN" \
-           --argjson cid "$TARGET_CID" \
-           '.chain_id = $cid | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | with_entries(select(.value != ""))' \
-           "$FILE8" > "${FILE8}.tmp" && mv "${FILE8}.tmp" "$FILE8"
     fi
 
 else
@@ -351,52 +335,7 @@ else
 
     echo "Reading IPs and Proxy Ports from $RPC_NODES_FILE..."
 
-    # 1. Update $SUITE_DIR/test_tps/tps_blast_cc/config-multi.json
-    FILE1="$SUITE_DIR/test_tps/tps_blast_cc/config-multi.json"
-    if [ -f "$FILE1" ]; then
-        echo "Updating $FILE1 using Validator Nodes..."
-        
-        new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-
-        role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
-        role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
-        role_3=$(jq -r '((.roles.m3 // "validator"))' "$RPC_NODES_FILE")
-
-        new_conn_1=""
-        new_rpc_1=""
-        if [ "$role_1" != "synconly" ]; then
-            new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        new_conn_2=""
-        new_rpc_2=""
-        if [ "$role_2" != "synconly" ]; then
-            new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        new_conn_3=""
-        new_rpc_3=""
-        if [ "$role_3" != "synconly" ]; then
-            new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        jq --arg p "$new_parent" \
-           --arg r0 "$new_rpc_0" \
-           --arg c1 "$new_conn_1" \
-           --arg r1 "$new_rpc_1" \
-           --arg c2 "$new_conn_2" \
-           --arg r2 "$new_rpc_2" \
-           --arg c3 "$new_conn_3" \
-           --arg r3 "$new_rpc_3" \
-           '.chain_id = 991 | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | with_entries(select(.value != ""))' \
-           "$FILE1" > "${FILE1}.tmp" && mv "${FILE1}.tmp" "$FILE1"
-    else
-        echo "Warning: $FILE1 not found." >&2
-    fi
+    # (Các bài test TPS tps_blast_cc, tps_contract, tps_contract_parallel được đồng bộ dùng chung FILE6 ở cuối script)
 
     # 2. Update $SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json
     FILE2="$SUITE_DIR/test-simple/test-rpc/test-history/config-mutil.json"
@@ -486,21 +425,55 @@ else
         echo "Warning: $FILE5 not found." >&2
     fi
 
-    # 6. Update $SUITE_DIR/test-simple/test-rpc/test-blockstm/config.json
-    FILE6="$SUITE_DIR/test-simple/test-rpc/test-blockstm/config.json"
+    # 6. Update configs/config.json - Unified Single Source of Truth
+    FILE6="$SUITE_DIR/configs/config.json"
+    if [ ! -f "$FILE6" ]; then
+        FILE6="$SUITE_DIR/test-simple/test-rpc/test-chain/config.json"
+    fi
     if [ -f "$FILE6" ]; then
-        echo "Updating $FILE6 using RPC Nodes..."
+        echo "Updating $FILE6 using RPC & TCP Nodes (Unified Single Source of Truth)..."
         
         new_rpc_url=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        
+        new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
+        new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+
+        role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
+        role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
+        role_3=$(jq -r '((.roles.m3 // "validator"))' "$RPC_NODES_FILE")
+
+        new_conn_1=""
+        new_rpc_1=""
+        if [ "$role_1" != "synconly" ]; then
+            new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
+            new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+        fi
+
+        new_conn_2=""
+        new_rpc_2=""
+        if [ "$role_2" != "synconly" ]; then
+            new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
+            new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+        fi
+
+        new_conn_3=""
+        new_rpc_3=""
+        if [ "$role_3" != "synconly" ]; then
+            new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
+            new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+        fi
+
         jq --arg r "$new_rpc_url" \
+           --arg p "$new_parent" --arg r0 "$new_rpc_0" \
+           --arg c1 "$new_conn_1" --arg r1 "$new_rpc_1" \
+           --arg c2 "$new_conn_2" --arg r2 "$new_rpc_2" \
+           --arg c3 "$new_conn_3" --arg r3 "$new_rpc_3" \
            --slurpfile rpc "$RPC_NODES_FILE" \
-           'del(.all_nodes, .roles) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .rpc_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly")))' \
+           'del(.all_nodes, .roles) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .rpc_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) | .tcp_nodes = ($rpc[0].tcp_nodes // {}) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly"))) | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | .parent_address = (.parent_address // "0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041") | .parent_connection_type = "client" | .version = "0.0.1.0" | .private_key = (if .private_key != "" and .private_key != null then .private_key else "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b" end)' \
            "$FILE6" > "${FILE6}.tmp" && mv "${FILE6}.tmp" "$FILE6"
 
         # Cập nhật thông tin Private Chains từ /tmp/private_chains.json (nếu có)
         if [ -f "$PRIV_CHAINS_FILE" ]; then
-            echo "Updating Private Chains RPC in $FILE6 from $PRIV_CHAINS_FILE..."
+            echo "Updating Private Chains RPC & TCP in $FILE6 from $PRIV_CHAINS_FILE..."
             python3 -c "
 import json
 with open('$FILE6') as f:
@@ -518,16 +491,19 @@ for cid, rpc_url in nodes.items():
     c_name = name_map.get(str(cid), f'chain_{cid}')
     c_info = chain_nodes.get(str(cid), {})
     rpc_nodes_map = c_info.get('rpc_nodes', {'m0': rpc_url})
+    tcp_nodes_map = c_info.get('tcp_nodes', {})
 
     if c_name in cfg['private_chains']:
         cfg['private_chains'][c_name]['chain_id'] = int(cid)
         cfg['private_chains'][c_name]['rpc_url'] = rpc_url
         cfg['private_chains'][c_name]['rpc_nodes'] = rpc_nodes_map
+        cfg['private_chains'][c_name]['tcp_nodes'] = tcp_nodes_map
     else:
         cfg['private_chains'][c_name] = {
             'chain_id': int(cid),
             'rpc_url': rpc_url,
             'rpc_nodes': rpc_nodes_map,
+            'tcp_nodes': tcp_nodes_map,
             'private_keys': []
         }
 
@@ -539,100 +515,21 @@ print('✅ Updated private_chains in $FILE6')
     else
         echo "Warning: $FILE6 not found." >&2
     fi
-
-    # 7. Update $SUITE_DIR/test_tps/tps_contract/config-multi.json
-    FILE7="$SUITE_DIR/test_tps/tps_contract/config-multi.json"
-    if [ -f "$FILE7" ]; then
-        echo "Updating $FILE7 using Validator Nodes..."
-        
-        new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-
-        role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
-        role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
-        role_3=$(jq -r '((.roles.m3 // "validator"))' "$RPC_NODES_FILE")
-
-        new_conn_1=""
-        new_rpc_1=""
-        if [ "$role_1" != "synconly" ]; then
-            new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        new_conn_2=""
-        new_rpc_2=""
-        if [ "$role_2" != "synconly" ]; then
-            new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        new_conn_3=""
-        new_rpc_3=""
-        if [ "$role_3" != "synconly" ]; then
-            new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        jq --arg p "$new_parent" \
-           --arg r0 "$new_rpc_0" \
-           --arg c1 "$new_conn_1" \
-           --arg r1 "$new_rpc_1" \
-           --arg c2 "$new_conn_2" \
-           --arg r2 "$new_rpc_2" \
-           --arg c3 "$new_conn_3" \
-           --arg r3 "$new_rpc_3" \
-           '.chain_id = 991 | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | with_entries(select(.value != ""))' \
-           "$FILE7" > "${FILE7}.tmp" && mv "${FILE7}.tmp" "$FILE7"
-    else
-        echo "Warning: $FILE7 not found." >&2
-    fi
-
-    # 8. Update $SUITE_DIR/test_tps/tps_contract_parallel/config-multi.json
-    FILE8="$SUITE_DIR/test_tps/tps_contract_parallel/config-multi.json"
-    if [ -f "$FILE8" ]; then
-        echo "Updating $FILE8 using Validator Nodes..."
-        
-        new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-
-        role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
-        role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
-        role_3=$(jq -r '((.roles.m3 // "validator"))' "$RPC_NODES_FILE")
-
-        new_conn_1=""
-        new_rpc_1=""
-        if [ "$role_1" != "synconly" ]; then
-            new_conn_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_1=$(jq -r '((.nodes.m1 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        new_conn_2=""
-        new_rpc_2=""
-        if [ "$role_2" != "synconly" ]; then
-            new_conn_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_2=$(jq -r '((.nodes.m2 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        new_conn_3=""
-        new_rpc_3=""
-        if [ "$role_3" != "synconly" ]; then
-            new_conn_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-            new_rpc_3=$(jq -r '((.nodes.m3 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
-        fi
-
-        jq --arg p "$new_parent" \
-           --arg r0 "$new_rpc_0" \
-           --arg c1 "$new_conn_1" \
-           --arg r1 "$new_rpc_1" \
-           --arg c2 "$new_conn_2" \
-           --arg r2 "$new_rpc_2" \
-           --arg c3 "$new_conn_3" \
-           --arg r3 "$new_rpc_3" \
-           '.chain_id = 991 | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | with_entries(select(.value != ""))' \
-           "$FILE8" > "${FILE8}.tmp" && mv "${FILE8}.tmp" "$FILE8"
-    else
-        echo "Warning: $FILE8 not found." >&2
-    fi
 fi
+
+# ==============================================================================
+# 7. ĐỒNG BỘ CẤU HÌNH DÙNG CHUNG QUA SYMBOLIC LINKS (SINGLE SOURCE OF TRUTH)
+# ==============================================================================
+echo "🔗 Đồng bộ cấu hình dùng chung (Single Source of Truth) qua Symbolic Links..."
+TARGET_CONFIG="$FILE6"
+
+# 7.1. Root config.json
+ln -sf "configs/config.json" "$SUITE_DIR/config.json"
+
+# 7.2. test-simple/test-rpc/test-chain/config.json
+mkdir -p "$SUITE_DIR/test-simple/test-rpc/test-chain"
+ln -sf "../../../configs/config.json" "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json"
+
+echo "✅ Đã đồng bộ cấu hình dùng chung (Single Source of Truth) tại: $TARGET_CONFIG"
 
 chmod +x "$0" 2>/dev/null || true

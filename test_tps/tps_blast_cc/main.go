@@ -362,6 +362,20 @@ func main() {
 	flag.IntVar(&tpsTarget, "tps-target", 0, "Target TPS for paced injection (0 = disable pacing)")
 	flag.Parse()
 
+	// Fallback to shared configs/config.json if default ./config.json is missing
+	if _, err := os.Stat(configPath); err != nil {
+		for _, candidate := range []string{
+			"../../configs/config.json",
+			"../configs/config.json",
+			"configs/config.json",
+		} {
+			if _, e := os.Stat(candidate); e == nil {
+				configPath = candidate
+				break
+			}
+		}
+	}
+
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
 
 	fmt.Println("═══════════════════════════════════════════════════")

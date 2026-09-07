@@ -41,9 +41,23 @@ func logToFile(filename string, message string) {
 
 func main() {
 	// 1. Đọc config
-	configData, err := os.ReadFile("config.json")
+	configPath := "config.json"
+	configData, err := os.ReadFile(configPath)
 	if err != nil {
-		fmt.Println("❌ Không thể đọc file config.json! Vui lòng tạo file config.json trước.")
+		for _, candidate := range []string{
+			"../../configs/config.json",
+			"../configs/config.json",
+			"configs/config.json",
+		} {
+			if data, e := os.ReadFile(candidate); e == nil {
+				configData = data
+				err = nil
+				break
+			}
+		}
+	}
+	if err != nil {
+		fmt.Println("❌ Không thể đọc file config.json! Vui lòng kiểm tra file configs/config.json.")
 		return
 	}
 

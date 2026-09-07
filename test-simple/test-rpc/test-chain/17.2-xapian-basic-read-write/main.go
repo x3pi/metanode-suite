@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"tool-test/test-simple/test-rpc/test-blockstm/config"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"

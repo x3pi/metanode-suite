@@ -6,7 +6,7 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-blockstm/config"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 	"bytes"
 	"context"
 	"crypto/ecdsa"

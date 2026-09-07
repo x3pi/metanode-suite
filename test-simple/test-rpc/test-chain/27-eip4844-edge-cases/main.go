@@ -1,7 +1,7 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-blockstm/config"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/sha256"
 	"fmt"

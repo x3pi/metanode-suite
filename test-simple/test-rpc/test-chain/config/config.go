@@ -21,24 +21,49 @@ type PrivateChainConfig struct {
 	RPCUrl      string            `json:"rpc_url"`
 	PrivateKeys []string          `json:"private_keys"`
 	RPCNodes    map[string]string `json:"rpc_nodes"`
+	TCPNodes    map[string]string `json:"tcp_nodes,omitempty"`
 }
 
 type Config struct {
-	RPCUrl        string                        `json:"rpc_url"`
-	RPCNodes      map[string]string             `json:"rpc_nodes"`
-	SyncNodes     map[string]string             `json:"sync_nodes"`
-	ChainID       int64                         `json:"chain_id"`
-	PrivateKey    string                        `json:"private_key"`
-	PrivateKeys   []string                      `json:"private_keys"`
-	PrivateChains map[string]PrivateChainConfig `json:"private_chains"`
-	TargetChain   string                        `json:"target_chain"`
-	Contracts     map[string]ContractData       `json:"contracts"`
+	RPCUrl                  string                        `json:"rpc_url"`
+	RPCNodes                map[string]string             `json:"rpc_nodes"`
+	TCPNodes                map[string]string             `json:"tcp_nodes,omitempty"`
+	SyncNodes               map[string]string             `json:"sync_nodes"`
+	ChainID                 int64                         `json:"chain_id"`
+	PrivateKey              string                        `json:"private_key"`
+	PrivateKeys             []string                      `json:"private_keys"`
+	PrivateChains           map[string]PrivateChainConfig `json:"private_chains"`
+	TargetChain             string                        `json:"target_chain"`
+	Contracts               map[string]ContractData       `json:"contracts"`
+	ParentConnectionAddress string                        `json:"parent_connection_address,omitempty"`
+	ParentAddress           string                        `json:"parent_address,omitempty"`
+	ParentConnectionType    string                        `json:"parent_connection_type,omitempty"`
+	Version                 string                        `json:"version,omitempty"`
 }
 
 // LoadConfig reads configPath, unmarshals it into Config, and applies Private Chain resolution
 // if TARGET_CHAIN env or cfg.TargetChain in config.json is specified.
 func LoadConfig(configPath string) (*Config, error) {
+	if configPath == "" {
+		configPath = "../config.json"
+	}
 	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		for _, fallback := range []string{
+			"../config.json",
+			"../../configs/config.json",
+			"../../../configs/config.json",
+			"configs/config.json",
+			"./config.json",
+		} {
+			if data, e := os.ReadFile(fallback); e == nil {
+				raw = data
+				configPath = fallback
+				err = nil
+				break
+			}
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("không thể đọc file cấu hình %s: %w", configPath, err)
 	}
@@ -121,6 +146,12 @@ func applyPrivateChain(cfg *Config, name string, pChain PrivateChainConfig) {
 	} else {
 		cfg.RPCNodes = map[string]string{
 			name: cfg.RPCUrl,
+		}
+	}
+	if len(pChain.TCPNodes) > 0 {
+		cfg.TCPNodes = pChain.TCPNodes
+		if p0, ok := pChain.TCPNodes["m0"]; ok {
+			cfg.ParentConnectionAddress = p0
 		}
 	}
 	fmt.Printf("🔗 [TESTCONFIG] Đã chuyển sang Private Chain '%s' (ChainID: %d, RPC: %s, %d nodes, %d keys)\n",

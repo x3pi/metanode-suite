@@ -107,6 +107,19 @@ func LoadConfig(configPath string) (types.Config, error) {
 	config := &ClientConfig{}
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
+		for _, candidate := range []string{
+			"../../configs/config.json",
+			"../configs/config.json",
+			"configs/config.json",
+		} {
+			if data, e := os.ReadFile(candidate); e == nil {
+				raw = data
+				err = nil
+				break
+			}
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
 	err = json.Unmarshal(raw, config)
