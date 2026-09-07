@@ -7,7 +7,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"math/big"
 	"os"
 	"time"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -23,8 +23,7 @@ import (
 	"github.com/holiman/uint256"
 )
 
-
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 26-eip7702-setcode-tx")
 	fmt.Println("==========================================================")
@@ -34,28 +33,27 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
 	if len(cfg.PrivateKeys) == 0 {
-		log.Fatalf("❌ Cần ít nhất 1 private key để test")
+		return fmt.Errorf("❌ Cần ít nhất 1 private key để test")
 	}
 
 	pkSender, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
 	if err != nil {
-		log.Fatalf("❌ Parse private key sender thất bại: %v", err)
+		return fmt.Errorf("❌ Parse private key sender thất bại: %v", err)
 	}
 	senderAddr := crypto.PubkeyToAddress(*pkSender.Public().(*ecdsa.PublicKey))
 
@@ -64,7 +62,7 @@ func main() {
 	if len(cfg.PrivateKeys) > 1 {
 		pkAuthority, err = crypto.HexToECDSA(cfg.PrivateKeys[1])
 		if err != nil {
-			log.Fatalf("❌ Parse private key authority thất bại: %v", err)
+			return fmt.Errorf("❌ Parse private key authority thất bại: %v", err)
 		}
 	} else {
 		// Dùng chính sender hoặc sinh ví mới
@@ -76,19 +74,19 @@ func main() {
 	if cfg.ChainID == 0 {
 		cid, err := client.ChainID(context.Background())
 		if err != nil {
-			log.Fatalf("❌ Lấy ChainID thất bại: %v", err)
+			return fmt.Errorf("❌ Lấy ChainID thất bại: %v", err)
 		}
 		chainID = cid
 	}
 
 	senderNonce, err := client.PendingNonceAt(context.Background(), senderAddr)
 	if err != nil {
-		log.Fatalf("❌ Lấy nonce sender thất bại: %v", err)
+		return fmt.Errorf("❌ Lấy nonce sender thất bại: %v", err)
 	}
 
 	authNonce, err := client.PendingNonceAt(context.Background(), authorityAddr)
 	if err != nil {
-		log.Fatalf("❌ Lấy nonce authority thất bại: %v", err)
+		return fmt.Errorf("❌ Lấy nonce authority thất bại: %v", err)
 	}
 
 	gasPrice, err := client.SuggestGasPrice(context.Background())
@@ -117,7 +115,7 @@ func main() {
 
 	signedAuth, err := types.SignSetCode(pkAuthority, authTuple)
 	if err != nil {
-		log.Fatalf("❌ Ký SetCode Authorization thất bại: %v", err)
+		return fmt.Errorf("❌ Ký SetCode Authorization thất bại: %v", err)
 	}
 	fmt.Printf("✍️ Đã ký EIP-7702 Authorization cho %s -> delegate %s (Nonce: %d)\n", authorityAddr.Hex(), delegateContract.Hex(), authNonce)
 
@@ -140,7 +138,7 @@ func main() {
 	signer := types.NewPragueSigner(chainID)
 	signedTx, err := types.SignNewTx(pkSender, signer, setCodeTxData)
 	if err != nil {
-		log.Fatalf("❌ Ký SetCodeTx thất bại: %v", err)
+		return fmt.Errorf("❌ Ký SetCodeTx thất bại: %v", err)
 	}
 
 	fmt.Printf("📤 Gửi SetCodeTx hash: %s (TxType: 0x%02x)...\n", signedTx.Hash().Hex(), signedTx.Type())
@@ -151,7 +149,7 @@ func main() {
 
 	err = client.SendTransaction(ctx, signedTx)
 	if err != nil {
-		log.Fatalf("❌ Lỗi gửi SetCodeTx qua RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi gửi SetCodeTx qua RPC: %v", err)
 	}
 	fmt.Printf("✅ Đã gửi thành công lên RPC! Đang chờ receipt...\n")
 
@@ -167,7 +165,7 @@ func main() {
 	}
 
 	if receipt == nil {
-		log.Fatalf("❌ Timeout chờ receipt cho tx %s", signedTx.Hash().Hex())
+		return fmt.Errorf("❌ Timeout chờ receipt cho tx %s", signedTx.Hash().Hex())
 	}
 
 	fmt.Printf("\n📄 RECEIPT SUMMARY:\n")
@@ -183,14 +181,23 @@ func main() {
 	}
 
 	if receipt.Status != 1 {
-		fmt.Println("❌ TEST FAILED: Transaction Status != 1 (Reverted)")
-		os.Exit(1)
+		return fmt.Errorf("❌ TEST FAILED: Transaction Status != 1 (Reverted)")
 	}
 
 	if receipt.Type != types.SetCodeTxType {
-		fmt.Printf("❌ TEST FAILED: TxType không khớp (nhận được 0x%02x, kỳ vọng 0x%02x)\n", receipt.Type, types.SetCodeTxType)
-		os.Exit(1)
+		return fmt.Errorf("❌ TEST FAILED: TxType không khớp (nhận được 0x%02x, kỳ vọng 0x%02x)", receipt.Type, types.SetCodeTxType)
 	}
 
 	fmt.Println("\n🎉 TEST 26 (EIP-7702 SETCODE TX) PASSED THÀNH CÔNG!")
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("%v", err)
+	}
 }

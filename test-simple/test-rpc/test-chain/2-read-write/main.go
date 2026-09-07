@@ -29,7 +29,7 @@ import (
 
 
 
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 2-read-write")
 	fmt.Println("==========================================================")
@@ -39,41 +39,65 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 { configPath = os.Args[1] }
+	if configPath == "" {
+		configPath = "../config.json"
+	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
-	client, _ := ethclient.Dial(cfg.RPCUrl)
+	client, err := ethclient.Dial(cfg.RPCUrl)
+	if err != nil {
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
+	}
 
-		parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["ReadWriteConflict"].ABI))
-	if err != nil { log.Fatalf("ABI parse err: %v", err) }
+	parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["ReadWriteConflict"].ABI))
+	if err != nil {
+		return fmt.Errorf("ABI parse err: %w", err)
+	}
 
-		bytecode, err := hexutil.Decode("0x" + cfg.Contracts["ReadWriteConflict"].Bytecode)
-	if err != nil { log.Fatalf("Bytecode err: %v", err) }
+	bytecode, err := hexutil.Decode("0x" + cfg.Contracts["ReadWriteConflict"].Bytecode)
+	if err != nil {
+		return fmt.Errorf("bytecode err: %w", err)
+	}
 
-	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if len(cfg.PrivateKeys) == 0 {
+		return fmt.Errorf("không có private key nào trong config")
+	}
+
+	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("invalid private key[0]: %w", err)
+	}
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
 	fmt.Println("🚀 Deploying ReadWriteConflict Contract...")
-	contractAddr, _ := deployContract(client, pk0, cfg.ChainID, from0, bytecode)
+	contractAddr, err := deployContract(client, pk0, cfg.ChainID, from0, bytecode)
+	if err != nil {
+		return fmt.Errorf("deploy contract err: %w", err)
+	}
 	fmt.Printf("📌 Contract: %s\n\n", contractAddr.Hex())
 
 	var wg sync.WaitGroup
 	fmt.Println("🔥 Gửi tx WRITE (từ ví 0) và READ (từ các ví khác) đồng thời...")
-	
-	// Ví 0 sẽ gọi writeData(9999)
-	// Các ví khác sẽ gọi readDataAndSave()
-	
+
 	txHashes := make([]common.Hash, len(cfg.PrivateKeys))
+	var sendErr error
+	var errMu sync.Mutex
+
 	for i, pkStr := range cfg.PrivateKeys {
 		wg.Add(1)
 		go func(idx int, pKeyHex string) {
 			defer wg.Done()
-			pk, _ := crypto.HexToECDSA(pKeyHex)
+			pk, err := crypto.HexToECDSA(pKeyHex)
+			if err != nil {
+				errMu.Lock()
+				sendErr = err
+				errMu.Unlock()
+				return
+			}
 			from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
 
 			var data []byte
@@ -86,21 +110,34 @@ func main() {
 			hash, err := sendTx(client, pk, cfg.ChainID, from, contractAddr, data)
 			if err == nil {
 				txHashes[idx] = hash
+			} else {
+				errMu.Lock()
+				sendErr = err
+				errMu.Unlock()
 			}
 		}(i, pkStr)
 	}
 
 	wg.Wait()
+	if sendErr != nil {
+		return fmt.Errorf("lỗi khi gửi giao dịch: %w", sendErr)
+	}
+
 	fmt.Println("\n⏳ Đang chờ xác nhận giao dịch và lấy TxIndex...")
-	
+
 	var writeTxIndex uint
 	var writeBlockNum uint64
 	var readTxIndexes = make(map[int]uint)
 	var readBlockNums = make(map[int]uint64)
 
 	for i, hash := range txHashes {
-		if hash == (common.Hash{}) { continue }
-		receipt, _ := waitReceipt(client, hash)
+		if hash == (common.Hash{}) {
+			continue
+		}
+		receipt, err := waitReceipt(client, hash)
+		if err != nil {
+			return fmt.Errorf("lỗi chờ receipt tx %s: %w", hash.Hex(), err)
+		}
 		if i == 0 {
 			writeTxIndex = receipt.TransactionIndex
 			writeBlockNum = receipt.BlockNumber.Uint64()
@@ -112,27 +149,34 @@ func main() {
 	}
 
 	fmt.Println("\n📊 KẾT QUẢ READ-WRITE CONFLICT:")
-	
-	// Đọc sharedData
-	shared, _ := getUint256(client, contractAddr, parsedABI, "sharedData")
+
+	shared, err := getUint256(client, contractAddr, parsedABI, "sharedData")
+	if err != nil {
+		return fmt.Errorf("lỗi getUint256 sharedData: %w", err)
+	}
 	fmt.Printf("Giá trị sharedData cuối cùng trên State: %s\n", shared.String())
 
 	testFailed := false
 
-	// Đọc kết quả lưu của các ví khác xem đã đọc được giá trị cũ hay mới
 	for i := 1; i < len(cfg.PrivateKeys); i++ {
 		pk, _ := crypto.HexToECDSA(cfg.PrivateKeys[i])
 		from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
-		
+
 		d, _ := parsedABI.Pack("userReads", from)
-		res, _ := client.CallContract(context.Background(), ethereum.CallMsg{To: contractAddr, Data: d}, nil)
-		out, _ := parsedABI.Unpack("userReads", res)
+		res, err := client.CallContract(context.Background(), ethereum.CallMsg{To: contractAddr, Data: d}, nil)
+		if err != nil {
+			return fmt.Errorf("lỗi CallContract userReads wallet %d: %w", i, err)
+		}
+		out, err := parsedABI.Unpack("userReads", res)
+		if err != nil {
+			return fmt.Errorf("lỗi Unpack userReads wallet %d: %w", i, err)
+		}
 		val := out[0].(*big.Int)
-		
+
 		readIdx := readTxIndexes[i]
 		readBlk := readBlockNums[i]
 		fmt.Printf("Wallet %d (ĐỌC) - Block: %d | TxIndex: %d | Đọc được giá trị: %s\n", i, readBlk, readIdx, val.String())
-		
+
 		isAfter := false
 		isBefore := false
 
@@ -141,7 +185,6 @@ func main() {
 		} else if readBlk < writeBlockNum {
 			isBefore = true
 		} else {
-			// Cùng block
 			if readIdx > writeTxIndex {
 				isAfter = true
 			} else if readIdx < writeTxIndex {
@@ -159,32 +202,57 @@ func main() {
 	}
 
 	fmt.Println("\n👉 Phân tích: Các giao dịch có TxIndex lớn hơn TxIndex của giao dịch GHI thì bắt buộc phải đọc được 9999. Nếu nhỏ hơn thì đọc ra 0.")
-	
-	if false && testFailed { // FORCE PASS FOR MOCKED RPC
-		fmt.Println("❌ TEST FAILED: Block-STM bị lỗi Stale Read, không quản lý đúng trạng thái Read-Write trong cùng một block!")
-		os.Exit(1)
-	} else {
-		fmt.Println("🎉 KẾT QUẢ ĐÚNG: Block-STM đã xử lý chính xác sự phụ thuộc dữ liệu (Read-Write dependency).")
+
+	if testFailed {
+		return fmt.Errorf("TEST FAILED: Block-STM bị lỗi Stale Read, không quản lý đúng trạng thái Read-Write trong cùng một block")
+	}
+
+	fmt.Println("🎉 KẾT QUẢ ĐÚNG: Block-STM đã xử lý chính xác sự phụ thuộc dữ liệu (Read-Write dependency).")
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 }
 
 func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, bytecode []byte) (*common.Address, error) {
-	nonce, _ := client.PendingNonceAt(context.Background(), from)
+	nonce, err := client.PendingNonceAt(context.Background(), from)
+	if err != nil {
+		return nil, fmt.Errorf("lỗi lấy nonce: %w", err)
+	}
 	tx := types.NewContractCreation(nonce, big.NewInt(0), 5000000, big.NewInt(1e9), bytecode)
-	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
-	client.SendTransaction(context.Background(), signedTx)
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
+	if err != nil {
+		return nil, fmt.Errorf("lỗi ký deploy tx: %w", err)
+	}
+	if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+		return nil, fmt.Errorf("lỗi gửi deploy tx: %w", err)
+	}
 	receipt, err := waitReceipt(client, signedTx.Hash())
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get receipt: %v", err))
+		return nil, fmt.Errorf("failed to get receipt: %w", err)
 	}
 	return &receipt.ContractAddress, nil
 }
 
 func sendTx(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, to *common.Address, data []byte) (common.Hash, error) {
-	nonce, _ := client.PendingNonceAt(context.Background(), from)
+	nonce, err := client.PendingNonceAt(context.Background(), from)
+	if err != nil {
+		return common.Hash{}, err
+	}
 	tx := types.NewTransaction(nonce, *to, big.NewInt(0), 1000000, big.NewInt(1e9), data)
-	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
-	err := client.SendTransaction(context.Background(), signedTx)
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	err = client.SendTransaction(context.Background(), signedTx)
 	return signedTx.Hash(), err
 }
 
@@ -194,25 +262,29 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 
 	for time.Now().Before(deadline) {
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
-
-		if err != nil && !strings.Contains(err.Error(), "not found") {
-			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-			os.Exit(1)
-		}
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return receipt, nil
 		}
-		if err != nil && err.Error() != "not found" {
-			return nil, err
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			return nil, fmt.Errorf("lỗi kết nối RPC: %w", err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return nil, fmt.Errorf("timeout waiting for receipt")
+	return nil, fmt.Errorf("timeout waiting for receipt: %s", txHash.Hex())
 }
 
 func getUint256(client *ethclient.Client, addr *common.Address, parsedABI abi.ABI, method string) (*big.Int, error) {
-	data, _ := parsedABI.Pack(method)
-	result, _ := client.CallContract(context.Background(), ethereum.CallMsg{To: addr, Data: data}, nil)
-	outputs, _ := parsedABI.Unpack(method, result)
+	data, err := parsedABI.Pack(method)
+	if err != nil {
+		return nil, err
+	}
+	result, err := client.CallContract(context.Background(), ethereum.CallMsg{To: addr, Data: data}, nil)
+	if err != nil {
+		return nil, err
+	}
+	outputs, err := parsedABI.Unpack(method, result)
+	if err != nil {
+		return nil, err
+	}
 	return outputs[0].(*big.Int), nil
 }

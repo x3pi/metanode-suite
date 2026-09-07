@@ -7,16 +7,17 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"strings"
 	"log"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -24,8 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 7-native-one-to-many")
 	fmt.Println("==========================================================")
@@ -35,99 +35,106 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
 	if len(cfg.PrivateKeys) < 2 {
-		log.Fatalf("❌ Cần ít nhất 2 private keys để test")
+		return fmt.Errorf("cần ít nhất 2 private keys để test")
 	}
 
 	// Chọn ví 0 làm ví gửi tiền
-	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("invalid private key[0]: %w", err)
+	}
 	senderAddr := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
 	fmt.Printf("🚀 Mục tiêu: 1 ví (%s) gửi tiền ĐỒNG THỜI đến %d ví nhận với Nonce tăng dần (Test Mempool)\n\n", senderAddr.Hex(), len(cfg.PrivateKeys)-1)
 
 	baseNonce, err := client.PendingNonceAt(context.Background(), senderAddr)
 	if err != nil {
-		log.Fatalf("❌ Lỗi lấy nonce: %v", err)
+		return fmt.Errorf("lỗi lấy nonce: %w", err)
 	}
 
 	var wg sync.WaitGroup
 	var errs []error
 	var errsMu sync.Mutex
 
+	txHashes := make([]common.Hash, len(cfg.PrivateKeys))
+	sendAmount := big.NewInt(1000)
+
 	// Lưu số dư ban đầu của các ví nhận
 	initialBalances := make(map[int]*big.Int)
 	for i := 1; i < len(cfg.PrivateKeys); i++ {
-		pkRecv, _ := crypto.HexToECDSA(cfg.PrivateKeys[i])
-		recvAddr := crypto.PubkeyToAddress(*pkRecv.Public().(*ecdsa.PublicKey))
-		bal, _ := client.BalanceAt(context.Background(), recvAddr, nil)
+		pkRecv, err := crypto.HexToECDSA(cfg.PrivateKeys[i])
+		if err != nil {
+			return fmt.Errorf("invalid private key[%d]: %w", i, err)
+		}
+		receiverAddr := crypto.PubkeyToAddress(*pkRecv.Public().(*ecdsa.PublicKey))
+		bal, err := client.BalanceAt(context.Background(), receiverAddr, nil)
+		if err != nil {
+			return fmt.Errorf("lỗi lấy balance ban đầu ví %d: %w", i, err)
+		}
 		initialBalances[i] = bal
 	}
-
-	txHashes := make([]common.Hash, len(cfg.PrivateKeys))
-	sendAmount := big.NewInt(1000) // Gửi 1000 wei mỗi ví
 
 	fmt.Printf("🔥 Push %d giao dịch vào Mempool cùng lúc...\n", len(cfg.PrivateKeys)-1)
 	start := time.Now()
 
 	for i := 1; i < len(cfg.PrivateKeys); i++ {
 		wg.Add(1)
-		
-		// Lấy địa chỉ ví nhận từ config
-		pkRecv, _ := crypto.HexToECDSA(cfg.PrivateKeys[i])
-		receiverAddr := crypto.PubkeyToAddress(*pkRecv.Public().(*ecdsa.PublicKey))
-		
-		// Tính toán nonce cho từng giao dịch (tự cộng thủ công)
-		txNonce := baseNonce + uint64(i-1)
-
-		go func(idx int, rAddr common.Address, nonce uint64) {
+		go func(idx int, pKeyHex string) {
 			defer wg.Done()
-
-			gasPrice, _ := client.SuggestGasPrice(context.Background())
-			if gasPrice == nil {
-				gasPrice = big.NewInt(1000000000)
+			pkRecv, err := crypto.HexToECDSA(pKeyHex)
+			if err != nil {
+				errsMu.Lock()
+				errs = append(errs, err)
+				errsMu.Unlock()
+				return
 			}
-			gasLimit := uint64(21000)
+			receiverAddr := crypto.PubkeyToAddress(*pkRecv.Public().(*ecdsa.PublicKey))
 
-			tx := types.NewTransaction(nonce, rAddr, sendAmount, gasLimit, gasPrice, nil)
+			targetNonce := baseNonce + uint64(idx-1)
+
+			gasLimit := uint64(21000)
+			gasPrice := big.NewInt(1e9)
+
+			tx := types.NewTransaction(targetNonce, receiverAddr, sendAmount, gasLimit, gasPrice, nil)
 			signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), pk0)
 			if err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Errorf("lỗi sign: %v", err))
+				errsMu.Unlock()
 				return
 			}
 
 			if err := client.SendTransaction(context.Background(), signedTx); err != nil {
 				errsMu.Lock()
-				errs = append(errs, fmt.Errorf("lỗi send tx %d (nonce %d): %v", idx, nonce, err))
+				errs = append(errs, fmt.Errorf("lỗi gửi tx nonce %d: %v", targetNonce, err))
 				errsMu.Unlock()
 				return
 			}
 
-			fmt.Printf("✅ Đã push tx (Nonce: %d) đến %s: %s\n", nonce, rAddr.Hex()[:10]+"...", signedTx.Hash().Hex())
+			fmt.Printf("✅ Đã push tx (Nonce: %d) đến %s...: %s\n", targetNonce, receiverAddr.Hex()[:10], signedTx.Hash().Hex())
 			txHashes[idx] = signedTx.Hash()
-		}(i, receiverAddr, txNonce)
+		}(i, cfg.PrivateKeys[i])
 	}
 
 	wg.Wait()
 
 	if len(errs) > 0 {
-		fmt.Println("❌ Một số giao dịch gửi thất bại (Mempool từ chối):")
-		for _, e := range errs {
-			fmt.Println("  -", e)
-		}
+		return fmt.Errorf("có lỗi khi gửi giao dịch: %v", errs[0])
 	}
 
 	fmt.Println("⏳ Chờ các giao dịch được confirm từ Mempool vào Block...")
@@ -140,23 +147,19 @@ func main() {
 		timeoutStart := time.Now()
 		for {
 			if time.Since(timeoutStart) > 60*time.Second {
-				fmt.Println("❌ Timeout waiting for receipt")
-				os.Exit(1)
+				return fmt.Errorf("timeout waiting for receipt: %s", hash.Hex())
 			}
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
-
-			if err != nil && !strings.Contains(err.Error(), "not found") {
-				fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-				os.Exit(1)
-			}
 			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status != 1 {
-					fmt.Printf("❌ Tx %s bị revert!\n", hash.Hex())
-				} else {
-					fmt.Printf("✅ Tx %s confirmed trong block %d\n", hash.Hex()[:10]+"...", receipt.BlockNumber.Uint64())
-					successCount++
+					return fmt.Errorf("tx %s bị revert", hash.Hex())
 				}
+				fmt.Printf("✅ Tx %s confirmed trong block %d\n", hash.Hex()[:10]+"...", receipt.BlockNumber.Uint64())
+				successCount++
 				break
+			}
+			if err != nil && !strings.Contains(err.Error(), "not found") {
+				return fmt.Errorf("lỗi kết nối RPC: %w", err)
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -168,20 +171,21 @@ func main() {
 	fmt.Printf("Thời gian gửi & chờ: %v\n", elapsed)
 	fmt.Printf("Số lượng gửi thành công: %d/%d\n", successCount, len(cfg.PrivateKeys)-1)
 
-	// Lấy số dư sau khi chạy của tất cả các ví để kiểm toán
 	fmt.Println("\n🔍 KIỂM TOÁN SỐ DƯ (BALANCE VERIFICATION):")
 	testFailed := false
 
 	for i := 1; i < len(cfg.PrivateKeys); i++ {
 		pkRecv, _ := crypto.HexToECDSA(cfg.PrivateKeys[i])
 		receiverAddr := crypto.PubkeyToAddress(*pkRecv.Public().(*ecdsa.PublicKey))
-		
-		finalBal, _ := client.BalanceAt(context.Background(), receiverAddr, nil)
+
+		finalBal, err := client.BalanceAt(context.Background(), receiverAddr, nil)
+		if err != nil {
+			return fmt.Errorf("lỗi lấy final balance ví %d: %w", i, err)
+		}
 		initialBal := initialBalances[i]
-		
-		// Ví nhận phải tăng đúng sendAmount (1000 wei)
+
 		expectedBal := new(big.Int).Add(initialBal, sendAmount)
-		
+
 		if finalBal.Cmp(expectedBal) != 0 {
 			fmt.Printf("   ❌ LỖI: Wallet %d (%s) có số dư %s, kỳ vọng %s\n", i, receiverAddr.Hex()[:8], finalBal.String(), expectedBal.String())
 			testFailed = true
@@ -190,10 +194,22 @@ func main() {
 		}
 	}
 
-	if successCount == len(cfg.PrivateKeys)-1 && !testFailed {
-		fmt.Println("\n🎉 TEST PASSED: Mempool xử lý Nonce tăng dần cực chuẩn và Balance của tất cả ví nhận cập nhật chính xác!")
-	} else {
-		fmt.Println("\n⚠️ TEST FAILED: Mempool từ chối giao dịch hoặc Balance bị sai lệch do Race Condition!")
-		os.Exit(1)
+	if successCount != len(cfg.PrivateKeys)-1 || testFailed {
+		return fmt.Errorf("TEST FAILED: Mempool từ chối giao dịch hoặc Balance bị sai lệch do Race Condition")
+	}
+
+	fmt.Println("\n🎉 TEST PASSED: Mempool xử lý Nonce tăng dần cực chuẩn và Balance của tất cả ví nhận cập nhật chính xác!")
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 }
+

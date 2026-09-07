@@ -1,7 +1,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -9,17 +8,17 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/holiman/uint256"
 )
 
-
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 27-eip4844-edge-cases")
 	fmt.Println("==========================================================")
@@ -31,24 +30,23 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
 	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
 	if err != nil {
-		log.Fatalf("❌ Parse private key thất bại: %v", err)
+		return fmt.Errorf("❌ Parse private key thất bại: %v", err)
 	}
 	fromAddr := crypto.PubkeyToAddress(pk0.PublicKey)
 
@@ -56,14 +54,14 @@ func main() {
 	if cfg.ChainID == 0 {
 		cid, err := client.ChainID(context.Background())
 		if err != nil {
-			log.Fatalf("❌ Lấy ChainID thất bại: %v", err)
+			return fmt.Errorf("❌ Lấy ChainID thất bại: %v", err)
 		}
 		chainID = cid
 	}
 
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddr)
 	if err != nil {
-		log.Fatalf("❌ Lấy nonce thất bại: %v", err)
+		return fmt.Errorf("❌ Lấy nonce thất bại: %v", err)
 	}
 
 	signer := types.NewCancunSigner(chainID)
@@ -112,7 +110,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("   ✅ Node từ chối chính xác: %v\n", err)
 	} else {
-		log.Fatalf("   ❌ LỖI BẢO MẬT: Node không từ chối giao dịch mang 7 blobs!")
+		return fmt.Errorf("   ❌ LỖI BẢO MẬT: Node không từ chối giao dịch mang 7 blobs!")
 	}
 
 	// -------------------------------------------------------------------------
@@ -141,7 +139,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("   ✅ Node từ chối chính xác: %v\n", err)
 	} else {
-		log.Fatalf("   ❌ LỖI BẢO MẬT: Node cho phép tạo contract qua BlobTx!")
+		return fmt.Errorf("   ❌ LỖI BẢO MẬT: Node cho phép tạo contract qua BlobTx!")
 	}
 
 	// -------------------------------------------------------------------------
@@ -172,8 +170,19 @@ func main() {
 	if err != nil && (strings.Contains(err.Error(), "kzg") || strings.Contains(err.Error(), "proof") || strings.Contains(err.Error(), "sidecar") || strings.Contains(err.Error(), "verify") || strings.Contains(err.Error(), "failed")) {
 		fmt.Printf("   ✅ Node phát hiện và từ chối KZG proof giả mạo: %v\n", err)
 	} else {
-		log.Fatalf("   ❌ LỖI BẢO MẬT: Node không phát hiện KZG proof bị hỏng! Kết quả: %v", err)
+		return fmt.Errorf("   ❌ LỖI BẢO MẬT: Node không phát hiện KZG proof bị hỏng! Kết quả: %v", err)
 	}
 
 	fmt.Println("\n🎉 TẤT CẢ CÁC TEST CASES BIÊN EIP-4844 ĐÃ PASSED HOÀN HẢO!")
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("%v", err)
+	}
 }

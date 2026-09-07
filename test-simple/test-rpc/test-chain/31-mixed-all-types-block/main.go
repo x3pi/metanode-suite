@@ -9,7 +9,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
@@ -20,6 +19,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -29,24 +29,23 @@ import (
 	"github.com/holiman/uint256"
 )
 
-
-func waitForReceipt(client *ethclient.Client, txHash common.Hash) *types.Receipt {
+func waitForReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	for {
 		receipt, err := client.TransactionReceipt(ctx, txHash)
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
-			return receipt
+			return receipt, nil
 		}
 		select {
 		case <-ctx.Done():
-			log.Fatalf("❌ Timeout chờ receipt cho tx %s", txHash.Hex())
+			return nil, fmt.Errorf("❌ Timeout chờ receipt cho tx %s", txHash.Hex())
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }
 
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 31-mixed-all-types-block (HỖN HỢP TẤT CẢ TX TYPES TRONG BLOCK)")
 	fmt.Println("==========================================================")
@@ -59,31 +58,33 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
-	testKeys := loadPrivateKeys("", cfg.PrivateKeys)
+	testKeys, err := loadPrivateKeys("", cfg.PrivateKeys)
+	if err != nil {
+		return fmt.Errorf("❌ Lỗi load private keys: %w", err)
+	}
 	if len(testKeys) < 8 {
-		log.Fatalf("❌ Cần ít nhất 8 private keys để gửi hỗn hợp các loại transactions")
+		return fmt.Errorf("❌ Cần ít nhất 8 private keys để gửi hỗn hợp các loại transactions")
 	}
 
 	chainID := big.NewInt(cfg.ChainID)
 	if cfg.ChainID == 0 {
 		cid, err := client.ChainID(context.Background())
 		if err != nil {
-			log.Fatalf("❌ Lấy ChainID thất bại: %v", err)
+			return fmt.Errorf("❌ Lấy ChainID thất bại: %v", err)
 		}
 		chainID = cid
 	}
@@ -105,46 +106,36 @@ func main() {
 		TypeID   uint8
 		FromKey  string
 		ToAddr   common.Address
-		BuildFn  func(nonce uint64, fromPK *ecdsa.PrivateKey, toAddr common.Address) *types.Transaction
+		BuildFn  func(nonce uint64, fromPK *ecdsa.PrivateKey, to common.Address) *types.Transaction
 	}
 
-	pk0, _ := crypto.HexToECDSA(testKeys[0])
-	addr0 := crypto.PubkeyToAddress(pk0.PublicKey)
 	pk1, _ := crypto.HexToECDSA(testKeys[1])
 	addr1 := crypto.PubkeyToAddress(pk1.PublicKey)
-	pk2, _ := crypto.HexToECDSA(testKeys[2])
-	addr2 := crypto.PubkeyToAddress(pk2.PublicKey)
 	pk3, _ := crypto.HexToECDSA(testKeys[3])
 	addr3 := crypto.PubkeyToAddress(pk3.PublicKey)
-	pk4, _ := crypto.HexToECDSA(testKeys[4])
-	addr4 := crypto.PubkeyToAddress(pk4.PublicKey)
 	pk5, _ := crypto.HexToECDSA(testKeys[5])
 	addr5 := crypto.PubkeyToAddress(pk5.PublicKey)
-	pk6, _ := crypto.HexToECDSA(testKeys[6])
-	addr6 := crypto.PubkeyToAddress(pk6.PublicKey)
 	pk7, _ := crypto.HexToECDSA(testKeys[7])
 	addr7 := crypto.PubkeyToAddress(pk7.PublicKey)
-
-	_ = addr0
-	_ = addr2
-	_ = addr4
-	_ = addr6
 
 	// Chuẩn bị KZG Blob cho Type 0x03
 	var blob kzg4844.Blob
 	copy(blob[:], []byte("Metanode Mixed Block Test Blob Data"))
 	commitment, err := kzg4844.BlobToCommitment(&blob)
 	if err != nil {
-		log.Fatalf("❌ BlobToCommitment err: %v", err)
+		return fmt.Errorf("❌ BlobToCommitment err: %v", err)
 	}
 	proof, err := kzg4844.ComputeBlobProof(&blob, commitment)
 	if err != nil {
-		log.Fatalf("❌ ComputeBlobProof err: %v", err)
+		return fmt.Errorf("❌ ComputeBlobProof err: %v", err)
 	}
 	versionedHash := common.Hash(kzg4844.CalcBlobHashV1(sha256.New(), &commitment))
 
 	// Chuẩn bị SetCode Authorization cho Type 0x04
-	authNonce, _ := client.PendingNonceAt(context.Background(), addr7)
+	authNonce, err := client.PendingNonceAt(context.Background(), addr7)
+	if err != nil {
+		return fmt.Errorf("❌ Lấy authNonce thất bại: %v", err)
+	}
 	delegateContract := common.HexToAddress("0x0000000000000000000000000000000000007702")
 	authTuple, err := types.SignSetCode(pk7, types.SetCodeAuthorization{
 		ChainID: *uint256.MustFromBig(chainID),
@@ -152,7 +143,7 @@ func main() {
 		Nonce:   authNonce,
 	})
 	if err != nil {
-		log.Fatalf("❌ SignSetCode err: %v", err)
+		return fmt.Errorf("❌ SignSetCode err: %v", err)
 	}
 
 	specs := []TxSpec{
@@ -252,11 +243,15 @@ func main() {
 		wg.Add(1)
 		go func(idx int, s TxSpec) {
 			defer wg.Done()
-			pk, _ := crypto.HexToECDSA(s.FromKey)
+			pk, err := crypto.HexToECDSA(s.FromKey)
+			if err != nil {
+				return
+			}
 			from := crypto.PubkeyToAddress(pk.PublicKey)
 			nonce, err := client.PendingNonceAt(context.Background(), from)
 			if err != nil {
-				log.Fatalf("❌ Lấy nonce ví %s thất bại: %v", from.Hex(), err)
+				fmt.Printf("❌ Lấy nonce ví %s thất bại: %v\n", from.Hex(), err)
+				return
 			}
 			tx := s.BuildFn(nonce, pk, s.ToAddr)
 			if err := client.SendTransaction(context.Background(), tx); err != nil {
@@ -276,9 +271,9 @@ func main() {
 		if h == (common.Hash{}) {
 			continue
 		}
-		rcpt := waitForReceipt(client, h)
-		if rcpt.Status != 1 {
-			log.Fatalf("❌ [%s] Transaction bị REVERT! Hash: %s", spec.Name, h.Hex())
+		rcpt, err := waitForReceipt(client, h)
+		if err != nil || rcpt.Status != 1 {
+			return fmt.Errorf("❌ [%s] Transaction bị REVERT hoặc timeout! Hash: %s, err: %v", spec.Name, h.Hex(), err)
 		}
 		fmt.Printf("   🎉 [%s] Đã commit tại Block %d | Type: 0x%02x | GasUsed: %d | Status: %d\n",
 			spec.Name, rcpt.BlockNumber.Uint64(), rcpt.Type, rcpt.GasUsed, rcpt.Status)
@@ -298,23 +293,32 @@ func main() {
 
 	if successCount == len(specs) {
 		fmt.Println("\n🎉 TEST PASSED: Block-STM và Validator Consensus xử lý mượt mà và chuẩn xác toàn bộ Transaction Types trong block!")
-	} else {
-		fmt.Println("\n❌ TEST FAILED: Có transaction type bị lỗi!")
-		os.Exit(1)
+		return nil
+	}
+	return fmt.Errorf("❌ TEST FAILED: Có transaction type bị lỗi! (Thành công %d/%d)", successCount, len(specs))
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("%v", err)
 	}
 }
 
 // loadPrivateKeys loads private keys either from an explicitly passed keys file,
 // or defaults to the keys defined in config.json.
-func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
+func loadPrivateKeys(keysFilePath string, cfgKeys []string) ([]string, error) {
 	if keysFilePath != "" {
 		raw, err := os.ReadFile(keysFilePath)
 		if err != nil {
-			log.Fatalf("❌ Lỗi đọc file keys %s: %v", keysFilePath, err)
+			return nil, fmt.Errorf("lỗi đọc file keys %s: %w", keysFilePath, err)
 		}
 		var strKeys []string
 		if err := json.Unmarshal(raw, &strKeys); err == nil && len(strKeys) > 0 {
-			return strKeys
+			return strKeys, nil
 		}
 		var genKeys []struct {
 			PrivateKey string `json:"private_key"`
@@ -327,14 +331,13 @@ func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
 				}
 			}
 			if len(res) > 0 {
-				return res
+				return res, nil
 			}
 		}
-		log.Fatalf("❌ Không thể parse private key nào từ file %s", keysFilePath)
+		return nil, fmt.Errorf("không thể parse private key nào từ file %s", keysFilePath)
 	}
 	if len(cfgKeys) > 0 {
-		return cfgKeys
+		return cfgKeys, nil
 	}
-	log.Fatalf("❌ Không tìm thấy private key nào trong config.json hoặc file chỉ định")
-	return nil
+	return nil, fmt.Errorf("không tìm thấy private key nào trong config.json hoặc file chỉ định")
 }

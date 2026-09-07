@@ -207,6 +207,8 @@ func sanitizeKey(k string) string {
 func loadAvailableChains(configFilePath string) (map[string]ChainEntry, error) {
 	paths := []string{
 		configFilePath,
+		"../../../../configs/config.json",
+		"../../../configs/config.json",
 		"../../config.json",
 		"../config.json",
 		"./config.json",
@@ -323,30 +325,37 @@ func main() {
 		}
 	}
 
+	if err := RunTransferTest(targetFrom, targetTo, amountInput, configPath, rpcA, rpcB, keyA, keyB); err != nil {
+		fmt.Printf("\n❌ %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// RunTransferTest thực thi kiểm thử chuyển tiền & gọi Smart Contract cross-chain.
+func RunTransferTest(targetFrom, targetTo string, amountInput float64, configPath, rpcA, rpcB, keyA, keyB string) error {
+	if targetFrom == "" {
+		targetFrom = "101"
+	}
+	if targetTo == "" {
+		targetTo = "102"
+	}
+	if amountInput <= 0 {
+		amountInput = 500.0
+	}
+
 	availableChains, errCfg := loadAvailableChains(configPath)
 	if errCfg != nil {
-		fmt.Printf("❌ Không thể đọc file cấu hình (%s): %v\n", configPath, errCfg)
-		return
+		return fmt.Errorf("không thể đọc file cấu hình (%s): %w", configPath, errCfg)
 	}
 
 	fromEntry, okFrom := availableChains[strings.ToLower(targetFrom)]
 	if !okFrom {
-		fmt.Printf("❌ Không tìm thấy thông tin Chain nguồn '%s' trong config.json (Các chain khả dụng: ", targetFrom)
-		for k := range availableChains {
-			fmt.Printf("%s ", k)
-		}
-		fmt.Println(")")
-		return
+		return fmt.Errorf("không tìm thấy thông tin Chain nguồn '%s' trong config", targetFrom)
 	}
 
 	toEntry, okTo := availableChains[strings.ToLower(targetTo)]
 	if !okTo {
-		fmt.Printf("❌ Không tìm thấy thông tin Chain đích '%s' trong config.json (Các chain khả dụng: ", targetTo)
-		for k := range availableChains {
-			fmt.Printf("%s ", k)
-		}
-		fmt.Println(")")
-		return
+		return fmt.Errorf("không tìm thấy thông tin Chain đích '%s' trong config", targetTo)
 	}
 
 	// Áp dụng override nếu có
@@ -363,8 +372,7 @@ func main() {
 	} else if len(fromEntry.PrivateKeys) > 0 {
 		selectedKeyA = fromEntry.PrivateKeys[0]
 	} else {
-		fmt.Printf("❌ Không tìm thấy private key cho Chain nguồn %d trong config.json\n", fromEntry.ChainID)
-		return
+		return fmt.Errorf("không tìm thấy private key cho Chain nguồn %d trong config", fromEntry.ChainID)
 	}
 
 	selectedKeyB := ""
@@ -373,21 +381,18 @@ func main() {
 	} else if len(toEntry.PrivateKeys) > 0 {
 		selectedKeyB = toEntry.PrivateKeys[0]
 	} else {
-		fmt.Printf("❌ Không tìm thấy private key cho Chain đích %d trong config.json\n", toEntry.ChainID)
-		return
+		return fmt.Errorf("không tìm thấy private key cho Chain đích %d trong config", toEntry.ChainID)
 	}
 
 	privKeySender, errKeyA := crypto.HexToECDSA(selectedKeyA)
 	if errKeyA != nil {
-		fmt.Printf("❌ Private Key Sender không hợp lệ: %v\n", errKeyA)
-		return
+		return fmt.Errorf("private Key Sender không hợp lệ: %w", errKeyA)
 	}
 	senderAddr := crypto.PubkeyToAddress(privKeySender.PublicKey)
 
 	privKeyRecipient, errKeyB := crypto.HexToECDSA(selectedKeyB)
 	if errKeyB != nil {
-		fmt.Printf("❌ Private Key Recipient không hợp lệ: %v\n", errKeyB)
-		return
+		return fmt.Errorf("private Key Recipient không hợp lệ: %w", errKeyB)
 	}
 	recipientAddr := crypto.PubkeyToAddress(privKeyRecipient.PublicKey)
 
@@ -430,14 +435,12 @@ func main() {
 		false,
 	)
 	if errPack != nil {
-		fmt.Printf("❌ Lỗi pack outbound: %v\n", errPack)
-		return
+		return fmt.Errorf("lỗi pack outbound transfer: %w", errPack)
 	}
 
 	nonceA, errNonce := getNonce(fromEntry.RpcUrl, senderAddr.Hex())
 	if errNonce != nil {
-		fmt.Printf("❌ Lỗi lấy nonce Chain %d: %v\n", fromEntry.ChainID, errNonce)
-		return
+		return fmt.Errorf("lỗi lấy nonce Chain %d: %w", fromEntry.ChainID, errNonce)
 	}
 	totalBurn := new(big.Int).Add(transferAmount, tipAmount)
 
@@ -449,8 +452,7 @@ func main() {
 	timeTransferSent := time.Now()
 	txHashTransfer, errSend := sendRawTransaction(fromEntry.RpcUrl, rawTxTransferBytes)
 	if errSend != nil {
-		fmt.Printf("   ❌ SendRawTransaction Transfer error: %v\n", errSend)
-		return
+		return fmt.Errorf("sendRawTransaction Transfer error: %w", errSend)
 	}
 	fmt.Printf("   ✅ TxHash: %s\n", txHashTransfer.Hex())
 	waitForReceipt(fromEntry.RpcUrl, txHashTransfer, 10*time.Second)
@@ -460,7 +462,6 @@ func main() {
 	// =========================================================================
 	fmt.Printf("\n" + ColorBold + "📜 PHẦN 2: CROSS-CHAIN SMART CONTRACT CALL (GỌI HÀM INCREMENT TRÊN CHAIN %d)" + ColorReset + "\n", toEntry.ChainID)
 
-	// 2.1 Deploy TestCounter Contract trên Chain B (do Recipient thực hiện để test)
 	counterBytecodeHex := "608060405234801561000f575f80fd5b506101818061001d5f395ff3fe608060405234801561000f575f80fd5b5060043610610034575f3560e01c8063a87d942c14610038578063d09de08a14610056575b5f80fd5b610040610060565b60405161004d91906100d2565b60405180910390f35b61005e610068565b005b5f8054905090565b60015f808282546100799190610118565b925050819055507f20d8a6f5a693f9d1d627a598e8820f7a55ee74c183aa8f1a30e8d4e8dd9a8d845f546040516100b091906100d2565b60405180910390a1565b5f819050919050565b6100cc816100ba565b82525050565b5f6020820190506100e55f8301846100c3565b92915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f610122826100ba565b915061012d836100ba565b9250828201905080821115610145576101446100eb565b5b9291505056fea2646970667358221220124c20a0a92375b56d64655ddf70bcd5eccdd0fea4724fc3b1130c754d3eedd964736f6c63430008140033"
 	counterBytecode, _ := hexutil.Decode("0x" + counterBytecodeHex)
 	nonceB, _ := getNonce(toEntry.RpcUrl, recipientAddr.Hex())
@@ -475,7 +476,6 @@ func main() {
 	targetContractAddr := crypto.CreateAddress(recipientAddr, nonceB)
 	fmt.Printf("   ✅ Contract TestCounter Address (Chain %d): %s%s%s\n", toEntry.ChainID, ColorPurple, targetContractAddr.Hex(), ColorReset)
 
-	// 2.2 Client gửi lệnh outbound từ Chain A truyền payload "increment()" sang Contract ở Chain B
 	payloadIncrement, _ := hexutil.Decode("0xd09de08a")
 	gasFeeAmount := big.NewInt(100_000_000_000_000) // 0.0001 MTN for remote EVM execution
 	totalBurnCall := new(big.Int).Add(tipAmount, gasFeeAmount)
@@ -502,8 +502,7 @@ func main() {
 	timeCallSent := time.Now()
 	txHashCall, errSendCall := sendRawTransaction(fromEntry.RpcUrl, rawTxCallBytes)
 	if errSendCall != nil {
-		fmt.Printf("   ❌ SendRawTransaction Call error: %v\n", errSendCall)
-		return
+		return fmt.Errorf("sendRawTransaction Call error: %w", errSendCall)
 	}
 	fmt.Printf("   ✅ TxHash: %s (Gửi Payload: 0xd09de08a)\n", txHashCall.Hex())
 	waitForReceipt(fromEntry.RpcUrl, txHashCall, 10*time.Second)
@@ -561,7 +560,7 @@ func main() {
 			fmt.Printf("   └─ ⚡ Độ trễ trung bình Relayer xử lý:      %s%.2fs%s\n", ColorBold+ColorYellow, (durTransfer.Seconds()+durCall.Seconds())/2, ColorReset)
 			fmt.Println(ColorBold + ColorCyan + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
 			fmt.Printf("✅ HOÀN TẤT KỊCH BẢN CLIENT (Chain %d ➔ Chain %d)!\n", fromEntry.ChainID, toEntry.ChainID)
-			return
+			return nil
 		}
 
 		fmt.Printf(".")
@@ -569,5 +568,5 @@ func main() {
 		time.Sleep(1 * time.Second)
 	}
 
-	fmt.Printf("\n\n❌ Quá thời gian chờ (60s)! Hệ thống ngầm (Relayer) có vẻ chưa chạy hoặc chưa xử lý kịp.\n")
+	return fmt.Errorf("quá thời gian chờ (60s)! Hệ thống Relayer có vẻ chưa chạy hoặc chưa xử lý kịp")
 }

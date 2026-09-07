@@ -164,16 +164,76 @@ type GeneratedKey struct {
 	Address    string `json:"address"`
 }
 
+type TestOptions struct {
+	Rounds      int
+	ConfigPath  string
+	KeysFile    string
+	MultiNodes  bool
+	NumKeys     int
+	WaitMethod  string
+	UseXapian   bool
+	UseParallel bool
+}
+
+func RunTest(configPath string) error {
+	return RunTestWithOptions(TestOptions{
+		Rounds:     1,
+		ConfigPath: configPath,
+		NumKeys:    10,
+		WaitMethod: "block",
+	})
+}
+
 func main() {
 	rounds := flag.Int("rounds", 1, "Số round muốn test")
 	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
-keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
+	keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
 	multiNodes := flag.Bool("multi", false, "Chế độ gửi giao dịch dàn trải lên nhiều RPC node từ config.json")
 	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
 	waitMethod := flag.String("wait-method", "block", "Phương thức chờ giao dịch: 'block' hoặc 'receipt'")
 	useXapian := flag.Bool("xapian", false, "Chế độ test Xapian DB (thay vì EVM State thông thường)")
 	useParallel := flag.Bool("parallel", false, "Chế độ test song song không xung đột (non-conflicting parallel updates)")
 	flag.Parse()
+
+	configPath := *configFlag
+	if flag.NArg() > 0 {
+		configPath = flag.Arg(0)
+	}
+
+	opts := TestOptions{
+		Rounds:      *rounds,
+		ConfigPath:  configPath,
+		KeysFile:    *keysFile,
+		MultiNodes:  *multiNodes,
+		NumKeys:     *numKeys,
+		WaitMethod:  *waitMethod,
+		UseXapian:   *useXapian,
+		UseParallel: *useParallel,
+	}
+
+	if err := RunTestWithOptions(opts); err != nil {
+		log.Fatalf("❌ %v", err)
+	}
+}
+
+func RunTestWithOptions(opts TestOptions) error {
+	rounds := &opts.Rounds
+	if *rounds <= 0 {
+		*rounds = 1
+	}
+	useXapian := &opts.UseXapian
+	useParallel := &opts.UseParallel
+	keysFile := &opts.KeysFile
+	multiNodes := &opts.MultiNodes
+	numKeys := &opts.NumKeys
+	waitMethod := &opts.WaitMethod
+	if *waitMethod == "" {
+		*waitMethod = "block"
+	}
+	configPath := opts.ConfigPath
+	if configPath == "" {
+		configPath = "../config.json"
+	}
 
 	fmt.Println("==========================================================")
 	if *useXapian {
@@ -207,11 +267,6 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 	}
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
-
-	configPath := *configFlag
-	if flag.NArg() > 0 {
-		configPath = flag.Arg(0)
-	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -793,8 +848,10 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 		} else {
 			fmt.Println("🎉 TEST PASSED: BlockSTM xử lý write conflict đúng!")
 		}
+		return nil
 	} else {
 		fmt.Println("⚠️ TEST FAILED: Giá trị state không khớp với kỳ vọng")
+		return fmt.Errorf("TEST FAILED: Giá trị state không khớp với kỳ vọng")
 	}
 }
 

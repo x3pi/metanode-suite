@@ -175,6 +175,8 @@ func sanitizeKey(k string) string {
 func loadAvailableChains(configFilePath string) (map[string]ChainEntry, error) {
 	paths := []string{
 		configFilePath,
+		"../../../../configs/config.json",
+		"../../../configs/config.json",
 		"../../config.json",
 		"../config.json",
 		"./config.json",
@@ -270,39 +272,41 @@ func main() {
 		targetTo = posArgs[1]
 	}
 
+	if err := RunRefundTest(targetFrom, targetTo, configPath); err != nil {
+		fmt.Printf("\n❌ %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// RunRefundTest thực thi kiểm thử các trường hợp lỗi & hoàn tiền cross-chain.
+func RunRefundTest(targetFrom, targetTo, configPath string) error {
+	if targetFrom == "" {
+		targetFrom = "101"
+	}
+	if targetTo == "" {
+		targetTo = "102"
+	}
+
 	availableChains, errCfg := loadAvailableChains(configPath)
 	if errCfg != nil {
-		fmt.Printf("❌ Không thể đọc file cấu hình (%s): %v\n", configPath, errCfg)
-		return
+		return fmt.Errorf("không thể đọc file cấu hình (%s): %w", configPath, errCfg)
 	}
 
 	fromEntry, okFrom := availableChains[strings.ToLower(targetFrom)]
 	if !okFrom {
-		fmt.Printf("❌ Không tìm thấy thông tin Chain nguồn '%s' trong config.json (Các chain khả dụng: ", targetFrom)
-		for k := range availableChains {
-			fmt.Printf("%s ", k)
-		}
-		fmt.Println(")")
-		return
+		return fmt.Errorf("không tìm thấy thông tin Chain nguồn '%s' trong config", targetFrom)
 	}
 
 	toEntry, okTo := availableChains[strings.ToLower(targetTo)]
 	if !okTo {
-		fmt.Printf("❌ Không tìm thấy thông tin Chain đích '%s' trong config.json (Các chain khả dụng: ", targetTo)
-		for k := range availableChains {
-			fmt.Printf("%s ", k)
-		}
-		fmt.Println(")")
-		return
+		return fmt.Errorf("không tìm thấy thông tin Chain đích '%s' trong config", targetTo)
 	}
 
 	if len(fromEntry.PrivateKeys) == 0 {
-		fmt.Printf("❌ Không tìm thấy private key cho Chain nguồn %d trong config.json\n", fromEntry.ChainID)
-		return
+		return fmt.Errorf("không tìm thấy private key cho Chain nguồn %d trong config", fromEntry.ChainID)
 	}
 	if len(toEntry.PrivateKeys) == 0 {
-		fmt.Printf("❌ Không tìm thấy private key cho Chain đích %d trong config.json\n", toEntry.ChainID)
-		return
+		return fmt.Errorf("không tìm thấy private key cho Chain đích %d trong config", toEntry.ChainID)
 	}
 
 	keyA := fromEntry.PrivateKeys[0]
@@ -421,23 +425,28 @@ func main() {
 
 	txHashValid, errValid := sendRawTransaction(fromEntry.RpcUrl, rawTxValidBytes)
 	if errValid != nil {
-		fmt.Printf("   ❌ Lỗi nộp tx: %v\n", errValid)
-		return
+		return fmt.Errorf("lỗi nộp tx chuyển tiền: %w", errValid)
 	}
 	fmt.Printf("   🚀 Gửi 200 MTN thành công lên Chain %d (Tx: %s)...\n", fromEntry.ChainID, txHashValid.Hex())
 
 	balB_BeforeValid, _ := getBalance(toEntry.RpcUrl, recipientAddr.Hex())
 	fmt.Printf("   ⏳ Chờ Relayer chuyển giao và Chain %d mint tiền...\n", toEntry.ChainID)
 
+	mintSuccess := false
 	for i := 0; i < 30; i++ {
 		time.Sleep(1 * time.Second)
 		balB_Cur, _ := getBalance(toEntry.RpcUrl, recipientAddr.Hex())
 		diff := new(big.Int).Sub(balB_Cur, balB_BeforeValid)
 		if diff.Cmp(new(big.Int).Mul(big.NewInt(190), big.NewInt(1e18))) >= 0 {
 			fmt.Printf("\n   %s🎉 XÁC NHẬN THÀNH CÔNG: Chain %d đã mint +%s MTN vào ví người nhận!%s\n", ColorGreen, toEntry.ChainID, formatMTN(diff), ColorReset)
+			mintSuccess = true
 			break
 		}
 		fmt.Printf(".")
+	}
+
+	if !mintSuccess {
+		return fmt.Errorf("quá thời gian chờ (30s)! Chain %d chưa mint tiền cho Case 3", toEntry.ChainID)
 	}
 
 	balA_Final, _ := getBalance(fromEntry.RpcUrl, senderAddr.Hex())
@@ -460,4 +469,5 @@ func main() {
 	fmt.Println("   2. [Zero Gas Test]: Chain đích chặn đứng thành công, bảo vệ mạng chống spam.")
 	fmt.Println("   3. [Valid Transfer]: Chuyển và mint chính xác tuyệt đối, cân bằng cung tiền.")
 	fmt.Println(ColorBold + ColorPurple + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+	return nil
 }

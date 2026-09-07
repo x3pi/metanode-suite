@@ -55,28 +55,15 @@ type DataPayload struct {
 }
 
 func loadConfig(path string) (*config.Config, error) {
-	candidates := []string{
-		path,
-		"../config.json",
-		"../../config.json",
-		"/home/abc/nhat/consensus-chain/metanode-suite/config.json",
-	}
-
-	for _, p := range candidates {
-		if p == "" {
-			continue
-		}
-		if cfg, err := config.LoadConfig(p); err == nil {
-			return cfg, nil
-		}
-	}
-	return nil, fmt.Errorf("không thể đọc file config")
+	return config.LoadConfig(path)
 }
 
 func loadABI() (abi.ABI, error) {
 	abiPaths := []string{
 		"../../test_read_wire_xapian/abi/xapian.json",
 		"../test_read_wire_xapian/abi/xapian.json",
+		"test-simple/test-rpc/test_read_wire_xapian/abi/xapian.json",
+		"/home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/test_read_wire_xapian/abi/xapian.json",
 		"/home/abc/nhat/consensus-chain/metanode-suite/test-simple/test-rpc/test_read_wire_xapian/abi/xapian.json",
 	}
 	for _, p := range abiPaths {
@@ -95,6 +82,8 @@ func loadSetupData() ([]DataPayload, error) {
 	dataPaths := []string{
 		"../../test_read_wire_xapian/data-xapian-v2.json",
 		"../test_read_wire_xapian/data-xapian-v2.json",
+		"test-simple/test-rpc/test_read_wire_xapian/data-xapian-v2.json",
+		"/home/abc/nhat/con-chain-v2/metanode-suite/test-simple/test-rpc/test_read_wire_xapian/data-xapian-v2.json",
 		"/home/abc/nhat/consensus-chain/metanode-suite/test-simple/test-rpc/test_read_wire_xapian/data-xapian-v2.json",
 	}
 	for _, p := range dataPaths {
@@ -154,17 +143,17 @@ func convertToType(t abi.Type, val interface{}) (interface{}, error) {
 	return val, nil
 }
 
-func prepareArgs(method abi.Method, jsonArgs []interface{}) []interface{} {
+func prepareArgs(method abi.Method, jsonArgs []interface{}) ([]interface{}, error) {
 	var packedArgs []interface{}
 	for i, input := range method.Inputs {
 		rawVal := jsonArgs[i]
 		val, err := convertToType(input.Type, rawVal)
 		if err != nil {
-			log.Fatalf("❌ Lỗi chuyển đổi tham số [%d] (%s): %v", i, input.Type.String(), err)
+			return nil, fmt.Errorf("❌ Lỗi chuyển đổi tham số [%d] (%s): %w", i, input.Type.String(), err)
 		}
 		packedArgs = append(packedArgs, val)
 	}
-	return packedArgs
+	return packedArgs, nil
 }
 
 // deployAndSetupContract tự động chạy toàn bộ pipeline của data-xapian-v2.json
@@ -243,7 +232,10 @@ func deployAndSetupContract(client *ethclient.Client, cfg *config.Config, contra
 			if !ok {
 				return common.Address{}, fmt.Errorf("không tìm thấy method %s trong ABI", task.Method)
 			}
-			parsedArgs := prepareArgs(method, task.Args)
+			parsedArgs, err := prepareArgs(method, task.Args)
+			if err != nil {
+				return common.Address{}, err
+			}
 			payloadData, err := contractAbi.Pack(task.Method, parsedArgs...)
 			if err != nil {
 				return common.Address{}, fmt.Errorf("lỗi pack %s: %v", task.Method, err)
@@ -337,7 +329,10 @@ func deployAndSetupContract(client *ethclient.Client, cfg *config.Config, contra
 			if !ok {
 				return common.Address{}, fmt.Errorf("không tìm thấy method %s trong ABI", task.Method)
 			}
-			parsedArgs := prepareArgs(method, task.Args)
+			parsedArgs, err := prepareArgs(method, task.Args)
+			if err != nil {
+				return common.Address{}, err
+			}
 			payloadData, err := contractAbi.Pack(task.Method, parsedArgs...)
 			if err != nil {
 				return common.Address{}, fmt.Errorf("lỗi pack call %s: %v", task.Method, err)
@@ -366,32 +361,56 @@ type QueryCase struct {
 	ExpectedOutputs []string
 }
 
-func main() {
-	configPath := flag.String("config", "../config.json", "Đường dẫn file config.json")
-	duration := flag.Duration("duration", 20*time.Second, "Thời gian chạy stress test (mặc định 20s, ví dụ: 20s, 1m)")
-	workers := flag.Int("workers", 10, "Số lượng luồng song song (Goroutines)")
-	mode := flag.String("mode", "mixed", "Chế độ test: mixed (cả hai), getdata (chỉ đọc doc), search (chỉ tìm kiếm)")
-	delayMs := flag.Int("delay", 2, "Độ trễ nghỉ giữa 2 request mỗi goroutine (ms, mặc định 2ms để tránh nghẽn I/O log server)")
-	contractHex := flag.String("contract", "", "Địa chỉ Contract Xapian (nếu bỏ trống sẽ tự động deploy & setup)")
-	flag.Parse()
+type TestOptions struct {
+	ConfigPath  string
+	Duration    time.Duration
+	Workers     int
+	Mode        string
+	DelayMs     int
+	ContractHex string
+}
+
+func RunTest(configPath string) error {
+	return RunTestWithOptions(TestOptions{
+		ConfigPath: configPath,
+		Duration:   5 * time.Second,
+		Workers:    5,
+		Mode:       "mixed",
+		DelayMs:    2,
+	})
+}
+
+func RunTestWithOptions(opts TestOptions) error {
+	if opts.ConfigPath == "" {
+		opts.ConfigPath = "../config.json"
+	}
+	if opts.Duration <= 0 {
+		opts.Duration = 5 * time.Second
+	}
+	if opts.Workers <= 0 {
+		opts.Workers = 5
+	}
+	if opts.Mode == "" {
+		opts.Mode = "mixed"
+	}
 
 	fmt.Println("==========================================================")
 	fmt.Println("⚡ BÀI TEST 32: XAPIAN HIGH-CONCURRENCY PARALLEL STRESS TEST")
 	fmt.Println("==========================================================")
-	fmt.Printf("⏱️  Thời lượng test : %v\n", *duration)
-	fmt.Printf("👥 Số luồng song song: %d Goroutines\n", *workers)
-	fmt.Printf("🎯 Chế độ truy vấn  : %s\n", *mode)
-	fmt.Printf("⏱️  Pacing Delay     : %d ms/goroutine\n", *delayMs)
+	fmt.Printf("⏱️  Thời lượng test : %v\n", opts.Duration)
+	fmt.Printf("👥 Số luồng song song: %d Goroutines\n", opts.Workers)
+	fmt.Printf("🎯 Chế độ truy vấn  : %s\n", opts.Mode)
+	fmt.Printf("⏱️  Pacing Delay     : %d ms/goroutine\n", opts.DelayMs)
 
-	cfg, err := loadConfig(*configPath)
+	cfg, err := loadConfig(opts.ConfigPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi đọc config: %v", err)
+		return fmt.Errorf("❌ Lỗi đọc config: %v", err)
 	}
 	fmt.Printf("🔗 RPC Endpoint      : %s\n", cfg.RPCUrl)
 
 	contractAbi, err := loadABI()
 	if err != nil {
-		log.Fatalf("❌ Lỗi nạp ABI: %v", err)
+		return fmt.Errorf("❌ Lỗi nạp ABI: %v", err)
 	}
 
 	// Tạo HTTP Client tối ưu Connection Pool (Keep-Alive) và Timeout an toàn (30s)
@@ -426,13 +445,13 @@ func main() {
 
 	// Lấy hoặc Deploy Contract
 	var contractAddr common.Address
-	if *contractHex != "" {
-		contractAddr = common.HexToAddress(*contractHex)
+	if opts.ContractHex != "" {
+		contractAddr = common.HexToAddress(opts.ContractHex)
 		fmt.Printf("📌 Sử dụng Contract đã chỉ định: %s\n", contractAddr.Hex())
 	} else {
 		deployedAddr, err := deployAndSetupContract(primaryClient, cfg, contractAbi)
 		if err != nil {
-			log.Fatalf("❌ Setup Xapian Contract thất bại: %v", err)
+			return fmt.Errorf("❌ Setup Xapian Contract thất bại: %v", err)
 		}
 		contractAddr = deployedAddr
 	}
@@ -491,7 +510,7 @@ func main() {
 	var latenciesMu sync.Mutex
 	latencies := make([]time.Duration, 0, 50000)
 
-	ctx, cancel := context.WithTimeout(context.Background(), *duration)
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Duration)
 	defer cancel()
 
 	// Lắng nghe tín hiệu Ctrl+C để dừng sớm và in thống kê
@@ -504,7 +523,7 @@ func main() {
 	}()
 
 	fmt.Println("\n==========================================================")
-	fmt.Printf("🚀 BẮT ĐẦU XẢ BÃO TRUY VẤN & XÁC THỰC DỮ LIỆU VỚI %d GOROUTINES...\n", *workers)
+	fmt.Printf("🚀 BẮT ĐẦU XẢ BÃO TRUY VẤN & XÁC THỰC DỮ LIỆU VỚI %d GOROUTINES...\n", opts.Workers)
 	fmt.Println("==========================================================")
 	fmt.Println("📋 CHI TIẾT CÁC HÀM TRUY VẤN ĐANG CHẠY SONG SONG:")
 	fmt.Println("   1. [GET DATA]     runStep5c_GetData_View(docId=0) -> Xác thực: 'Iphone 13 Pro UPDATED', 'electronics', 'apple', '89999', '84999', 'false', 'Flash sale da ket thuc'")
@@ -519,7 +538,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	// Kích hoạt N worker song song
-	for w := 0; w < *workers; w++ {
+	for w := 0; w < opts.Workers; w++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
@@ -536,9 +555,9 @@ func main() {
 				// Chọn kiểu truy vấn theo mode
 				var qCase QueryCase
 				isSearch := false
-				if *mode == "search" {
+				if opts.Mode == "search" {
 					isSearch = true
-				} else if *mode == "getdata" {
+				} else if opts.Mode == "getdata" {
 					isSearch = false
 				} else {
 					// mixed: random 50/50
@@ -612,8 +631,8 @@ func main() {
 					return
 				}
 
-				if *delayMs > 0 {
-					time.Sleep(time.Duration(*delayMs) * time.Millisecond)
+				if opts.DelayMs > 0 {
+					time.Sleep(time.Duration(opts.DelayMs) * time.Millisecond)
 				}
 			}
 		}(w)
@@ -644,7 +663,7 @@ func main() {
 				lastTime = t
 
 				fmt.Printf("⏳ [%4.1fs / %v] Total: %6d | RPS: %6.1f req/s | Success & Verified: %6d | Errors: %d\n",
-					elapsed.Seconds(), *duration, curTotal, instantRPS, curVerified, curErr)
+					elapsed.Seconds(), opts.Duration, curTotal, instantRPS, curVerified, curErr)
 			}
 		}
 	}()
@@ -686,8 +705,8 @@ func main() {
 	fmt.Println("\n==========================================================")
 	fmt.Println("📊 BÁO CÁO TỔNG KẾT STRESS TEST XAPIAN PARALLEL CONCURRENCY")
 	fmt.Println("==========================================================")
-	fmt.Printf("⏱️  Thời gian thực thi      : %.2f giây (Kỳ vọng: %v)\n", totalElapsed.Seconds(), *duration)
-	fmt.Printf("👥 Số Goroutine song song   : %d workers (Delay: %d ms)\n", *workers, *delayMs)
+	fmt.Printf("⏱️  Thời gian thực thi      : %.2f giây (Kỳ vọng: %v)\n", totalElapsed.Seconds(), opts.Duration)
+	fmt.Printf("👥 Số Goroutine song song   : %d workers (Delay: %d ms)\n", opts.Workers, opts.DelayMs)
 	fmt.Printf("📨 Tổng số request gửi      : %d\n", totalReqs)
 	fmt.Printf("✅ Request thành công & đúng: %d (%.2f%%)\n", successReqs, successRate)
 	fmt.Printf("🔍 Đã xác thực dữ liệu 100%%: %d requests\n", verifiedDataReqs)
@@ -707,11 +726,32 @@ func main() {
 	fmt.Printf("   - Chậm nhất (Max)        : %v\n", maxLat)
 	fmt.Println("==========================================================")
 
-	// BẮT BUỘC: Nếu có bất kỳ request nào fail hoặc dữ liệu sai -> Báo lỗi và exit 1
+	// BẮT BUỘC: Nếu có bất kỳ request nào fail hoặc dữ liệu sai -> Báo lỗi
 	if errorReqs == 0 && totalReqs > 0 {
 		fmt.Println("🎉 TEST PASSED: Xapian Engine và Validator RPC xử lý song song và TRẢ DỮ LIỆU CHÍNH XÁC 100%!")
-	} else {
-		fmt.Printf("❌ TEST FAILED: Có %d/%d request bị lỗi hoặc trả dữ liệu sai lệch!\n", errorReqs, totalReqs)
-		os.Exit(1)
+		return nil
+	}
+	return fmt.Errorf("❌ TEST FAILED: Có %d/%d request bị lỗi hoặc trả dữ liệu sai lệch!", errorReqs, totalReqs)
+}
+
+func main() {
+	configPath := flag.String("config", "../config.json", "Đường dẫn file config.json")
+	duration := flag.Duration("duration", 20*time.Second, "Thời gian chạy stress test (mặc định 20s, ví dụ: 20s, 1m)")
+	workers := flag.Int("workers", 10, "Số lượng luồng song song (Goroutines)")
+	mode := flag.String("mode", "mixed", "Chế độ test: mixed (cả hai), getdata (chỉ đọc doc), search (chỉ tìm kiếm)")
+	delayMs := flag.Int("delay", 2, "Độ trễ nghỉ giữa 2 request mỗi goroutine (ms, mặc định 2ms để tránh nghẽn I/O log server)")
+	contractHex := flag.String("contract", "", "Địa chỉ Contract Xapian (nếu bỏ trống sẽ tự động deploy & setup)")
+	flag.Parse()
+
+	opts := TestOptions{
+		ConfigPath:  *configPath,
+		Duration:    *duration,
+		Workers:     *workers,
+		Mode:        *mode,
+		DelayMs:     *delayMs,
+		ContractHex: *contractHex,
+	}
+	if err := RunTestWithOptions(opts); err != nil {
+		log.Fatalf("%v", err)
 	}
 }

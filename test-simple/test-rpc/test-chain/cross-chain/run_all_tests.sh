@@ -13,6 +13,19 @@ TESTS=(
     "03-cross-chain-failure-refund"
 )
 
+# Xử lý tham số truyền vào: --gotest hoặc --gorun
+MODE="gotest"
+for arg in "$@"; do
+    case $arg in
+        --gotest|-gotest|--test)
+            MODE="gotest"
+            ;;
+        --gorun|-gorun)
+            MODE="gorun"
+            ;;
+    esac
+done
+
 TOTAL_TEST_CASES=${#TESTS[@]}
 RUNS_PER_TEST=3
 TOTAL_RUNS=$((TOTAL_TEST_CASES * RUNS_PER_TEST))
@@ -30,6 +43,7 @@ REPORT_FILE="test_report.md"
 
 echo "=========================================================="
 echo "🚀 BẮT ĐẦU CHẠY BỘ TEST CROSS-CHAIN ($TOTAL_TEST_CASES BÀI, MỖI BÀI $RUNS_PER_TEST LẦN = $TOTAL_RUNS LƯỢT CHẠY)..."
+echo "🛠️  CHẾ ĐỘ CHẠY: $MODE (gotest: go test -v -count=1 -timeout 180s . | gorun: go run .)"
 echo "=========================================================="
 
 FAILED_TEST_KEY=""
@@ -47,8 +61,13 @@ for test_dir in "${TESTS[@]}"; do
         cd "$test_dir" || exit 1
         
         log_file="../$LOG_DIR/${test_key}.log"
-        go run . > "$log_file" 2>&1
-        exit_code=$?
+        if [ "$MODE" == "gotest" ]; then
+            go test -v -count=1 -timeout 180s . > "$log_file" 2>&1
+            exit_code=$?
+        else
+            go run . > "$log_file" 2>&1
+            exit_code=$?
+        fi
         cat "$log_file"
         
         output=$(cat "$log_file")

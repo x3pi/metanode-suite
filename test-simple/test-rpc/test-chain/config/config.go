@@ -44,33 +44,50 @@ type Config struct {
 // LoadConfig reads configPath, unmarshals it into Config, and applies Private Chain resolution
 // if TARGET_CHAIN env or cfg.TargetChain in config.json is specified.
 func LoadConfig(configPath string) (*Config, error) {
-	if configPath == "" {
-		configPath = "../config.json"
+	// Ưu tiên cao nhất: configPath được truyền trực tiếp hoặc METANODE_CONFIG_PATH
+	candidates := []string{}
+	if envPath := strings.TrimSpace(os.Getenv("METANODE_CONFIG_PATH")); envPath != "" {
+		candidates = append(candidates, envPath)
 	}
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		for _, fallback := range []string{
-			"../config.json",
-			"../../configs/config.json",
-			"../../../configs/config.json",
-			"configs/config.json",
-			"./config.json",
-		} {
-			if data, e := os.ReadFile(fallback); e == nil {
-				raw = data
-				configPath = fallback
-				err = nil
-				break
-			}
+	if configPath != "" {
+		candidates = append(candidates, configPath)
+	}
+
+	// Thứ tự tìm kiếm fallback ưu tiên tuyệt đối configs/config.json (Single Source of Truth)
+	candidates = append(candidates,
+		"../../../configs/config.json",                                  // Khi chạy từ test-simple/test-rpc/test-chain/<test_dir>
+		"../../configs/config.json",                                     // Khi chạy từ test-simple/test-rpc/<test_dir>
+		"../configs/config.json",                                        // Khi chạy từ test-simple/
+		"configs/config.json",                                           // Khi chạy từ metanode-suite root
+		"../config.json",                                                // Symlink test-chain/config.json
+		"./config.json",
+	)
+
+	var raw []byte
+	var err error
+	selectedPath := ""
+
+	for _, path := range candidates {
+		if path == "" {
+			continue
+		}
+		if data, e := os.ReadFile(path); e == nil {
+			raw = data
+			selectedPath = path
+			err = nil
+			break
+		} else {
+			err = e
 		}
 	}
-	if err != nil {
-		return nil, fmt.Errorf("không thể đọc file cấu hình %s: %w", configPath, err)
+
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("không thể đọc file cấu hình (đã thử qua %v): %w", candidates, err)
 	}
 
 	var cfg Config
 	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return nil, fmt.Errorf("không thể parse file cấu hình %s: %w", configPath, err)
+		return nil, fmt.Errorf("không thể parse file cấu hình %s: %w", selectedPath, err)
 	}
 
 	if cfg.PrivateKey == "" && len(cfg.PrivateKeys) > 0 {

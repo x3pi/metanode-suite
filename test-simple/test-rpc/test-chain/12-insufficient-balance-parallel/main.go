@@ -7,16 +7,17 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"strings"
 	"log"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -24,8 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 12-insufficient-balance-parallel")
 	fmt.Println("==========================================================")
@@ -35,43 +35,42 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
 	if len(cfg.PrivateKeys) < 2 {
-		log.Fatalf("❌ Cần ít nhất 2 private keys để test")
+		return fmt.Errorf("cần ít nhất 2 private keys để test")
 	}
 
-	// Chọn ví 0 làm ví gửi tiền vì ví cuối cùng đã cạn số dư
-	pkSender, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	pkSender, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("invalid private key[0]: %w", err)
+	}
 	senderAddr := crypto.PubkeyToAddress(*pkSender.Public().(*ecdsa.PublicKey))
 
-	balance, _ := client.BalanceAt(context.Background(), senderAddr, nil)
+	balance, err := client.BalanceAt(context.Background(), senderAddr, nil)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy balance: %w", err)
+	}
 	fmt.Printf("💰 Số dư ví gửi (%s): %s wei\n", senderAddr.Hex(), balance.String())
 
-	baseNonce, _ := client.PendingNonceAt(context.Background(), senderAddr)
-
-	// Tính số tiền mỗi giao dịch: Gửi 5 giao dịch, mỗi giao dịch = (balance / 3).
-	// Nghĩa là giao dịch 1, 2, 3 thành công. Giao dịch 4, 5 sẽ rớt.
-	// Lưu ý: Cần chừa ra một ít để trả gas fee.
-	sendAmount := new(big.Int).Div(balance, big.NewInt(4))
-
-	if sendAmount.Sign() <= 0 {
-		log.Fatalf("❌ Số dư quá thấp để chạy bài test này!")
+	baseNonce, err := client.PendingNonceAt(context.Background(), senderAddr)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy nonce: %w", err)
 	}
 
+	sendAmount := new(big.Int).Div(balance, big.NewInt(4))
 	fmt.Printf("🚀 Sẽ gửi 5 giao dịch ĐỒNG THỜI, mỗi cái: %s wei\n\n", sendAmount.String())
 
 	var wg sync.WaitGroup
@@ -82,16 +81,13 @@ func main() {
 
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
-		
-		// Lấy ví nhận khác với ví gửi (ví gửi là 0)
-		// Ta có thể dùng PrivateKeys[i+1] nếu danh sách có đủ, hoặc chỉ dùng PrivateKeys[1] cho tất cả
-		recvIdx := i + 1
-		if recvIdx >= len(cfg.PrivateKeys) {
-			recvIdx = 1 // fallback về ví 1 nếu thiếu key
+
+		pkRecv, err := crypto.HexToECDSA(cfg.PrivateKeys[(i+1)%len(cfg.PrivateKeys)])
+		if err != nil {
+			return fmt.Errorf("invalid receiver key %d: %w", i, err)
 		}
-		pkRecv, _ := crypto.HexToECDSA(cfg.PrivateKeys[recvIdx])
 		receiverAddr := crypto.PubkeyToAddress(*pkRecv.Public().(*ecdsa.PublicKey))
-		
+
 		txNonce := baseNonce + uint64(i)
 
 		go func(idx int, rAddr common.Address, nonce uint64) {
@@ -123,27 +119,19 @@ func main() {
 	fmt.Println("⏳ Chờ các giao dịch được confirm...")
 	successCount := 0
 	revertCount := 0
-	
-	// Đợi block được sinh ra
+
 	time.Sleep(3 * time.Second)
-	
+
 	for i := 0; i < 5; i++ {
 		hash := txHashes[i]
 		if hash == (common.Hash{}) {
-			// Failed at mempool
 			revertCount++
 			continue
 		}
-		
-		receipt, err := client.TransactionReceipt(context.Background(), hash)
 
-		
+		receipt, err := client.TransactionReceipt(context.Background(), hash)
 		if err != nil && !strings.Contains(err.Error(), "not found") {
-		
-			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-		
-			os.Exit(1)
-		
+			return fmt.Errorf("lỗi kết nối RPC: %w", err)
 		}
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			if receipt.Status != 1 {
@@ -169,7 +157,18 @@ func main() {
 	if revertCount > 0 {
 		fmt.Println("\n🎉 TEST PASSED: Block-STM hoặc Mempool xử lý hoàn hảo! (Phát hiện hết tiền song song)")
 	} else {
-		fmt.Println("\n⚠️ TEST FAILED: Logic bị sai. Có thể tất cả đều thành công!")
-		os.Exit(1)
+		return fmt.Errorf("TEST FAILED: Logic bị sai. Có thể tất cả đều thành công")
+	}
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 }

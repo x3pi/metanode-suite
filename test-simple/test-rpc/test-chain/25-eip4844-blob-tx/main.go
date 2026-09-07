@@ -7,7 +7,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
@@ -16,6 +15,7 @@ import (
 	"math/big"
 	"os"
 	"time"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -25,8 +25,7 @@ import (
 	"github.com/holiman/uint256"
 )
 
-
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 25-eip4844-blob-tx")
 	fmt.Println("==========================================================")
@@ -36,28 +35,27 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
 	if len(cfg.PrivateKeys) == 0 {
-		log.Fatalf("❌ Cần ít nhất 1 private key để test")
+		return fmt.Errorf("❌ Cần ít nhất 1 private key để test")
 	}
 
 	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
 	if err != nil {
-		log.Fatalf("❌ Parse private key thất bại: %v", err)
+		return fmt.Errorf("❌ Parse private key thất bại: %v", err)
 	}
 	fromAddr := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
@@ -74,14 +72,14 @@ func main() {
 	if cfg.ChainID == 0 {
 		cid, err := client.ChainID(context.Background())
 		if err != nil {
-			log.Fatalf("❌ Lấy ChainID thất bại: %v", err)
+			return fmt.Errorf("❌ Lấy ChainID thất bại: %v", err)
 		}
 		chainID = cid
 	}
 
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddr)
 	if err != nil {
-		log.Fatalf("❌ Lấy nonce thất bại: %v", err)
+		return fmt.Errorf("❌ Lấy nonce thất bại: %v", err)
 	}
 
 	gasPrice, err := client.SuggestGasPrice(context.Background())
@@ -104,12 +102,12 @@ func main() {
 
 	commitment, err := kzg4844.BlobToCommitment(&blob)
 	if err != nil {
-		log.Fatalf("❌ BlobToCommitment thất bại: %v", err)
+		return fmt.Errorf("❌ BlobToCommitment thất bại: %v", err)
 	}
 
 	proof, err := kzg4844.ComputeBlobProof(&blob, commitment)
 	if err != nil {
-		log.Fatalf("❌ ComputeBlobProof thất bại: %v", err)
+		return fmt.Errorf("❌ ComputeBlobProof thất bại: %v", err)
 	}
 
 	versionedHash := common.Hash(kzg4844.CalcBlobHashV1(sha256.New(), &commitment))
@@ -137,7 +135,7 @@ func main() {
 	signer := types.NewCancunSigner(chainID)
 	signedTx, err := types.SignNewTx(pk0, signer, blobTxData)
 	if err != nil {
-		log.Fatalf("❌ Ký BlobTx thất bại: %v", err)
+		return fmt.Errorf("❌ Ký BlobTx thất bại: %v", err)
 	}
 
 	fmt.Printf("📤 Gửi BlobTx hash: %s (TxType: 0x%02x)...\n", signedTx.Hash().Hex(), signedTx.Type())
@@ -148,7 +146,7 @@ func main() {
 
 	err = client.SendTransaction(ctx, signedTx)
 	if err != nil {
-		log.Fatalf("❌ Lỗi gửi BlobTx qua RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi gửi BlobTx qua RPC: %v", err)
 	}
 	fmt.Printf("✅ Đã gửi thành công lên RPC! Đang chờ receipt...\n")
 
@@ -164,7 +162,7 @@ func main() {
 	}
 
 	if receipt == nil {
-		log.Fatalf("❌ Timeout chờ receipt cho tx %s", signedTx.Hash().Hex())
+		return fmt.Errorf("❌ Timeout chờ receipt cho tx %s", signedTx.Hash().Hex())
 	}
 
 	fmt.Printf("\n📄 RECEIPT SUMMARY:\n")
@@ -178,14 +176,23 @@ func main() {
 	}
 
 	if receipt.Status != 1 {
-		fmt.Println("❌ TEST FAILED: Transaction Status != 1 (Reverted)")
-		os.Exit(1)
+		return fmt.Errorf("❌ TEST FAILED: Transaction Status != 1 (Reverted)")
 	}
 
 	if receipt.Type != types.BlobTxType {
-		fmt.Printf("❌ TEST FAILED: TxType không khớp (nhận được 0x%02x, kỳ vọng 0x%02x)\n", receipt.Type, types.BlobTxType)
-		os.Exit(1)
+		return fmt.Errorf("❌ TEST FAILED: TxType không khớp (nhận được 0x%02x, kỳ vọng 0x%02x)", receipt.Type, types.BlobTxType)
 	}
 
 	fmt.Println("\n🎉 TEST 25 (EIP-4844 BLOB TX) PASSED THÀNH CÔNG!")
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("%v", err)
+	}
 }

@@ -7,7 +7,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
@@ -18,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"tool-test/test-simple/test-rpc/test-chain/config"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -26,8 +27,21 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+func readContractFile(filename string) ([]byte, error) {
+	for _, p := range []string{
+		"../contracts/" + filename,
+		"contracts/" + filename,
+		"../../contracts/" + filename,
+		"test-simple/test-rpc/test-chain/contracts/" + filename,
+	} {
+		if data, err := os.ReadFile(p); err == nil {
+			return data, nil
+		}
+	}
+	return os.ReadFile(filename)
+}
 
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 14-selfdestruct-conflict")
 	fmt.Println("==========================================================")
@@ -37,40 +51,55 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
 	// Đọc ABI và BIN trực tiếp từ file được build bởi docker
-	abiBytes, err := os.ReadFile("../contracts/SelfDestructConflict.abi")
-	if err != nil { log.Fatalf("Lỗi đọc abi: %v", err) }
-	binBytes, err := os.ReadFile("../contracts/SelfDestructConflict.bin")
-	if err != nil { log.Fatalf("Lỗi đọc bin: %v", err) }
+	abiBytes, err := readContractFile("SelfDestructConflict.abi")
+	if err != nil {
+		return fmt.Errorf("lỗi đọc abi: %w", err)
+	}
+	binBytes, err := readContractFile("SelfDestructConflict.bin")
+	if err != nil {
+		return fmt.Errorf("lỗi đọc bin: %w", err)
+	}
 
-	parsedABI, _ := abi.JSON(strings.NewReader(string(abiBytes)))
-	bytecode, _ := hexutil.Decode("0x" + string(binBytes))
+	parsedABI, err := abi.JSON(strings.NewReader(string(abiBytes)))
+	if err != nil {
+		return fmt.Errorf("lỗi parse ABI: %w", err)
+	}
+	bytecode, err := hexutil.Decode("0x" + string(binBytes))
+	if err != nil {
+		return fmt.Errorf("lỗi decode bytecode: %w", err)
+	}
 
-	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("lỗi parse pk0: %w", err)
+	}
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
 	fmt.Println("🚀 Deploying SelfDestructConflict Contract...")
-	contractAddr, _ := deployContract(client, pk0, cfg.ChainID, from0, bytecode)
+	contractAddr, err := deployContract(client, pk0, cfg.ChainID, from0, bytecode)
+	if err != nil {
+		return fmt.Errorf("lỗi deploy contract: %w", err)
+	}
 	fmt.Printf("📌 Contract deployed at: %s\n\n", contractAddr.Hex())
 
 	var wg sync.WaitGroup
 	var errsMu sync.Mutex
-	
+
 	txHashes := make([]common.Hash, 4)
 	start := time.Now()
 
@@ -87,7 +116,7 @@ func main() {
 
 		tx := types.NewTransaction(nonce, *contractAddr, big.NewInt(0), gasLimit, gasPrice, data)
 		signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), pk0)
-		
+
 		err := client.SendTransaction(context.Background(), signedTx)
 		errsMu.Lock()
 		if err == nil {
@@ -109,7 +138,7 @@ func main() {
 			defer wg.Done()
 			pk, _ := crypto.HexToECDSA(cfg.PrivateKeys[idx])
 			from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
-			
+
 			data, _ := parsedABI.Pack("readData")
 			gasPrice := big.NewInt(1000000000)
 			gasLimit := uint64(50000)
@@ -117,7 +146,7 @@ func main() {
 
 			tx := types.NewTransaction(nonce, *contractAddr, big.NewInt(0), gasLimit, gasPrice, data)
 			signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), pk)
-			
+
 			err := client.SendTransaction(context.Background(), signedTx)
 			errsMu.Lock()
 			if err == nil {
@@ -140,19 +169,14 @@ func main() {
 		if hash == (common.Hash{}) {
 			continue
 		}
-		
+
 		timeoutStart := time.Now()
 		for {
 			if time.Since(timeoutStart) > 60*time.Second {
-				fmt.Println("❌ Timeout waiting for receipt")
-				os.Exit(1)
+				return fmt.Errorf("timeout waiting for receipt của Tx %s (sau 60s)", hash.Hex())
 			}
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
 
-			if err != nil && !strings.Contains(err.Error(), "not found") {
-				fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-				os.Exit(1)
-			}
 			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if i == 0 {
 					// Tx 0 là destroy
@@ -172,6 +196,9 @@ func main() {
 				}
 				break
 			}
+			if err != nil && !strings.Contains(err.Error(), "not found") {
+				return fmt.Errorf("lỗi kết nối RPC: %w", err)
+			}
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
@@ -182,36 +209,49 @@ func main() {
 
 	if destroySuccess {
 		fmt.Println("\n🎉 TEST PASSED: Block-STM xử lý chuẩn xác! Giao dịch tự hủy đã thực thi.")
-	} else {
-		fmt.Println("\n⚠️ TEST FAILED: Logic bị sai. Contract không bị hủy!")
-		os.Exit(1)
+		return nil
+	}
+
+	return fmt.Errorf("logic bị sai. Contract không bị hủy")
+}
+
+func main() {
+	if err := RunTest(""); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, bytecode []byte) (*common.Address, error) {
-	nonce, _ := client.PendingNonceAt(context.Background(), from)
+	nonce, err := client.PendingNonceAt(context.Background(), from)
+	if err != nil {
+		return nil, fmt.Errorf("lỗi get pending nonce: %w", err)
+	}
 	gasPrice, _ := client.SuggestGasPrice(context.Background())
-	if gasPrice == nil { gasPrice = big.NewInt(1000000000) }
-	
+	if gasPrice == nil {
+		gasPrice = big.NewInt(1000000000)
+	}
+
 	tx := types.NewContractCreation(nonce, big.NewInt(0), 5000000, gasPrice, bytecode)
-	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
-	client.SendTransaction(context.Background(), signedTx)
-	
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
+	if err != nil {
+		return nil, fmt.Errorf("lỗi sign deploy tx: %w", err)
+	}
+	if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+		return nil, fmt.Errorf("lỗi send deploy tx: %w", err)
+	}
+
 	timeoutStart := time.Now()
 	for {
 		if time.Since(timeoutStart) > 60*time.Second {
-			fmt.Println("❌ Timeout waiting for receipt")
-			os.Exit(1)
+			return nil, fmt.Errorf("timeout waiting for deploy receipt")
 		}
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
-
-		if err != nil && !strings.Contains(err.Error(), "not found") {
-			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-			os.Exit(1)
-		}
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return &receipt.ContractAddress, nil
+		}
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			return nil, fmt.Errorf("lỗi kết nối RPC: %w", err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

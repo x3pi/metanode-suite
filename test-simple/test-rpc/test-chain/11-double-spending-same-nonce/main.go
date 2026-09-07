@@ -24,7 +24,7 @@ import (
 )
 
 
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 11-double-spending-same-nonce")
 	fmt.Println("==========================================================")
@@ -34,33 +34,35 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
 	if len(cfg.PrivateKeys) < 2 {
-		log.Fatalf("❌ Cần ít nhất 2 private keys để test")
+		return fmt.Errorf("cần ít nhất 2 private keys để test")
 	}
 
-	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("invalid private key[0]: %w", err)
+	}
 	senderAddr := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
 	fmt.Printf("🚀 Mục tiêu: 1 ví (%s) gửi 5 giao dịch ĐỒNG THỜI với CÙNG MỘT NONCE\n\n", senderAddr.Hex())
 
 	baseNonce, err := client.PendingNonceAt(context.Background(), senderAddr)
 	if err != nil {
-		log.Fatalf("❌ Lỗi lấy nonce: %v", err)
+		return fmt.Errorf("lỗi lấy nonce: %w", err)
 	}
 
 	var wg sync.WaitGroup
@@ -74,12 +76,13 @@ func main() {
 
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
-		
-		// Lấy ví nhận bất kỳ
-		pkRecv, _ := crypto.HexToECDSA(cfg.PrivateKeys[i%len(cfg.PrivateKeys)])
+
+		pkRecv, err := crypto.HexToECDSA(cfg.PrivateKeys[i%len(cfg.PrivateKeys)])
+		if err != nil {
+			return fmt.Errorf("invalid receiver key %d: %w", i, err)
+		}
 		receiverAddr := crypto.PubkeyToAddress(*pkRecv.Public().(*ecdsa.PublicKey))
-		
-		// TẤT CẢ GIAO DỊCH ĐỀU DÙNG CHUNG 1 NONCE
+
 		txNonce := baseNonce
 
 		go func(idx int, rAddr common.Address, nonce uint64) {
@@ -113,7 +116,6 @@ func main() {
 	successCount := 0
 	failedCount := 0
 
-	// Chờ xem giao dịch nào được mine vào block
 	timeoutDuration := 40 * time.Second
 	deadline := time.Now().Add(timeoutDuration)
 	var confirmedTxHash common.Hash
@@ -164,7 +166,7 @@ func main() {
 	fmt.Printf("Thời gian chạy: %v\n", elapsed)
 	fmt.Printf("Số lượng thành công: %d (Kỳ vọng: 1)\n", successCount)
 	fmt.Printf("Số lượng thất bại / từ chối: %d (Kỳ vọng: 4)\n", failedCount)
-	
+
 	if len(errs) > 0 {
 		fmt.Println("📋 Lý do từ chối chi tiết:")
 		for _, e := range errs {
@@ -172,10 +174,21 @@ func main() {
 		}
 	}
 
-	if successCount == 1 {
-		fmt.Println("\n🎉 TEST PASSED: Block-STM xử lý chuẩn xác, chặn đứng các giao dịch Double Spend cùng Nonce!")
-	} else {
-		fmt.Println("\n⚠️ TEST FAILED: Phát hiện lỗi bảo mật! Có thể có nhiều hơn 1 tx được xác nhận hoặc tất cả đều rớt!")
-		os.Exit(1)
+	if successCount != 1 {
+		return fmt.Errorf("TEST FAILED: Phát hiện lỗi bảo mật! Có thể có nhiều hơn 1 tx được xác nhận hoặc tất cả đều rớt (thành công: %d)", successCount)
+	}
+
+	fmt.Println("\n🎉 TEST PASSED: Block-STM xử lý chuẩn xác, chặn đứng các giao dịch Double Spend cùng Nonce!")
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 }

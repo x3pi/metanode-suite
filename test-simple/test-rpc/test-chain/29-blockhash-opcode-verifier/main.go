@@ -1,7 +1,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -9,15 +8,15 @@ import (
 	"math/big"
 	"os"
 	"time"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 )
-
 
 // Runtime: 6000354060005260206000f3 (takes uint256 blockNumber, calls BLOCKHASH, returns 32-byte hash)
 // Deploy code: 600c600c600039600c6000f36000354060005260206000f3
@@ -35,23 +34,23 @@ func getRPCBlockHash(rpcClient *rpc.Client, blockNumber uint64) (common.Hash, er
 	return rawBlock.Hash, nil
 }
 
-func waitForReceipt(client *ethclient.Client, txHash common.Hash) *types.Receipt {
+func waitForReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	for {
 		receipt, err := client.TransactionReceipt(ctx, txHash)
 		if err == nil && receipt != nil {
-			return receipt
+			return receipt, nil
 		}
 		select {
 		case <-ctx.Done():
-			log.Fatalf("❌ Timeout chờ receipt cho tx %s", txHash.Hex())
+			return nil, fmt.Errorf("❌ Timeout chờ receipt cho tx %s", txHash.Hex())
 		case <-time.After(1 * time.Second):
 		}
 	}
 }
 
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 29-blockhash-opcode-verifier")
 	fmt.Println("==========================================================")
@@ -65,29 +64,31 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
-	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("❌ Parse private key thất bại: %v", err)
+	}
 	addr0 := crypto.PubkeyToAddress(pk0.PublicKey)
 
 	chainID := big.NewInt(cfg.ChainID)
 	if cfg.ChainID == 0 {
 		cid, err := client.ChainID(context.Background())
 		if err != nil {
-			log.Fatalf("❌ Lấy ChainID thất bại: %v", err)
+			return fmt.Errorf("❌ Lấy ChainID thất bại: %v", err)
 		}
 		chainID = cid
 	}
@@ -102,8 +103,14 @@ func main() {
 	// BƯỚC 1: Deploy BlockHash Verifier Contract
 	// -------------------------------------------------------------------------
 	fmt.Println("\n🔹 BƯỚC 1: Deploy BlockHash Verifier Smart Contract...")
-	nonce, _ := client.PendingNonceAt(context.Background(), addr0)
-	deployData, _ := hex.DecodeString(blockhashBytecode)
+	nonce, err := client.PendingNonceAt(context.Background(), addr0)
+	if err != nil {
+		return fmt.Errorf("❌ Lấy nonce thất bại: %v", err)
+	}
+	deployData, err := hex.DecodeString(blockhashBytecode)
+	if err != nil {
+		return fmt.Errorf("❌ Decode deploy bytecode thất bại: %v", err)
+	}
 
 	txDeploy := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   chainID,
@@ -115,13 +122,19 @@ func main() {
 		Value:     big.NewInt(0),
 		Data:      deployData,
 	})
-	signedDeploy, _ := types.SignTx(txDeploy, signer, pk0)
-	if err := client.SendTransaction(context.Background(), signedDeploy); err != nil {
-		log.Fatalf("❌ Deploy contract thất bại: %v", err)
+	signedDeploy, err := types.SignTx(txDeploy, signer, pk0)
+	if err != nil {
+		return fmt.Errorf("❌ Ký deploy tx thất bại: %v", err)
 	}
-	rcpt := waitForReceipt(client, signedDeploy.Hash())
+	if err := client.SendTransaction(context.Background(), signedDeploy); err != nil {
+		return fmt.Errorf("❌ Deploy contract thất bại: %v", err)
+	}
+	rcpt, err := waitForReceipt(client, signedDeploy.Hash())
+	if err != nil {
+		return fmt.Errorf("❌ Chờ receipt deploy thất bại: %v", err)
+	}
 	if rcpt.Status != 1 {
-		log.Fatalf("❌ Deploy contract reverted!")
+		return fmt.Errorf("❌ Deploy contract reverted!")
 	}
 	contractAddr := rcpt.ContractAddress
 	deployedBlock := rcpt.BlockNumber.Uint64()
@@ -130,7 +143,7 @@ func main() {
 	// -------------------------------------------------------------------------
 	// BƯỚC 2: Kiểm tra BLOCKHASH cho block trước đó (deployedBlock - 1)
 	// -------------------------------------------------------------------------
-	fmt.Println("\n🔹 BƯỚC 2: Gọi EVM lấy BLOCKHASH cho block trước đó (block %d - 1 = %d)...", deployedBlock, deployedBlock-1)
+	fmt.Printf("\n🔹 BƯỚC 2: Gọi EVM lấy BLOCKHASH cho block trước đó (block %d - 1 = %d)...\n", deployedBlock, deployedBlock-1)
 	prevBlockNum := big.NewInt(int64(deployedBlock - 1))
 	prevBlockBytes := common.BigToHash(prevBlockNum).Bytes()
 
@@ -140,25 +153,25 @@ func main() {
 	}
 	resBytes, err := client.CallContract(context.Background(), callMsg, nil)
 	if err != nil {
-		log.Fatalf("❌ CallContract getBlockHash thất bại: %v", err)
+		return fmt.Errorf("❌ CallContract getBlockHash thất bại: %v", err)
 	}
 	evmPrevHash := common.BytesToHash(resBytes)
 
 	rpcClient, err := rpc.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC Client: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC Client: %v", err)
 	}
 
 	actualPrevHash, err := getRPCBlockHash(rpcClient, deployedBlock-1)
 	if err != nil {
-		log.Fatalf("❌ Lấy block từ RPC thất bại: %v", err)
+		return fmt.Errorf("❌ Lấy block từ RPC thất bại: %v", err)
 	}
 
 	fmt.Printf("   🔍 Block %d Hash từ EVM Opcode: %s\n", deployedBlock-1, evmPrevHash.Hex())
 	fmt.Printf("   🔍 Block %d Hash từ RPC Block:  %s\n", deployedBlock-1, actualPrevHash.Hex())
 
 	if evmPrevHash != actualPrevHash {
-		log.Fatalf("   ❌ LỖI: Hash từ Opcode BLOCKHASH không khớp với RPC Block!")
+		return fmt.Errorf("   ❌ LỖI: Hash từ Opcode BLOCKHASH không khớp với RPC Block!")
 	}
 	fmt.Printf("   ✅ Khớp hoàn hảo giữa EVM BLOCKHASH và RPC Block cho block %d!\n", deployedBlock-1)
 
@@ -176,11 +189,17 @@ func main() {
 		To:        &addr0,
 		Value:     big.NewInt(1),
 	})
-	signedDummy, _ := types.SignTx(dummyTx, signer, pk0)
-	if err := client.SendTransaction(context.Background(), signedDummy); err != nil {
-		log.Fatalf("❌ Gửi dummy tx thất bại: %v", err)
+	signedDummy, err := types.SignTx(dummyTx, signer, pk0)
+	if err != nil {
+		return fmt.Errorf("❌ Ký dummy tx thất bại: %v", err)
 	}
-	rcptDummy := waitForReceipt(client, signedDummy.Hash())
+	if err := client.SendTransaction(context.Background(), signedDummy); err != nil {
+		return fmt.Errorf("❌ Gửi dummy tx thất bại: %v", err)
+	}
+	rcptDummy, err := waitForReceipt(client, signedDummy.Hash())
+	if err != nil {
+		return fmt.Errorf("❌ Chờ receipt dummy tx thất bại: %v", err)
+	}
 	fmt.Printf("   ✅ Block mới đã sinh ra: Block %d\n", rcptDummy.BlockNumber.Uint64())
 
 	// Giờ block hiện tại là rcptDummy.BlockNumber, ta truy vấn BLOCKHASH cho deployedBlock
@@ -190,20 +209,20 @@ func main() {
 		Data: depBlockBytes,
 	}, nil)
 	if err != nil {
-		log.Fatalf("❌ CallContract getBlockHash thất bại: %v", err)
+		return fmt.Errorf("❌ CallContract getBlockHash thất bại: %v", err)
 	}
 	evmDepHash := common.BytesToHash(resDep)
 
 	actualDepHash, err := getRPCBlockHash(rpcClient, deployedBlock)
 	if err != nil {
-		log.Fatalf("❌ Lấy block từ RPC thất bại: %v", err)
+		return fmt.Errorf("❌ Lấy block từ RPC thất bại: %v", err)
 	}
 
 	fmt.Printf("   🔍 Block %d Hash từ EVM Opcode: %s\n", deployedBlock, evmDepHash.Hex())
 	fmt.Printf("   🔍 Block %d Hash từ RPC Block:  %s\n", deployedBlock, actualDepHash.Hex())
 
 	if evmDepHash != actualDepHash {
-		log.Fatalf("   ❌ LỖI: Hash từ Opcode BLOCKHASH không khớp với RPC Block!")
+		return fmt.Errorf("   ❌ LỖI: Hash từ Opcode BLOCKHASH không khớp với RPC Block!")
 	}
 	fmt.Printf("   ✅ Khớp hoàn hảo giữa EVM BLOCKHASH và RPC Block cho Block %d!\n", deployedBlock)
 
@@ -218,14 +237,25 @@ func main() {
 		Data: farBlockBytes,
 	}, nil)
 	if err != nil {
-		log.Fatalf("❌ CallContract block tương lai thất bại: %v", err)
+		return fmt.Errorf("❌ CallContract block tương lai thất bại: %v", err)
 	}
 	farHash := common.BytesToHash(resFar)
 	fmt.Printf("   🔍 BLOCKHASH cho block tương lai %d: %s\n", farBlockNum.Uint64(), farHash.Hex())
 	if farHash != (common.Hash{}) {
-		log.Fatalf("   ❌ LỖI: Block tương lai phải trả về 0x0!")
+		return fmt.Errorf("   ❌ LỖI: Block tương lai phải trả về 0x0!")
 	}
 	fmt.Printf("   ✅ Block tương lai trả về đúng 0x0 (rỗng) theo tiêu chuẩn EVM!\n")
 
 	fmt.Println("\n🎉 TẤT CẢ CÁC BƯỚC KIỂM TRA OPCODE BLOCKHASH ĐÃ PASSED HOÀN HẢO!")
+	return nil
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("%v", err)
+	}
 }

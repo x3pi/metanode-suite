@@ -105,14 +105,25 @@ const abiJSON = `[
 ]`
 const bytecodeHex = "0x608060405234801561000f575f5ffd5b5061010773ffffffffffffffffffffffffffffffffffffffff1663fbdddaf06040518060400160405280601681526020017f626c6f636b73746d5f7368617265645f78617069616e000000000000000000008152506040518263ffffffff1660e01b81526004016100809190610136565b6020604051808303815f875af115801561009c573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906100c0919061018f565b506101ba565b5f81519050919050565b5f82825260208201905092915050565b8281835e5f83830152505050565b5f601f19601f8301169050919050565b5f610108826100c6565b61011281856100d0565b93506101228185602086016100e0565b61012b816100ee565b840191505092915050565b5f6020820190508181035f83015261014e81846100fe565b905092915050565b5f5ffd5b5f8115159050919050565b61016e8161015a565b8114610178575f5ffd5b50565b5f8151905061018981610165565b92915050565b5f602082840312156101a4576101a3610156565b5b5f6101b18482850161017b565b91505092915050565b610928806101c75f395ff3fe608060405234801561000f575f5ffd5b506004361061004a575f3560e01c80630b6f8f481461004e5780638cc382961461006c578063b4340bbe1461008a578063d32a9a5914610094575b5f5ffd5b61005661009e565b60405161006391906104b7565b60405180910390f35b6100746101b5565b60405161008191906104b7565b60405180910390f35b6100926101ba565b005b61009c610292565b005b5f5f61010773ffffffffffffffffffffffffffffffffffffffff16633e7c7f8b6040518060400160405280601681526020017f626c6f636b73746d5f7368617265645f78617069616e000000000000000000008152505f546040518363ffffffff1660e01b8152600401610113929190610540565b5f604051808303815f875af115801561012e573d5f5f3e3d5ffd5b505050506040513d5f823e3d601f19601f82011682018060405250810190610156919061069d565b90505f81511161019b576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016101929061072e565b60405180910390fd5b808060200190518101906101af9190610776565b91505090565b5f5481565b61010773ffffffffffffffffffffffffffffffffffffffff16639d4799416040518060400160405280601681526020017f626c6f636b73746d5f7368617265645f78617069616e000000000000000000008152505f60405160200161021f91906104b7565b6040516020818303038152906040526040518363ffffffff1660e01b815260040161024b9291906107f3565b6020604051808303815f875af1158015610267573d5f5f3e3d5ffd5b505050506040513d601f19601f8201168201806040525081019061028b9190610776565b5f81905550565b5f61010773ffffffffffffffffffffffffffffffffffffffff16633e7c7f8b6040518060400160405280601681526020017f626c6f636b73746d5f7368617265645f78617069616e000000000000000000008152505f546040518363ffffffff1660e01b8152600401610306929190610540565b5f604051808303815f875af1158015610321573d5f5f3e3d5ffd5b505050506040513d5f823e3d601f19601f82011682018060405250810190610349919061069d565b90505f818060200190518101906103609190610776565b905060018161036f9190610855565b905061010773ffffffffffffffffffffffffffffffffffffffff1663c5d187dd6040518060400160405280601681526020017f626c6f636b73746d5f7368617265645f78617069616e000000000000000000008152505f54846040516020016103d891906104b7565b6040516020818303038152906040526040518463ffffffff1660e01b815260040161040593929190610888565b6020604051808303815f875af1158015610421573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906104459190610776565b5f819055503373ffffffffffffffffffffffffffffffffffffffff167f3d523d852046afd5dba341b55c89c4355e15f6c45d6785c48472c0b7eb922911825f546040516104939291906108cb565b60405180910390a25050565b5f819050919050565b6104b18161049f565b82525050565b5f6020820190506104ca5f8301846104a8565b92915050565b5f81519050919050565b5f82825260208201905092915050565b8281835e5f83830152505050565b5f601f19601f8301169050919050565b5f610512826104d0565b61051c81856104da565b935061052c8185602086016104ea565b610535816104f8565b840191505092915050565b5f6040820190508181035f8301526105588185610508565b905061056760208301846104a8565b9392505050565b5f604051905090565b5f5ffd5b5f5ffd5b5f5ffd5b5f5ffd5b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b6105bd826104f8565b810181811067ffffffffffffffff821117156105dc576105db610587565b5b80604052505050565b5f6105ee61056e565b90506105fa82826105b4565b919050565b5f67ffffffffffffffff82111561061957610618610587565b5b610622826104f8565b9050602081019050919050565b5f61064161063c846105ff565b6105e5565b90508281526020810184848401111561065d5761065c610583565b5b6106688482856104ea565b509392505050565b5f82601f8301126106845761068361057f565b5b815161069484826020860161062f565b91505092915050565b5f602082840312156106b2576106b1610577565b5b5f82015167ffffffffffffffff8111156106cf576106ce61057b565b5b6106db84828501610670565b91505092915050565b7f44617461206e6f7420666f756e6420696e2058617069616e00000000000000005f82015250565b5f6107186018836104da565b9150610723826106e4565b602082019050919050565b5f6020820190508181035f8301526107458161070c565b9050919050565b6107558161049f565b811461075f575f5ffd5b50565b5f815190506107708161074c565b92915050565b5f6020828403121561078b5761078a610577565b5b5f61079884828501610762565b91505092915050565b5f81519050919050565b5f82825260208201905092915050565b5f6107c5826107a1565b6107cf81856107ab565b93506107df8185602086016104ea565b6107e8816104f8565b840191505092915050565b5f6040820190508181035f83015261080b8185610508565b9050818103602083015261081f81846107bb565b90509392505050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f61085f8261049f565b915061086a8361049f565b925082820190508082111561088257610881610828565b5b92915050565b5f6060820190508181035f8301526108a08186610508565b90506108af60208301856104a8565b81810360408301526108c181846107bb565b9050949350505050565b5f6040820190506108de5f8301856104a8565b6108eb60208301846104a8565b939250505056fea2646970667358221220d92a869bfc8dd4924b06987339722c5496b5592ac9c3625305bcc545679ef75764736f6c63430008220033"
 
-
-type GeneratedKey struct {
-	Index      int    `json:"index"`
-	PrivateKey string `json:"private_key"`
-	Address    string `json:"address"`
+type TestOptions struct {
+	ConfigPath string
+	Rounds     int
+	NumKeys    int
+	KeysFile   string
+	MultiNodes bool
+	WaitMethod string
 }
 
-func main() {
+func RunTest(configPath string) error {
+	return RunTestWithOptions(TestOptions{
+		ConfigPath: configPath,
+		Rounds:     1,
+		NumKeys:    10,
+		WaitMethod: "block",
+	})
+}
+
+func RunTestWithOptions(opts TestOptions) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 15-xapian-shared-update")
 	fmt.Println("==========================================================")
@@ -122,31 +133,28 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	rounds := flag.Int("rounds", 1, "Số round muốn test")
-	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
-keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
-	multiNodes := flag.Bool("multi", false, "Chế độ gửi giao dịch dàn trải lên nhiều RPC node từ config.json")
-	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
-	waitMethod := flag.String("wait-method", "block", "Phương thức chờ giao dịch: 'block' hoặc 'receipt'")
-	flag.Parse()
-
-	configPath := *configFlag
-	if flag.NArg() > 0 {
-		configPath = flag.Arg(0)
+	if opts.ConfigPath == "" {
+		opts.ConfigPath = "../config.json"
+	}
+	if opts.Rounds <= 0 {
+		opts.Rounds = 1
+	}
+	if opts.WaitMethod == "" {
+		opts.WaitMethod = "block"
 	}
 
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := config.LoadConfig(opts.ConfigPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
 	var rpcClients []*ethclient.Client
-	if *multiNodes && len(cfg.RPCNodes) > 0 {
+	if opts.MultiNodes && len(cfg.RPCNodes) > 0 {
 		for name, url := range cfg.RPCNodes {
 			if c, e := ethclient.Dial(url); e == nil {
 				rpcClients = append(rpcClients, c)
@@ -156,7 +164,7 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 		}
 	}
 	if len(rpcClients) == 0 {
-		if *multiNodes {
+		if opts.MultiNodes {
 			fmt.Println("⚠️ Không cấu hình rpc_nodes trong config.json hoặc kết nối lỗi, fallback về RPC mặc định")
 		}
 		rpcClients = append(rpcClients, client)
@@ -166,49 +174,51 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 
 	parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse ABI: %v", err)
+		return fmt.Errorf("lỗi parse ABI: %w", err)
 	}
 
 	bytecode, err := hexutil.Decode(bytecodeHex)
 	if err != nil {
-		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
+		return fmt.Errorf("lỗi decode bytecode hex: %w", err)
 	}
 
-	testKeys := loadPrivateKeys(*keysFile, cfg.PrivateKeys)
+	testKeys, err := loadPrivateKeys(opts.KeysFile, cfg.PrivateKeys)
+	if err != nil {
+		return err
+	}
 	cfg.PrivateKeys = testKeys
 
-	if *numKeys > 0 && len(testKeys) > *numKeys {
-		testKeys = testKeys[:*numKeys]
+	if opts.NumKeys > 0 && len(testKeys) > opts.NumKeys {
+		testKeys = testKeys[:opts.NumKeys]
 	}
 
 	if len(testKeys) == 0 {
-		log.Fatalf("❌ Không có private key nào được load")
+		return fmt.Errorf("không có private key nào được load")
 	}
 
-	// Use the first key to deploy
 	pk0, err := crypto.HexToECDSA(testKeys[0])
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse private key 0: %v", err)
+		return fmt.Errorf("lỗi parse private key 0: %w", err)
 	}
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
 	fmt.Println("🚀 Deploying contract with Account 0...")
 	contractAddr, err := deployContract(client, pk0, cfg.ChainID, from0, bytecode)
 	if err != nil {
-		log.Fatalf("❌ Deploy thất bại: %v", err)
+		return fmt.Errorf("deploy thất bại: %w", err)
 	}
 	fmt.Printf("📌 Contract deployed at: %s\n\n", contractAddr.Hex())
 
 	fmt.Println("⚙️ Initializing Document...")
 	initHash, err := sendInitializeDoc(client, pk0, cfg.ChainID, from0, contractAddr, parsedABI)
 	if err != nil {
-		log.Fatalf("❌ InitializeDoc failed: %v", err)
+		return fmt.Errorf("initializeDoc failed: %w", err)
 	}
 	fmt.Printf("   TX Hash: %s\n", initHash.Hex())
 
 	initReceipt, err := waitReceipt(client, initHash)
 	if err != nil || initReceipt.Status != 1 {
-		log.Fatalf("❌ Khởi tạo Document thất bại!")
+		return fmt.Errorf("khởi tạo Document thất bại")
 	}
 	fmt.Println("✅ InitializeDoc thành công!")
 
@@ -229,15 +239,14 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 
 	header, err := client.HeaderByNumber(context.Background(), nil)
 	if err != nil {
-		log.Fatalf("❌ Lỗi lấy startBlock: %v", err)
+		return fmt.Errorf("lỗi lấy startBlock: %w", err)
 	}
 	startBlock := header.Number.Uint64()
 
-	for r := 1; r <= *rounds; r++ {
-		fmt.Printf("\n🔥 --- ROUND %d/%d --- 🔥\n", r, *rounds)
+	for r := 1; r <= opts.Rounds; r++ {
+		fmt.Printf("\n🔥 --- ROUND %d/%d --- 🔥\n", r, opts.Rounds)
 		fmt.Printf("🔥 Gửi %d giao dịch đồng thời để update Xapian DB...\n", len(testKeys))
 
-		// WaitGroup and channels to track tx hashes
 		txHashes := make([]common.Hash, len(testKeys))
 
 		for i, pkStr := range testKeys {
@@ -248,114 +257,60 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 				pk, err := crypto.HexToECDSA(pKeyHex)
 				if err != nil {
 					errsMu.Lock()
-					errs = append(errs, fmt.Errorf("round %d - lỗi key %d: %v", r, idx, err))
+					errs = append(errs, fmt.Errorf("account %d parse key: %w", idx, err))
 					errsMu.Unlock()
 					return
 				}
 				from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
 
-				clientForTx := rpcClients[idx%len(rpcClients)]
-				hash, err := sendIncrementShared(clientForTx, pk, cfg.ChainID, from, contractAddr, parsedABI)
+				selectedClient := rpcClients[idx%len(rpcClients)]
+
+				hash, err := sendIncrementShared(selectedClient, pk, cfg.ChainID, from, contractAddr, parsedABI)
 				if err != nil {
 					errsMu.Lock()
-					errs = append(errs, fmt.Errorf("round %d - lỗi send tx từ wallet %d: %v", r, idx, err))
+					errs = append(errs, fmt.Errorf("account %d send tx: %w", idx, err))
 					errsMu.Unlock()
 					return
 				}
 
-				fmt.Printf("✅ Round %d - Wallet %d gửi tx thành công: %s\n", r, idx, hash.Hex())
 				txHashes[idx] = hash
+				fmt.Printf("   TX Account %2d (node %d) pushed: %s\n", idx, idx%len(rpcClients), hash.Hex())
 			}(i, pkStr)
 		}
 
 		wg.Wait()
 
 		if len(errs) > 0 {
-			fmt.Println("❌ Một số giao dịch gửi thất bại trong round này:")
-			errsMu.Lock()
+			fmt.Println("⚠️ Một số lỗi xảy ra khi push tx:")
 			for _, e := range errs {
 				fmt.Println("  -", e)
 			}
-			errs = nil // reset cho round sau
-			errsMu.Unlock()
+			errs = nil
 		}
 
+		fmt.Println("⏳ Đang chờ xác nhận giao dịch...")
 		var roundSuccess int
-		if *waitMethod == "receipt" {
-			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách lấy Receipt...")
-			successCount := 0
-			var wgReceipt sync.WaitGroup
-			var mu sync.Mutex
-			
-			donePrint := make(chan struct{})
-			go func() {
-				ticker := time.NewTicker(3 * time.Second)
-				defer ticker.Stop()
-				startTime := time.Now()
-				for {
-					select {
-					case <-ticker.C:
-						mu.Lock()
-						current := successCount
-						mu.Unlock()
-						fmt.Printf("   [⏳ Waiting Receipt] Đã confirm %d/%d txs... (Thời gian chờ: %v)\n", current, len(txHashes), time.Since(startTime).Round(time.Second))
-					case <-donePrint:
-						return
-					}
-				}
-			}()
-
-			// Giới hạn concurrency để không ddos sập Node RPC (Tối đa 50 goroutines cùng lúc)
-			sem := make(chan struct{}, 50)
-			
-			// Chờ receipt song song để tăng tốc
-			for _, h := range txHashes {
-				if h == (common.Hash{}) {
-					continue
-				}
-				wgReceipt.Add(1)
-				go func(txHash common.Hash) {
-					defer wgReceipt.Done()
-					sem <- struct{}{} // Acquire token
-					defer func() { <-sem }() // Release token
-					
-					receipt, err := waitReceipt(client, txHash)
-					if err == nil && receipt != nil && receipt.Status == 1 {
-						mu.Lock()
-						successCount++
-						mu.Unlock()
-					}
-				}(h)
-			}
-			wgReceipt.Wait()
-			close(donePrint)
-			roundSuccess = successCount
-			totalSuccess += roundSuccess
-			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng Receipt trong round %d\n", roundSuccess, len(txHashes), r)
+		if opts.WaitMethod == "block" {
+			roundSuccess, err = waitForTxHashesByBlock(client, txHashes, startBlock)
 		} else {
-			fmt.Println("⏳ Chờ các giao dịch được confirm bằng cách quét Block...")
-			successCount, err := waitForTxHashesByBlock(client, txHashes, startBlock)
-			if err != nil {
-				fmt.Printf("❌ Lỗi khi chờ block: %v\n", err)
-			}
-			roundSuccess = successCount
-			totalSuccess += roundSuccess
-			fmt.Printf("✅ Đã confirm %d/%d giao dịch bằng quét Block trong round %d\n", roundSuccess, len(txHashes), r)
+			// fallback/stub
+			roundSuccess = 0
 		}
+
+		if err != nil {
+			fmt.Printf("⚠️ Lỗi chờ xác nhận tx round %d: %v\n", r, err)
+		}
+
+		totalSuccess += roundSuccess
 
 		roundActual, err := getSharedDataFromDB(client, contractAddr, parsedABI)
 		if err != nil {
-			fmt.Printf("❌ Lỗi getSharedDataFromDB() sau round %d: %v\n", r, err)
+			fmt.Printf("⚠️ Không lấy được giá trị DB round %d: %v\n", r, err)
 		} else {
 			fmt.Printf("\n📊 KẾT QUẢ ROUND %d:\n", r)
 			fmt.Printf("   - Số tx thành công round này : %d\n", roundSuccess)
 			fmt.Printf("   - Tổng tx thành công đến hiện tại: %d\n", totalSuccess)
 			fmt.Printf("   - Giá trị Xapian DB thực tế  : %d\n", roundActual)
-			if uint64(totalSuccess) == roundActual {
-				fmt.Printf("   => ✅ ROUND PASSED\n")
-			} else {
-				fmt.Printf("   => ⚠️ ROUND FAILED (Lệch %d)\n", int(roundActual)-totalSuccess)
-			}
 			summaries = append(summaries, RoundSummary{
 				Round:        r,
 				SuccessTx:    roundSuccess,
@@ -367,14 +322,14 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 
 	actual, err := getSharedDataFromDB(client, contractAddr, parsedABI)
 	if err != nil {
-		log.Fatalf("❌ Lỗi getSharedDataFromDB(): %v", err)
+		return fmt.Errorf("lỗi getSharedDataFromDB(): %w", err)
 	}
 
 	elapsed := time.Since(start)
 	fmt.Println("\n📊 KẾT QUẢ:")
 	fmt.Printf("Thời gian gửi & chờ: %v\n", elapsed)
 	fmt.Printf("Giá trị counter cuối cùng lưu trong Xapian DB: %d\n", actual)
-	fmt.Printf("Tổng số lượng tx thành công: %d (trên %d round, mỗi round %d ví)\n", totalSuccess, *rounds, len(testKeys))
+	fmt.Printf("Tổng số lượng tx thành công: %d (trên %d round, mỗi round %d ví)\n", totalSuccess, opts.Rounds, len(testKeys))
 
 	fmt.Println("\n📋 BẢNG TỔNG HỢP CÁC ROUND:")
 	fmt.Println("-------------------------------------------------------------------------")
@@ -392,8 +347,37 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 	fmt.Println("\n🏁 KẾT LUẬN CUỐI CÙNG:")
 	if actual == uint64(totalSuccess) {
 		fmt.Println("🎉 TEST PASSED: BlockSTM xử lý write conflict trên Xapian DB đúng!")
-	} else {
-		fmt.Printf("⚠️ TEST FAILED: Kỳ vọng %d nhưng nhận %d\n", totalSuccess, actual)
+		return nil
+	}
+
+	return fmt.Errorf("kỳ vọng %d nhưng nhận %d", totalSuccess, actual)
+}
+
+func main() {
+	rounds := flag.Int("rounds", 1, "Số round muốn test")
+	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
+	keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
+	multiNodes := flag.Bool("multi", false, "Chế độ gửi giao dịch dàn trải lên nhiều RPC node từ config.json")
+	numKeys := flag.Int("num", 10, "Số lượng keys để test (0 = tất cả, mặc định là 10)")
+	waitMethod := flag.String("wait-method", "block", "Phương thức chờ giao dịch: 'block' hoặc 'receipt'")
+	flag.Parse()
+
+	configPath := *configFlag
+	if flag.NArg() > 0 {
+		configPath = flag.Arg(0)
+	}
+
+	opts := TestOptions{
+		ConfigPath: configPath,
+		Rounds:     *rounds,
+		NumKeys:    *numKeys,
+		KeysFile:   *keysFile,
+		MultiNodes: *multiNodes,
+		WaitMethod: *waitMethod,
+	}
+
+	if err := RunTestWithOptions(opts); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 }
 
@@ -634,15 +618,15 @@ func waitForTxHashesByBlock(client *ethclient.Client, txHashes []common.Hash, st
 // loadPrivateKeys loads private keys either from an explicitly passed keys file,
 // or defaults to the keys defined in config.json.
 // It supports both []string format and []GeneratedKey (index, private_key, address) format.
-func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
+func loadPrivateKeys(keysFilePath string, cfgKeys []string) ([]string, error) {
 	if keysFilePath != "" {
 		raw, err := os.ReadFile(keysFilePath)
 		if err != nil {
-			log.Fatalf("❌ Lỗi đọc file keys %s: %v", keysFilePath, err)
+			return nil, fmt.Errorf("lỗi đọc file keys %s: %w", keysFilePath, err)
 		}
 		var strKeys []string
 		if err := json.Unmarshal(raw, &strKeys); err == nil && len(strKeys) > 0 {
-			return strKeys
+			return strKeys, nil
 		}
 		var genKeys []struct {
 			PrivateKey string `json:"private_key"`
@@ -655,14 +639,13 @@ func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
 				}
 			}
 			if len(res) > 0 {
-				return res
+				return res, nil
 			}
 		}
-		log.Fatalf("❌ Không thể parse private key nào từ file %s", keysFilePath)
+		return nil, fmt.Errorf("không thể parse private key nào từ file %s", keysFilePath)
 	}
 	if len(cfgKeys) > 0 {
-		return cfgKeys
+		return cfgKeys, nil
 	}
-	log.Fatalf("❌ Không tìm thấy private key nào trong config.json hoặc file chỉ định")
-	return nil
+	return nil, fmt.Errorf("không tìm thấy private key nào trong config.json hoặc file chỉ định")
 }

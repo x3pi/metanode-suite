@@ -9,7 +9,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -21,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -29,7 +29,6 @@ import (
 	"github.com/holiman/uint256"
 )
 
-
 // Bytecode Counter Contract:
 // SLOAD(0) + 1 -> SSTORE(0)
 // Init code: 600a600c600039600a6000f360005460010160005500
@@ -37,23 +36,23 @@ const (
 	counterDeployCodeHex = "600a600c600039600a6000f360005460010160005500"
 )
 
-func waitForReceipt(client *ethclient.Client, txHash common.Hash) *types.Receipt {
+func waitForReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	for {
 		receipt, err := client.TransactionReceipt(ctx, txHash)
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
-			return receipt
+			return receipt, nil
 		}
 		select {
 		case <-ctx.Done():
-			log.Fatalf("❌ Timeout chờ receipt cho tx %s", txHash.Hex())
+			return nil, fmt.Errorf("❌ Timeout chờ receipt cho tx %s", txHash.Hex())
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }
 
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 30-eip7702-parallel-contention (XUNG ĐỘT GHI EIP-7702 DƯỚI BLOCK-STM)")
 	fmt.Println("==========================================================")
@@ -67,31 +66,33 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
-	testKeys := loadPrivateKeys("", cfg.PrivateKeys)
+	testKeys, err := loadPrivateKeys("", cfg.PrivateKeys)
+	if err != nil {
+		return fmt.Errorf("❌ Lỗi load private keys: %w", err)
+	}
 	if len(testKeys) < 2 {
-		log.Fatalf("❌ Cần ít nhất 2 private key để thực hiện test")
+		return fmt.Errorf("❌ Cần ít nhất 2 private key để thực hiện test")
 	}
 
 	chainID := big.NewInt(cfg.ChainID)
 	if cfg.ChainID == 0 {
 		cid, err := client.ChainID(context.Background())
 		if err != nil {
-			log.Fatalf("❌ Lấy ChainID thất bại: %v", err)
+			return fmt.Errorf("❌ Lấy ChainID thất bại: %v", err)
 		}
 		chainID = cid
 	}
@@ -102,7 +103,10 @@ func main() {
 		gasPrice = big.NewInt(20000000000)
 	}
 
-	pkCaller, _ := crypto.HexToECDSA(testKeys[0])
+	pkCaller, err := crypto.HexToECDSA(testKeys[0])
+	if err != nil {
+		return fmt.Errorf("❌ Parse pkCaller thất bại: %v", err)
+	}
 	addrCaller := crypto.PubkeyToAddress(pkCaller.PublicKey)
 
 	// Sử dụng ví cũ cố định (Account 1 nếu có >= 2 keys, hoặc Account 0)
@@ -118,8 +122,14 @@ func main() {
 	// BƯỚC 1: Deploy Contract làm Delegate Target (Logic Counter)
 	// -------------------------------------------------------------------------
 	fmt.Println("\n🔹 BƯỚC 1: Deploy Counter Smart Contract làm Delegate Logic...")
-	nonceCaller, _ := client.PendingNonceAt(context.Background(), addrCaller)
-	deployBytecode, _ := hex.DecodeString(counterDeployCodeHex)
+	nonceCaller, err := client.PendingNonceAt(context.Background(), addrCaller)
+	if err != nil {
+		return fmt.Errorf("❌ Lấy nonce caller thất bại: %v", err)
+	}
+	deployBytecode, err := hex.DecodeString(counterDeployCodeHex)
+	if err != nil {
+		return fmt.Errorf("❌ Decode deploy bytecode thất bại: %v", err)
+	}
 
 	txDeploy := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   chainID,
@@ -131,13 +141,19 @@ func main() {
 		Value:     big.NewInt(0),
 		Data:      deployBytecode,
 	})
-	signedDeploy, _ := types.SignTx(txDeploy, signer, pkCaller)
-	if err := client.SendTransaction(context.Background(), signedDeploy); err != nil {
-		log.Fatalf("❌ Deploy counter logic contract thất bại: %v", err)
+	signedDeploy, err := types.SignTx(txDeploy, signer, pkCaller)
+	if err != nil {
+		return fmt.Errorf("❌ Ký deploy tx thất bại: %v", err)
 	}
-	rcptDeploy := waitForReceipt(client, signedDeploy.Hash())
+	if err := client.SendTransaction(context.Background(), signedDeploy); err != nil {
+		return fmt.Errorf("❌ Deploy counter logic contract thất bại: %v", err)
+	}
+	rcptDeploy, err := waitForReceipt(client, signedDeploy.Hash())
+	if err != nil {
+		return fmt.Errorf("❌ Chờ receipt deploy thất bại: %v", err)
+	}
 	if rcptDeploy.Status != 1 {
-		log.Fatalf("❌ Deploy counter logic contract reverted!")
+		return fmt.Errorf("❌ Deploy counter logic contract reverted!")
 	}
 	delegateContractAddr := rcptDeploy.ContractAddress
 	fmt.Printf("   ✅ Target Counter Contract deployed: %s\n", delegateContractAddr.Hex())
@@ -146,14 +162,17 @@ func main() {
 	// BƯỚC 2: EOA B (Account 1) ký Authorization ủy quyền sang Counter Contract
 	// -------------------------------------------------------------------------
 	fmt.Printf("\n🔹 BƯỚC 2: EOA B (%s) ký EIP-7702 Authorization ủy quyền...\n", addrEOAB.Hex())
-	authNonce, _ := client.PendingNonceAt(context.Background(), addrEOAB)
+	authNonce, err := client.PendingNonceAt(context.Background(), addrEOAB)
+	if err != nil {
+		return fmt.Errorf("❌ Lấy authNonce thất bại: %v", err)
+	}
 	authTuple, err := types.SignSetCode(pkEOAB, types.SetCodeAuthorization{
 		ChainID: *uint256.MustFromBig(chainID),
 		Address: delegateContractAddr,
 		Nonce:   authNonce,
 	})
 	if err != nil {
-		log.Fatalf("❌ Ký SetCode Authorization thất bại: %v", err)
+		return fmt.Errorf("❌ Ký SetCode Authorization thất bại: %v", err)
 	}
 
 	// Gửi SetCodeTx từ Account 0 để kích hoạt code trên Account 1
@@ -171,14 +190,17 @@ func main() {
 	})
 	signedSetCode, err := types.SignTx(setCodeTx, signer, pkCaller)
 	if err != nil {
-		log.Fatalf("❌ Ký SetCodeTx thất bại: %v", err)
+		return fmt.Errorf("❌ Ký SetCodeTx thất bại: %v", err)
 	}
 	if err := client.SendTransaction(context.Background(), signedSetCode); err != nil {
-		log.Fatalf("❌ Gửi SetCodeTx thất bại: %v", err)
+		return fmt.Errorf("❌ Gửi SetCodeTx thất bại: %v", err)
 	}
-	rcptSetCode := waitForReceipt(client, signedSetCode.Hash())
+	rcptSetCode, err := waitForReceipt(client, signedSetCode.Hash())
+	if err != nil {
+		return fmt.Errorf("❌ Chờ receipt setcode thất bại: %v", err)
+	}
 	if rcptSetCode.Status != 1 {
-		log.Fatalf("❌ Kích hoạt EIP-7702 SetCode thất bại!")
+		return fmt.Errorf("❌ Kích hoạt EIP-7702 SetCode thất bại!")
 	}
 	fmt.Printf("   ✅ EOA B %s đã kích hoạt EIP-7702 ủy quyền sang %s thành công!\n", addrEOAB.Hex(), delegateContractAddr.Hex())
 
@@ -187,7 +209,7 @@ func main() {
 	expectedDesignator := "ef0100" + delegateContractAddr.Hex()[2:]
 	fmt.Printf("   🔍 Bytecode tại EOA B: 0x%x\n", codeAfterDelegate)
 	if !strings.EqualFold(hex.EncodeToString(codeAfterDelegate), expectedDesignator) {
-		log.Fatalf("   ❌ Bytecode delegation designator không khớp! Got: %s, Want: %s", hex.EncodeToString(codeAfterDelegate), expectedDesignator)
+		return fmt.Errorf("   ❌ Bytecode delegation designator không khớp! Got: %s, Want: %s", hex.EncodeToString(codeAfterDelegate), expectedDesignator)
 	}
 
 	// -------------------------------------------------------------------------
@@ -252,8 +274,8 @@ func main() {
 		if h == (common.Hash{}) {
 			continue
 		}
-		rcpt := waitForReceipt(client, h)
-		if rcpt != nil && rcpt.Status == 1 {
+		rcpt, err := waitForReceipt(client, h)
+		if err == nil && rcpt != nil && rcpt.Status == 1 {
 			successCount++
 			fmt.Printf("   ✅ Tx %d (%s) thành công trong block %d\n", i, h.Hex()[:10]+"...", rcpt.BlockNumber.Uint64())
 		}
@@ -265,7 +287,7 @@ func main() {
 	fmt.Println("\n🔹 BƯỚC 4: Kiểm tra giá trị Slot 0 trên Storage của EOA Mục Tiêu...")
 	slot0Bytes, err := client.StorageAt(context.Background(), addrEOAB, common.Hash{}, nil)
 	if err != nil {
-		log.Fatalf("❌ Đọc StorageAt thất bại: %v", err)
+		return fmt.Errorf("❌ Đọc StorageAt thất bại: %v", err)
 	}
 	valSlot0 := new(big.Int).SetBytes(slot0Bytes)
 	expectedSlot0 := new(big.Int).Add(initialSlot0, big.NewInt(int64(successCount)))
@@ -283,23 +305,32 @@ func main() {
 
 	if valSlot0.Cmp(expectedSlot0) == 0 && successCount == numCallers {
 		fmt.Println("\n🎉 TEST PASSED: Block-STM xử lý hoàn hảo xung đột Read/Write trên EIP-7702 Delegated Storage!")
-	} else {
-		fmt.Printf("\n❌ TEST FAILED: Sai lệch giá trị! Kỳ vọng %s, Thực tế %s\n", expectedSlot0.String(), valSlot0.String())
-		os.Exit(1)
+		return nil
+	}
+	return fmt.Errorf("❌ TEST FAILED: Sai lệch giá trị! Kỳ vọng %s, Thực tế %s", expectedSlot0.String(), valSlot0.String())
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("%v", err)
 	}
 }
 
 // loadPrivateKeys loads private keys either from an explicitly passed keys file,
 // or defaults to the keys defined in config.json.
-func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
+func loadPrivateKeys(keysFilePath string, cfgKeys []string) ([]string, error) {
 	if keysFilePath != "" {
 		raw, err := os.ReadFile(keysFilePath)
 		if err != nil {
-			log.Fatalf("❌ Lỗi đọc file keys %s: %v", keysFilePath, err)
+			return nil, fmt.Errorf("lỗi đọc file keys %s: %w", keysFilePath, err)
 		}
 		var strKeys []string
 		if err := json.Unmarshal(raw, &strKeys); err == nil && len(strKeys) > 0 {
-			return strKeys
+			return strKeys, nil
 		}
 		var genKeys []struct {
 			PrivateKey string `json:"private_key"`
@@ -312,14 +343,13 @@ func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
 				}
 			}
 			if len(res) > 0 {
-				return res
+				return res, nil
 			}
 		}
-		log.Fatalf("❌ Không thể parse private key nào từ file %s", keysFilePath)
+		return nil, fmt.Errorf("không thể parse private key nào từ file %s", keysFilePath)
 	}
 	if len(cfgKeys) > 0 {
-		return cfgKeys
+		return cfgKeys, nil
 	}
-	log.Fatalf("❌ Không tìm thấy private key nào trong config.json hoặc file chỉ định")
-	return nil
+	return nil, fmt.Errorf("không tìm thấy private key nào trong config.json hoặc file chỉ định")
 }

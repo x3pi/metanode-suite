@@ -7,7 +7,6 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
@@ -19,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -29,18 +29,26 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-// ABI definitions
-const bytecodeHex = "6080604052348015600e575f5ffd5b506101818061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610034575f3560e01c8063a87d942c14610038578063d09de08a14610056575b5f5ffd5b610040610060565b60405161004d91906100d2565b60405180910390f35b61005e610068565b005b5f5f54905090565b60015f5f8282546100799190610118565b925050819055507f20d8a6f5a693f9d1d627a598e8820f7a55ee74c183aa8f1a30e8d4e8dd9a8d845f546040516100b091906100d2565b60405180910390a1565b5f819050919050565b6100cc816100ba565b82525050565b5f6020820190506100e55f8301846100c3565b92915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f610122826100ba565b915061012d836100ba565b9250828201905080821115610145576101446100eb565b5b9291505056fea264697066735822122039d409b6689485dd66eca57d0dcf22759cc7ed07190b1be8653d9dbfaf9f518464736f6c63430008220033"
-
-
-
 type GeneratedKey struct {
 	Index      int    `json:"index"`
 	PrivateKey string `json:"private_key"`
 	Address    string `json:"address"`
 }
 
-func main() {
+type TestOptions struct {
+	ConfigPath string
+	KeysFile   string
+	NumTxs     int
+}
+
+func RunTest(configPath string) error {
+	return RunTestWithOptions(TestOptions{
+		ConfigPath: configPath,
+		NumTxs:     10,
+	})
+}
+
+func RunTestWithOptions(opts TestOptions) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 21-sequential-nonce-same-wallet")
 	fmt.Println("==========================================================")
@@ -48,73 +56,73 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
-keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
-	numTxs := flag.Int("num", 10, "Số lượng transaction liên tiếp (nonce tăng dần) muốn gửi")
-	flag.Parse()
-
-	configPath := *configFlag
-	if flag.NArg() > 0 {
-		configPath = flag.Arg(0)
+	if opts.ConfigPath == "" {
+		opts.ConfigPath = "../config.json"
+	}
+	if opts.NumTxs <= 0 {
+		opts.NumTxs = 10
 	}
 
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := config.LoadConfig(opts.ConfigPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("❌ Lỗi load config: %v", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("❌ Lỗi kết nối RPC: %v", err)
 	}
 
 	parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["TestCounter"].ABI))
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse ABI: %v", err)
+		return fmt.Errorf("❌ Lỗi parse ABI: %v", err)
 	}
 
 	bytecode, err := hexutil.Decode("0x" + cfg.Contracts["TestCounter"].Bytecode)
 	if err != nil {
-		log.Fatalf("❌ Lỗi decode bytecode hex: %v", err)
+		return fmt.Errorf("❌ Lỗi decode bytecode hex: %v", err)
 	}
 
-	testKeys := loadPrivateKeys(*keysFile, cfg.PrivateKeys)
+	testKeys, err := loadPrivateKeys(opts.KeysFile, cfg.PrivateKeys)
+	if err != nil {
+		return fmt.Errorf("❌ Lỗi load private keys: %w", err)
+	}
 	cfg.PrivateKeys = testKeys
-	
+
 	if len(testKeys) == 0 {
-		log.Fatalf("❌ Không có private key nào được load")
+		return fmt.Errorf("❌ Không có private key nào được load")
 	}
 
 	// Chọn 1 ví duy nhất để test
 	pk, err := crypto.HexToECDSA(testKeys[0])
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse private key 0: %v", err)
+		return fmt.Errorf("❌ Lỗi parse private key 0: %v", err)
 	}
 	from := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
 
 	fmt.Printf("🚀 Deploying contract with Account 0 (%s)...\n", from.Hex())
 	contractAddr, err := deployContract(client, pk, cfg.ChainID, from, bytecode)
 	if err != nil {
-		log.Fatalf("❌ Deploy thất bại: %v", err)
+		return fmt.Errorf("❌ Deploy thất bại: %v", err)
 	}
 	fmt.Printf("📌 Contract deployed at: %s\n\n", contractAddr.Hex())
 
-	fmt.Printf("🔥 Gửi %d giao dịch liên tiếp từ VÍ DUY NHẤT để update contract...\n", *numTxs)
+	fmt.Printf("🔥 Gửi %d giao dịch liên tiếp từ VÍ DUY NHẤT để update contract...\n", opts.NumTxs)
 	start := time.Now()
 
 	// Lấy nonce hiện tại của ví
 	startNonce, err := client.PendingNonceAt(context.Background(), from)
 	if err != nil {
-		log.Fatalf("❌ Không thể lấy nonce của ví: %v", err)
+		return fmt.Errorf("❌ Không thể lấy nonce của ví: %v", err)
 	}
 
 	var wg sync.WaitGroup
 	var errs []error
 	var errsMu sync.Mutex
 
-	txHashes := make([]common.Hash, *numTxs)
+	txHashes := make([]common.Hash, opts.NumTxs)
 
-	for i := 0; i < *numTxs; i++ {
+	for i := 0; i < opts.NumTxs; i++ {
 		wg.Add(1)
 		// Gửi song song nhưng set cứng nonce từ startNonce + i
 		go func(idx int, currentNonce uint64) {
@@ -159,19 +167,40 @@ keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tu
 
 	actual, err := getCount(client, contractAddr, parsedABI)
 	if err != nil {
-		log.Fatalf("❌ Lỗi getCount(): %v", err)
+		return fmt.Errorf("❌ Lỗi getCount(): %v", err)
 	}
 
 	elapsed := time.Since(start)
 	fmt.Println("\n📊 KẾT QUẢ:")
 	fmt.Printf("Thời gian gửi & chờ: %v\n", elapsed)
 	fmt.Printf("Giá trị count cuối cùng: %d\n", actual)
-	fmt.Printf("Số lượng giao dịch kỳ vọng: %d\n", *numTxs)
+	fmt.Printf("Số lượng giao dịch kỳ vọng: %d\n", opts.NumTxs)
 
-	if actual == uint64(*numTxs) {
+	if actual == uint64(opts.NumTxs) {
 		fmt.Println("🎉 TEST PASSED: Hệ thống xử lý mượt mà loạt giao dịch tuần tự từ 1 ví!")
-	} else {
-		fmt.Printf("⚠️ TEST FAILED: Kỳ vọng %d nhưng nhận %d\n", *numTxs, actual)
+		return nil
+	}
+	return fmt.Errorf("⚠️ TEST FAILED: Kỳ vọng %d nhưng nhận %d", opts.NumTxs, actual)
+}
+
+func main() {
+	configFlag := flag.String("config", "../config.json", "Đường dẫn file config")
+	keysFile := flag.String("keys", "", "Đường dẫn file chứa private keys tuỳ chọn (mặc định đọc từ config.json)")
+	numTxs := flag.Int("num", 10, "Số lượng transaction liên tiếp (nonce tăng dần) muốn gửi")
+	flag.Parse()
+
+	configPath := *configFlag
+	if flag.NArg() > 0 {
+		configPath = flag.Arg(0)
+	}
+
+	opts := TestOptions{
+		ConfigPath: configPath,
+		KeysFile:   *keysFile,
+		NumTxs:     *numTxs,
+	}
+	if err := RunTestWithOptions(opts); err != nil {
+		log.Fatalf("%v", err)
 	}
 }
 
@@ -264,20 +293,15 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 	timeoutStart := time.Now()
 	for {
 		if time.Since(timeoutStart) > 60*time.Second {
-			fmt.Println("❌ Timeout waiting for receipt")
-			os.Exit(1)
+			return nil, fmt.Errorf("❌ Timeout waiting for receipt %s", txHash.Hex())
 		}
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
 
 		if err != nil && !strings.Contains(err.Error(), "not found") {
-			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("lỗi kết nối RPC: %w", err)
 		}
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return receipt, nil
-		}
-		if err != nil && err.Error() != "not found" {
-			return nil, err
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -286,15 +310,15 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 // loadPrivateKeys loads private keys either from an explicitly passed keys file,
 // or defaults to the keys defined in config.json.
 // It supports both []string format and []GeneratedKey (index, private_key, address) format.
-func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
+func loadPrivateKeys(keysFilePath string, cfgKeys []string) ([]string, error) {
 	if keysFilePath != "" {
 		raw, err := os.ReadFile(keysFilePath)
 		if err != nil {
-			log.Fatalf("❌ Lỗi đọc file keys %s: %v", keysFilePath, err)
+			return nil, fmt.Errorf("lỗi đọc file keys %s: %w", keysFilePath, err)
 		}
 		var strKeys []string
 		if err := json.Unmarshal(raw, &strKeys); err == nil && len(strKeys) > 0 {
-			return strKeys
+			return strKeys, nil
 		}
 		var genKeys []struct {
 			PrivateKey string `json:"private_key"`
@@ -307,14 +331,13 @@ func loadPrivateKeys(keysFilePath string, cfgKeys []string) []string {
 				}
 			}
 			if len(res) > 0 {
-				return res
+				return res, nil
 			}
 		}
-		log.Fatalf("❌ Không thể parse private key nào từ file %s", keysFilePath)
+		return nil, fmt.Errorf("không thể parse private key nào từ file %s", keysFilePath)
 	}
 	if len(cfgKeys) > 0 {
-		return cfgKeys
+		return cfgKeys, nil
 	}
-	log.Fatalf("❌ Không tìm thấy private key nào trong config.json hoặc file chỉ định")
-	return nil
+	return nil, fmt.Errorf("không tìm thấy private key nào trong config.json hoặc file chỉ định")
 }

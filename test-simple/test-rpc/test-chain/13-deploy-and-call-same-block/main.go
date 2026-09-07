@@ -7,16 +7,16 @@
 package main
 
 import (
-	"tool-test/test-simple/test-rpc/test-chain/config"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
 	"log"
 	"math/big"
-	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"tool-test/test-simple/test-rpc/test-chain/config"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -27,9 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-
-
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 13-deploy-and-call-same-block")
 	fmt.Println("==========================================================")
@@ -39,89 +37,109 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
-	parsedABI, _ := abi.JSON(strings.NewReader(cfg.Contracts["TestCounter"].ABI))
-	bytecode, _ := hexutil.Decode("0x" + cfg.Contracts["TestCounter"].Bytecode)
+	parsedABI, err := abi.JSON(strings.NewReader(cfg.Contracts["TestCounter"].ABI))
+	if err != nil {
+		return fmt.Errorf("lỗi parse ABI: %w", err)
+	}
+	bytecode, err := hexutil.Decode("0x" + cfg.Contracts["TestCounter"].Bytecode)
+	if err != nil {
+		return fmt.Errorf("lỗi decode bytecode: %w", err)
+	}
 
-	pk0, _ := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if len(cfg.PrivateKeys) == 0 {
+		return fmt.Errorf("không có private key nào trong config")
+	}
+
+	pk0, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("invalid private key[0]: %w", err)
+	}
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
-	// Lấy nonce để tính toán địa chỉ contract sắp tạo
-	nonce, _ := client.PendingNonceAt(context.Background(), from0)
-	
-	// Tính trước địa chỉ contract (CREATE opcode: hash(sender, nonce))
+	nonce, err := client.PendingNonceAt(context.Background(), from0)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy nonce: %w", err)
+	}
+
 	predictedAddr := crypto.CreateAddress(from0, nonce)
 	fmt.Printf("📌 Địa chỉ Contract tính toán trước: %s\n\n", predictedAddr.Hex())
 
 	var wg sync.WaitGroup
 	var errsMu sync.Mutex
-	
+
 	txHashes := make([]common.Hash, 2)
 	start := time.Now()
 
-	// Tx 1: Deploy Contract
+	// Goroutine 1: Deploy Contract
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		
 		gasPrice := big.NewInt(1000000000)
 		gasLimit := uint64(5000000)
 
 		tx := types.NewContractCreation(nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
 		signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), pk0)
-		if err != nil { return }
-
-		err = client.SendTransaction(context.Background(), signedTx)
-		errsMu.Lock()
 		if err != nil {
-			fmt.Printf("⚠️ Lỗi gửi Deploy Tx: %v\n", err)
-		} else {
-			fmt.Printf("✅ Đã push Deploy Tx: %s\n", signedTx.Hash().Hex())
-			txHashes[0] = signedTx.Hash()
+			return
 		}
+
+		if err := client.SendTransaction(context.Background(), signedTx); err != nil {
+			errsMu.Lock()
+			fmt.Printf("❌ Lỗi gửi Deploy Tx: %v\n", err)
+			errsMu.Unlock()
+			return
+		}
+
+		errsMu.Lock()
+		fmt.Printf("✅ Đã push Deploy Tx: %s\n", signedTx.Hash().Hex())
+		txHashes[0] = signedTx.Hash()
 		errsMu.Unlock()
 	}()
 
-	// Đợi 100ms để đảm bảo Deploy Tx vào mempool trước (vì chung nonce) 
-	// Thực ra mempool sẽ xử lý nonce + 1 tự động nếu gửi tuần tự
-	time.Sleep(100 * time.Millisecond)
-
-	// Tx 2: Gọi hàm increment() trên địa chỉ vừa đoán được
+	// Goroutine 2: Gọi hàm increment() trên địa chỉ vừa tính trước
+	var mempoolRejectedCall bool
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		
-		data, _ := parsedABI.Pack("increment")
+		time.Sleep(100 * time.Millisecond)
+
+		data, err := parsedABI.Pack("increment")
+		if err != nil {
+			return
+		}
 		gasPrice := big.NewInt(1000000000)
 		gasLimit := uint64(100000)
-		
-		// Tx này có nonce = nonce + 1
+
+		// Tx này có nonce = nonce + 1 từ pk0
 		tx := types.NewTransaction(nonce+1, predictedAddr, big.NewInt(0), gasLimit, gasPrice, data)
 		signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), pk0)
-		if err != nil { return }
+		if err != nil {
+			return
+		}
 
 		err = client.SendTransaction(context.Background(), signedTx)
 		errsMu.Lock()
 		if err != nil {
 			if strings.Contains(err.Error(), "non-existent smart account") {
 				fmt.Printf("✅ Mempool đã từ chối Call Tx vì contract chưa tồn tại (Bảo mật tốt!): %v\n", err)
-				os.Exit(0)
+				mempoolRejectedCall = true
+			} else {
+				fmt.Printf("⚠️ Lỗi gửi Call Tx: %v\n", err)
 			}
-			fmt.Printf("⚠️ Lỗi gửi Call Tx: %v\n", err)
 		} else {
 			fmt.Printf("✅ Đã push Call Tx: %s\n", signedTx.Hash().Hex())
 			txHashes[1] = signedTx.Hash()
@@ -131,9 +149,12 @@ func main() {
 
 	wg.Wait()
 
+	if mempoolRejectedCall {
+		return nil
+	}
+
 	if txHashes[0] == (common.Hash{}) {
-		fmt.Println("❌ Không thể tiếp tục vì Deploy Tx gửi thất bại!")
-		os.Exit(1)
+		return fmt.Errorf("deploy Tx gửi thất bại")
 	}
 
 	fmt.Println("⏳ Chờ các giao dịch được confirm trong cùng 1 Block...")
@@ -144,19 +165,13 @@ func main() {
 		if hash == (common.Hash{}) {
 			continue
 		}
-		
+
 		timeoutStart := time.Now()
 		for {
 			if time.Since(timeoutStart) > 60*time.Second {
-				fmt.Printf("❌ Timeout waiting for receipt của Tx %s (sau 60s)\n", hash.Hex())
-				os.Exit(1)
+				return fmt.Errorf("timeout waiting for receipt của Tx %s (sau 60s)", hash.Hex())
 			}
 			receipt, err := client.TransactionReceipt(context.Background(), hash)
-
-			if err != nil && !strings.Contains(err.Error(), "not found") {
-				fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-				os.Exit(1)
-			}
 			if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status != 1 {
 					fmt.Printf("❌ Tx %s bị REVERT!\n", hash.Hex())
@@ -166,6 +181,9 @@ func main() {
 				}
 				break
 			}
+			if err != nil && !strings.Contains(err.Error(), "not found") {
+				return fmt.Errorf("lỗi kết nối RPC: %w", err)
+			}
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
@@ -173,23 +191,30 @@ func main() {
 	elapsed := time.Since(start)
 	fmt.Printf("⏱️ Thời gian gửi & chờ: %v\n", elapsed)
 
-	// Kiểm tra xem count có tăng lên 1 hay không
 	if successCount == 2 {
-		data, _ := parsedABI.Pack("getCount")
+		data, err := parsedABI.Pack("getCount")
+		if err != nil {
+			return fmt.Errorf("lỗi pack getCount: %w", err)
+		}
 		result, err := client.CallContract(context.Background(), ethereum.CallMsg{To: &predictedAddr, Data: data}, nil)
 		if err == nil {
-			outputs, _ := parsedABI.Unpack("getCount", result)
-			if len(outputs) > 0 {
+			outputs, err := parsedABI.Unpack("getCount", result)
+			if err == nil && len(outputs) > 0 {
 				val := outputs[0].(*big.Int)
 				fmt.Printf("📊 Giá trị count sau cùng: %s\n", val.String())
 				if val.Cmp(big.NewInt(1)) == 0 {
 					fmt.Println("\n🎉 TEST PASSED: Block-STM xử lý Deploy và Call trong cùng 1 Block hoàn hảo!")
-					return
+					return nil
 				}
 			}
 		}
 	}
 
-	fmt.Println("\n⚠️ TEST FAILED: Có lỗi xảy ra trong quá trình Deploy và Call!")
-	os.Exit(1)
+	return fmt.Errorf("có lỗi xảy ra trong quá trình Deploy và Call (successCount=%d)", successCount)
+}
+
+func main() {
+	if err := RunTest(""); err != nil {
+		log.Fatalf("❌ %v", err)
+	}
 }

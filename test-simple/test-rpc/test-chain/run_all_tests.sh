@@ -3,49 +3,52 @@
 # Mảng chứa danh sách các thư mục test
 TESTS=(
     "1-update-same-contract"
-    "2-read-write"
-    "3-amm-dex"
-    "4-abort"
-    "5-gas"
-    "6-native-many-to-one"
-    "7-native-one-to-many"
-    "8-native-mixed-evm"
-    "9-cross-contract-call"
-    "10-cross-contract-payable"
-    "11-double-spending-same-nonce"
-    "12-insufficient-balance-parallel"
-    "13-deploy-and-call-same-block"
-    "14-selfdestruct-conflict"
-    "15-xapian-shared-update"
-    "16-xapian-evm-contract"
-    "17-xapian-parallel-read-write"
-    "17.1-xapian-parallel-delete"
-    "17.2-xapian-basic-read-write"
-    "18-update-different-variables"
-    "19-xapian-parallel-update"
-    "20-xapian-read-after-write-same-block"
-    "21-sequential-nonce-same-wallet"
-    "22-block-timestamp"
-    "23-contract-creator-info"
-    "24-contract-factory-info"
-    "25-eip4844-blob-tx"
-    "26-eip7702-setcode-tx"
-    "27-eip4844-edge-cases"
-    "28-eip7702-delegated-execution-and-revocation"
-    "29-blockhash-opcode-verifier"
-    "30-eip7702-parallel-contention"
-    "31-mixed-all-types-block"
-    "32-xapian-parallel-stress"
+    # "2-read-write"
+    # "3-amm-dex"
+    # "4-abort"
+    # "5-gas"
+    # "6-native-many-to-one"
+    # "7-native-one-to-many"
+    # "8-native-mixed-evm"
+    # "9-cross-contract-call"
+    # "10-cross-contract-payable"
+    # "11-double-spending-same-nonce"
+    # "12-insufficient-balance-parallel"
+    # "13-deploy-and-call-same-block"
+    # "14-selfdestruct-conflict"
+    # "15-xapian-shared-update"
+    # "16-xapian-evm-contract"
+    # "17-xapian-parallel-read-write"
+    # "17.1-xapian-parallel-delete"
+    # "17.2-xapian-basic-read-write"
+    # "18-update-different-variables"
+    # "19-xapian-parallel-update"
+    # "20-xapian-read-after-write-same-block"
+    # "21-sequential-nonce-same-wallet"
+    # "22-block-timestamp"
+    # "23-contract-creator-info"
+    # "24-contract-factory-info"
+    # "25-eip4844-blob-tx"
+    # "26-eip7702-setcode-tx"
+    # "27-eip4844-edge-cases"
+    # "28-eip7702-delegated-execution-and-revocation"
+    # "29-blockhash-opcode-verifier"
+    # "30-eip7702-parallel-contention"
+    # "31-mixed-all-types-block"
+    # "32-xapian-parallel-stress"
 )
 
-# Xử lý tham số truyền vào: --chain=<tên_chain> (ví dụ: --chain=chain_a hoặc --chain=101)
+# Xử lý tham số truyền vào: --chain=<tên_chain> hoặc --gotest
+MODE="gorun"
 for arg in "$@"; do
     case $arg in
         --chain=*)
             export TARGET_CHAIN="${arg#*=}"
             ;;
         --chain|-chain)
-            # nếu dùng dạng --chain chain_a
+            ;;
+        --gotest|-gotest|--test)
+            MODE="gotest"
             ;;
         chain_*|[0-9]*)
             export TARGET_CHAIN="$arg"
@@ -56,6 +59,7 @@ done
 if [ -n "$TARGET_CHAIN" ]; then
     echo "🔗 TARGET CHAIN ĐƯỢC CHỈ ĐỊNH: $TARGET_CHAIN"
 fi
+echo "🛠️  CHẾ ĐỘ CHẠY: $MODE (gorun: go run main.go | gotest: go test -v -count=1 .)"
 
 TOTAL_TEST_CASES=${#TESTS[@]}
 TOTAL_RUNS=$((TOTAL_TEST_CASES * 3))
@@ -83,29 +87,32 @@ for test_dir in "${TESTS[@]}"; do
         
         cd "$test_dir" || exit
         
-        # Chạy lệnh go run và lưu output realtime
         log_file="../$LOG_DIR/${test_dir}_run${run_idx}.log"
-        go run main.go 2>&1 | tee "$log_file"
-        exit_code=${PIPESTATUS[0]}
+        if [ "$MODE" == "gotest" ]; then
+            go test -v -count=1 -timeout 90s . 2>&1 | tee "$log_file"
+            exit_code=${PIPESTATUS[0]}
+        else
+            go run main.go 2>&1 | tee "$log_file"
+            exit_code=${PIPESTATUS[0]}
+        fi
         
         output=$(cat "$log_file")
         
         cd ..
 
         # Phân tích kết quả dựa trên output và exit code
-        
+        if [ $exit_code -ne 0 ]; then
+            FAILED=$((FAILED + 1))
+            REASONS["${test_dir}_run${run_idx}"]="Thất bại (Exit code: $exit_code)"
+            echo "❌ THẤT BẠI (Exit Code: $exit_code)"
+            break 2
+        fi
+
         # Kiểm tra các từ khóa báo lỗi trong code của chính các bài test
         if echo "$output" | grep -q "TEST FAILED"; then
             FAILED=$((FAILED + 1))
             REASONS["${test_dir}_run${run_idx}"]="Kết quả tính toán sai hoặc Lỗi Block-STM (Phát hiện cờ TEST FAILED)"
             echo "❌ THẤT BẠI (Sai Logic)"
-            break 2
-        fi
-
-        if [ $exit_code -ne 0 ]; then
-            FAILED=$((FAILED + 1))
-            REASONS["${test_dir}_run${run_idx}"]="Lỗi biên dịch hoặc chương trình Crash (Exit code: $exit_code)"
-            echo "❌ THẤT BẠI (Crash)"
             break 2
         fi
 

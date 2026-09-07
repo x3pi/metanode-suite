@@ -44,47 +44,38 @@ type ExpectedEvent struct {
 	Contains []string
 }
 
-func main() {
-	configFlag := flag.String("config", "../config.json", "Đường dẫn file cấu hình config.json")
-	chainFlag := flag.String("chain", "", "Tùy chọn chain mục tiêu (ví dụ: 101, 102, chain_a)")
-	flag.Parse()
-
-	if *chainFlag != "" {
-		os.Setenv("TARGET_CHAIN", *chainFlag)
-	}
-
-	configPath := *configFlag
-	if flag.NArg() > 0 && !strings.HasPrefix(flag.Arg(0), "-") {
-		configPath = flag.Arg(0)
+func RunTest(configPath string) error {
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
 	contractABI, err := abi.JSON(strings.NewReader(abiJSON))
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse ABI: %v", err)
+		return fmt.Errorf("lỗi parse ABI: %w", err)
 	}
 
 	bytecode := common.FromHex(strings.TrimSpace(bytecodeHex))
 	if len(bytecode) == 0 {
-		log.Fatalf("❌ Lỗi load bytecode: bytecode rỗng")
+		return fmt.Errorf("lỗi load bytecode: bytecode rỗng")
 	}
 
 	if len(cfg.PrivateKeys) == 0 {
-		log.Fatalf("❌ Không có private key trong config")
+		return fmt.Errorf("không có private key trong config")
 	}
 
 	pk, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse private key: %v", err)
+		return fmt.Errorf("lỗi parse private key: %w", err)
 	}
 	fromAddress := crypto.PubkeyToAddress(*pk.Public().(*ecdsa.PublicKey))
 
@@ -103,7 +94,7 @@ func main() {
 
 	contractAddr, err := deployAndLog(client, pk, cfg.ChainID, fromAddress, bytecode)
 	if err != nil {
-		log.Fatalf("\n❌ Dừng pipeline tại Task 1 do lỗi: %v", err)
+		return fmt.Errorf("task 1 (Deploy) lỗi: %w", err)
 	}
 
 	// ==========================================
@@ -131,7 +122,7 @@ func main() {
 
 	err = executeSendWithVerification(client, pk, cfg.ChainID, fromAddress, contractAddr, contractABI, "runStep1_Setup", nil, expectedSetupEvents)
 	if err != nil {
-		log.Fatalf("\n❌ Dừng pipeline tại Task 2 do lỗi: %v", err)
+		return fmt.Errorf("task 2 (Setup) lỗi: %w", err)
 	}
 
 	// ==========================================
@@ -147,7 +138,7 @@ func main() {
 
 	err = executeSendWithVerification(client, pk, cfg.ChainID, fromAddress, contractAddr, contractABI, "runStep2_ReadBack", nil, expectedReadBackEvents)
 	if err != nil {
-		log.Fatalf("\n❌ Dừng pipeline tại Task 3 do lỗi: %v", err)
+		return fmt.Errorf("task 3 (ReadBack) lỗi: %w", err)
 	}
 
 	// ==========================================
@@ -163,7 +154,7 @@ func main() {
 
 	err = executeSendWithVerification(client, pk, cfg.ChainID, fromAddress, contractAddr, contractABI, "runStep3_UpdateDoc", nil, expectedUpdateEvents)
 	if err != nil {
-		log.Fatalf("\n❌ Dừng pipeline tại Task 4 do lỗi: %v", err)
+		return fmt.Errorf("task 4 (UpdateDoc) lỗi: %w", err)
 	}
 
 	// ==========================================
@@ -179,7 +170,7 @@ func main() {
 
 	err = executeSendWithVerification(client, pk, cfg.ChainID, fromAddress, contractAddr, contractABI, "runStep5b_QuerySearch", []interface{}{"iphone"}, expectedSearchEvents)
 	if err != nil {
-		log.Fatalf("\n❌ Dừng pipeline tại Task 5 do lỗi: %v", err)
+		return fmt.Errorf("task 5 (QuerySearch) lỗi: %w", err)
 	}
 
 	// ==========================================
@@ -188,7 +179,7 @@ func main() {
 	fmt.Println("\n--- THỰC THI TASK 6: runStep5c_GetData_View ---")
 	err = executeCallWithVerification(client, fromAddress, contractAddr, contractABI, "runStep5c_GetData_View", []interface{}{big.NewInt(0)}, []string{"Iphone 13 Pro", "electronics", "apple"})
 	if err != nil {
-		log.Fatalf("\n❌ Dừng pipeline tại Task 6 do lỗi: %v", err)
+		return fmt.Errorf("task 6 (GetData_View) lỗi: %w", err)
 	}
 
 	fmt.Println("\n==================================================")
@@ -203,6 +194,26 @@ func main() {
 	fmt.Println("==================================================")
 	fmt.Println("🎉 HOÀN TẤT THỰC THI! TẤT CẢ CÁC BƯỚC ĐỀU HỢP LỆ VÀ ĐẠT KỲ VỌNG!")
 	fmt.Println("==================================================")
+	return nil
+}
+
+func main() {
+	configFlag := flag.String("config", "../config.json", "Đường dẫn file cấu hình config.json")
+	chainFlag := flag.String("chain", "", "Tùy chọn chain mục tiêu (ví dụ: 101, 102, chain_a)")
+	flag.Parse()
+
+	if *chainFlag != "" {
+		os.Setenv("TARGET_CHAIN", *chainFlag)
+	}
+
+	configPath := *configFlag
+	if flag.NArg() > 0 && !strings.HasPrefix(flag.Arg(0), "-") {
+		configPath = flag.Arg(0)
+	}
+
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("❌ %v", err)
+	}
 }
 
 func deployAndLog(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, bytecode []byte) (common.Address, error) {

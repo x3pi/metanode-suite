@@ -35,7 +35,7 @@ const sharedUpdateAbiJSON = `[{"inputs":[{"internalType":"address","name":"_coun
 const sharedUpdateBytecodeHex = "0x608060405234801562000010575f80fd5b5060405162000d9538038062000d95833981810160405281019062000036919062000198565b61010773ffffffffffffffffffffffffffffffffffffffff1663fbdddaf06040518060400160405280601a81526020017f626c6f636b73746d5f7368617265645f78617069616e5f65766d0000000000008152506040518263ffffffff1660e01b8152600401620000a891906200025c565b6020604051808303815f875af1158015620000c5573d5f803e3d5ffd5b505050506040513d601f19601f82011682018060405250810190620000eb9190620002b8565b508060015f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff16021790555050620002e8565b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f620001628262000137565b9050919050565b620001748162000156565b81146200017f575f80fd5b50565b5f81519050620001928162000169565b92915050565b5f60208284031215620001b057620001af62000133565b5b5f620001bf8482850162000182565b91505092915050565b5f81519050919050565b5f82825260208201905092915050565b5f5b8381101562000201578082015181840152602081019050620001e4565b5f8484015250505050565b5f601f19601f8301169050919050565b5f6200022882620001c8565b620002348185620001d2565b935062000246818560208601620001e2565b62000251816200020c565b840191505092915050565b5f6020820190508181035f8301526200027681846200021c565b905092915050565b5f8115159050919050565b62000294816200027e565b81146200029f575f80fd5b50565b5f81519050620002b28162000289565b92915050565b5f60208284031215620002d057620002cf62000133565b5b5f620002df84828501620002a2565b91505092915050565b610a9f80620002f65f395ff3fe608060405234801561000f575f80fd5b5060043610610055575f3560e01c80630b6f8f481461005957806318a5f999146100775780638cc3829614610095578063b4340bbe146100b3578063d32a9a59146100bd575b5f80fd5b6100616100c7565b60405161006e9190610581565b60405180910390f35b61007f6101de565b60405161008c9190610614565b60405180910390f35b61009d610203565b6040516100aa9190610581565b60405180910390f35b6100bb610208565b005b6100c56102e0565b005b5f8061010773ffffffffffffffffffffffffffffffffffffffff16633e7c7f8b6040518060400160405280601a81526020017f626c6f636b73746d5f7368617265645f78617069616e5f65766d0000000000008152505f546040518363ffffffff1660e01b815260040161013c9291906106b7565b5f604051808303815f875af1158015610157573d5f803e3d5ffd5b505050506040513d5f823e3d601f19601f8201168201806040525081019061017f9190610814565b90505f8151116101c4576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016101bb906108a5565b60405180910390fd5b808060200190518101906101d891906108ed565b91505090565b60015f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b5f5481565b61010773ffffffffffffffffffffffffffffffffffffffff16639d4799416040518060400160405280601a81526020017f626c6f636b73746d5f7368617265645f78617069616e5f65766d0000000000008152505f60405160200161026d9190610581565b6040516020818303038152906040526040518363ffffffff1660e01b815260040161029992919061096a565b6020604051808303815f875af11580156102b5573d5f803e3d5ffd5b505050506040513d601f19601f820116820180604052508101906102d991906108ed565b5f81905550565b60015f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1663e8927fbc6040518163ffffffff1660e01b81526004015f604051808303815f87803b158015610346575f80fd5b505af1158015610358573d5f803e3d5ffd5b505050505f61010773ffffffffffffffffffffffffffffffffffffffff16633e7c7f8b6040518060400160405280601a81526020017f626c6f636b73746d5f7368617265645f78617069616e5f65766d0000000000008152505f546040518363ffffffff1660e01b81526004016103d09291906106b7565b5f604051808303815f875af11580156103eb573d5f803e3d5ffd5b505050506040513d5f823e3d601f19601f820116820180604052508101906104139190610814565b90505f8180602001905181019061042a91906108ed565b905060018161043991906109cc565b905061010773ffffffffffffffffffffffffffffffffffffffff1663c5d187dd6040518060400160405280601a81526020017f626c6f636b73746d5f7368617265645f78617069616e5f65766d0000000000008152505f54846040516020016104a29190610581565b6040516020818303038152906040526040518463ffffffff1660e01b81526004016104cf939291906109ff565b6020604051808303815f875af11580156104eb573d5f803e3d5ffd5b505050506040513d601f19601f8201168201806040525081019061050f91906108ed565b5f819055503373ffffffffffffffffffffffffffffffffffffffff167f3d523d852046afd5dba341b55c89c4355e15f6c45d6785c48472c0b7eb922911825f5460405161055d929190610a42565b60405180910390a25050565b5f819050919050565b61057b81610569565b82525050565b5f6020820190506105945f830184610572565b92915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f819050919050565b5f6105dc6105d76105d28461059a565b6105b9565b61059a565b9050919050565b5f6105ed826105c2565b9050919050565b5f6105fe826105e3565b9050919050565b61060e816105f4565b82525050565b5f6020820190506106275f830184610605565b92915050565b5f81519050919050565b5f82825260208201905092915050565b5f5b83811015610664578082015181840152602081019050610649565b5f8484015250505050565b5f601f19601f8301169050919050565b5f6106898261062d565b6106938185610637565b93506106a3818560208601610647565b6106ac8161066f565b840191505092915050565b5f6040820190508181035f8301526106cf818561067f565b90506106de6020830184610572565b9392505050565b5f604051905090565b5f80fd5b5f80fd5b5f80fd5b5f80fd5b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b6107348261066f565b810181811067ffffffffffffffff82111715610753576107526106fe565b5b80604052505050565b5f6107656106e5565b9050610771828261072b565b919050565b5f67ffffffffffffffff8211156107905761078f6106fe565b5b6107998261066f565b9050602081019050919050565b5f6107b86107b384610776565b61075c565b9050828152602081018484840111156107d4576107d36106fa565b5b6107df848285610647565b509392505050565b5f82601f8301126107fb576107fa6106f6565b5b815161080b8482602086016107a6565b91505092915050565b5f60208284031215610829576108286106ee565b5b5f82015167ffffffffffffffff811115610846576108456106f2565b5b610852848285016107e7565b91505092915050565b7f44617461206e6f7420666f756e6420696e2058617069616e00000000000000005f82015250565b5f61088f601883610637565b915061089a8261085b565b602082019050919050565b5f6020820190508181035f8301526108bc81610883565b9050919050565b6108cc81610569565b81146108d6575f80fd5b50565b5f815190506108e7816108c3565b92915050565b5f60208284031215610902576109016106ee565b5b5f61090f848285016108d9565b91505092915050565b5f81519050919050565b5f82825260208201905092915050565b5f61093c82610918565b6109468185610922565b9350610956818560208601610647565b61095f8161066f565b840191505092915050565b5f6040820190508181035f830152610982818561067f565b905081810360208301526109968184610932565b90509392505050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f6109d682610569565b91506109e183610569565b92508282019050808211156109f9576109f861099f565b5b92915050565b5f6060820190508181035f830152610a17818661067f565b9050610a266020830185610572565b8181036040830152610a388184610932565b9050949350505050565b5f604082019050610a555f830185610572565b610a626020830184610572565b939250505056fea2646970667358221220729002feed048c551e54303f53c2e87ba43fe5da801aa55c6789bfe11038201864736f6c63430008140033"
 
 
-func main() {
+func RunTest(configPath string) error {
 	fmt.Println("==========================================================")
 	fmt.Println("BÀI TEST: 16-xapian-evm-contract")
 	fmt.Println("==========================================================")
@@ -44,41 +44,40 @@ func main() {
 	fmt.Println("🎯 KỲ VỌNG : Block-STM xử lý chuẩn, Counter = 10, Xapian = 5.")
 	fmt.Println("==========================================================")
 
-	configPath := "../config.json"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+	if configPath == "" {
+		configPath = "../config.json"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi load config: %v", err)
+		return fmt.Errorf("lỗi load config: %w", err)
 	}
 
 	client, err := ethclient.Dial(cfg.RPCUrl)
 	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC: %v", err)
+		return fmt.Errorf("lỗi kết nối RPC: %w", err)
 	}
 
 	counterABI, err := abi.JSON(strings.NewReader(counterAbiJSON))
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse Counter ABI: %v", err)
+		return fmt.Errorf("lỗi parse Counter ABI: %w", err)
 	}
 	counterBytecode, err := hexutil.Decode(counterBytecodeHex)
 	if err != nil {
-		log.Fatalf("❌ Lỗi decode Counter bytecode: %v", err)
+		return fmt.Errorf("lỗi decode Counter bytecode: %w", err)
 	}
 
 	sharedABI, err := abi.JSON(strings.NewReader(sharedUpdateAbiJSON))
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse SharedUpdate ABI: %v", err)
+		return fmt.Errorf("lỗi parse SharedUpdate ABI: %w", err)
 	}
 	sharedBytecode, err := hexutil.Decode(sharedUpdateBytecodeHex)
 	if err != nil {
-		log.Fatalf("❌ Lỗi decode SharedUpdate bytecode: %v", err)
+		return fmt.Errorf("lỗi decode SharedUpdate bytecode: %w", err)
 	}
 
 	if len(cfg.PrivateKeys) == 0 {
-		log.Fatalf("❌ Không có private key nào trong config")
+		return fmt.Errorf("không có private key nào trong config")
 	}
 
 	testKeys := cfg.PrivateKeys
@@ -86,48 +85,47 @@ func main() {
 		testKeys = testKeys[:10]
 	}
 	if len(testKeys) < 10 {
-		log.Fatalf("❌ Cần ít nhất 10 private keys cho bài test này, hiện có %d", len(testKeys))
+		return fmt.Errorf("cần ít nhất 10 private keys cho bài test này, hiện có %d", len(testKeys))
 	}
 
 	pk0, err := crypto.HexToECDSA(testKeys[0])
 	if err != nil {
-		log.Fatalf("❌ Lỗi parse private key 0: %v", err)
+		return fmt.Errorf("lỗi parse private key 0: %w", err)
 	}
 	from0 := crypto.PubkeyToAddress(*pk0.Public().(*ecdsa.PublicKey))
 
 	fmt.Println("🚀 Deploying Counter contract with Account 0...")
 	counterAddr, err := deployContract(client, pk0, cfg.ChainID, from0, counterBytecode)
 	if err != nil {
-		log.Fatalf("❌ Deploy Counter thất bại: %v", err)
+		return fmt.Errorf("deploy Counter thất bại: %w", err)
 	}
 	fmt.Printf("📌 Counter deployed at: %s\n\n", counterAddr.Hex())
 
 	fmt.Println("🚀 Deploying SharedUpdate contract with Account 0...")
-	// pack constructor arguments (Counter address)
 	constructorArgs, err := sharedABI.Pack("", *counterAddr)
 	if err != nil {
-		log.Fatalf("❌ Pack constructor args thất bại: %v", err)
+		return fmt.Errorf("pack constructor args thất bại: %w", err)
 	}
 	fullSharedBytecode := append(sharedBytecode, constructorArgs...)
-	
+
 	sharedAddr, err := deployContract(client, pk0, cfg.ChainID, from0, fullSharedBytecode)
 	if err != nil {
-		log.Fatalf("❌ Deploy SharedUpdate thất bại: %v", err)
+		return fmt.Errorf("deploy SharedUpdate thất bại: %w", err)
 	}
 	fmt.Printf("📌 SharedUpdate deployed at: %s\n\n", sharedAddr.Hex())
 
 	fmt.Println("⚙️ Initializing Document...")
 	initHash, err := sendInitializeDoc(client, pk0, cfg.ChainID, from0, sharedAddr, sharedABI)
 	if err != nil {
-		log.Fatalf("❌ InitializeDoc failed: %v", err)
+		return fmt.Errorf("initializeDoc failed: %w", err)
 	}
 	fmt.Printf("   TX Hash: %s\n", initHash.Hex())
 
 	initReceipt, err := waitReceipt(client, initHash)
 	if err != nil || initReceipt.Status != 1 {
-		log.Fatalf("❌ Khởi tạo Document thất bại!")
+		return fmt.Errorf("khởi tạo Document thất bại")
 	}
-	fmt.Println("✅ InitializeDoc thành công!\n")
+	fmt.Println("✅ InitializeDoc thành công!")
 
 	var wg sync.WaitGroup
 	var errs []error
@@ -140,7 +138,7 @@ func main() {
 
 	for i, pkStr := range testKeys {
 		wg.Add(1)
-		time.Sleep(3 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 		go func(idx int, pKeyHex string) {
 			defer wg.Done()
 
@@ -198,12 +196,12 @@ func main() {
 
 	xapianCount, err := getSharedDataFromDB(client, sharedAddr, sharedABI)
 	if err != nil {
-		log.Fatalf("❌ Lỗi getSharedDataFromDB(): %v", err)
+		return fmt.Errorf("lỗi getSharedDataFromDB(): %w", err)
 	}
-	
+
 	evmCount, err := getCounterData(client, counterAddr, counterABI)
 	if err != nil {
-		log.Fatalf("❌ Lỗi getCounterData(): %v", err)
+		return fmt.Errorf("lỗi getCounterData(): %w", err)
 	}
 
 	elapsed := time.Since(start)
@@ -214,8 +212,19 @@ func main() {
 
 	if xapianCount == 5 && evmCount == 10 {
 		fmt.Println("🎉 TEST PASSED: BlockSTM xử lý write conflict trên Xapian DB và EVM state đúng!")
-	} else {
-		fmt.Printf("⚠️ TEST FAILED\n")
+		return nil
+	}
+
+	return fmt.Errorf("test failed: kỳ vọng Xapian=5, EVM=10 nhưng thực tế Xapian=%d, EVM=%d", xapianCount, evmCount)
+}
+
+func main() {
+	configPath := "../config.json"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if err := RunTest(configPath); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 }
 
@@ -338,20 +347,14 @@ func waitReceipt(client *ethclient.Client, txHash common.Hash) (*types.Receipt, 
 	timeoutStart := time.Now()
 	for {
 		if time.Since(timeoutStart) > 60*time.Second {
-			fmt.Println("❌ Timeout waiting for receipt")
-			os.Exit(1)
+			return nil, fmt.Errorf("timeout waiting for receipt của Tx %s", txHash.Hex())
 		}
 		receipt, err := client.TransactionReceipt(context.Background(), txHash)
-
-		if err != nil && !strings.Contains(err.Error(), "not found") {
-			fmt.Printf("Lỗi kết nối RPC: %v\n", err)
-			os.Exit(1)
-		}
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return receipt, nil
 		}
-		if err != nil && err.Error() != "not found" {
-			return nil, err
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			return nil, fmt.Errorf("lỗi kết nối RPC: %w", err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

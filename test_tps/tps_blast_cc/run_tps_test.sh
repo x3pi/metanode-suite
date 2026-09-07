@@ -11,7 +11,7 @@ LOAD_BALANCE=true
 BATCH=5000
 TPS_TARGET=50000
 EPOCH_WAIT=0
-CONFIG="config-multi.json"
+CONFIG=""
 EXTRA_ARGS=()
 
 # Phân tích tham số truyền vào
@@ -21,29 +21,69 @@ while [[ $# -gt 0 ]]; do
       RESET=false
       shift
       ;;
+    --count)
+      COUNT=$2
+      shift 2
+      ;;
+    --count=*)
+      COUNT="${1#*=}"
+      shift
+      ;;
     --rounds)
       ROUNDS=$2
       shift 2
+      ;;
+    --rounds=*)
+      ROUNDS="${1#*=}"
+      shift
       ;;
     --load_balance)
       LOAD_BALANCE=$2
       shift 2
       ;;
+    --load_balance=*)
+      LOAD_BALANCE="${1#*=}"
+      shift
+      ;;
     --batch)
       BATCH=$2
       shift 2
+      ;;
+    --batch=*)
+      BATCH="${1#*=}"
+      shift
       ;;
     --tps-target)
       TPS_TARGET=$2
       shift 2
       ;;
+    --tps-target=*)
+      TPS_TARGET="${1#*=}"
+      shift
+      ;;
     --epoch-wait)
       EPOCH_WAIT=$2
       shift 2
       ;;
+    --epoch-wait=*)
+      EPOCH_WAIT="${1#*=}"
+      shift
+      ;;
+    --amount)
+      EXTRA_ARGS+=("--amount" "$2")
+      shift 2
+      ;;
+    --amount=*)
+      EXTRA_ARGS+=("$1")
+      shift
+      ;;
     --config)
       CONFIG=$2
       shift 2
+      ;;
+    --config=*)
+      CONFIG="${1#*=}"
+      shift
       ;;
     *)
       if [[ "$1" =~ ^[0-9]+$ ]]; then
@@ -87,14 +127,20 @@ cd ../../../metanode-suite/test_tps/tps_blast_cc
 
 rm -f /tmp/MTN_CHAIN_ERROR_STOP
 
+CMD_ARGS=(
+  --count "$COUNT"
+  --rounds "$ROUNDS"
+  --load_balance="$LOAD_BALANCE"
+  --batch "$BATCH"
+  --tps-target "$TPS_TARGET"
+  --epoch-wait "$EPOCH_WAIT"
+)
+if [ -n "$CONFIG" ]; then
+  CMD_ARGS+=(--config "$CONFIG")
+fi
+
 GOMAXPROCS=16 go run main.go \
-  --count "$COUNT" \
-  --rounds "$ROUNDS" \
-  --load_balance="$LOAD_BALANCE" \
-  --batch "$BATCH" \
-  --tps-target "$TPS_TARGET" \
-  --epoch-wait "$EPOCH_WAIT" \
-  --config="$CONFIG" \
+  "${CMD_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"
 
 echo "=========================================================="

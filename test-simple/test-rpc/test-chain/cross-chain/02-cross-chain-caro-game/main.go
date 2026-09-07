@@ -228,6 +228,8 @@ func sanitizeKey(k string) string {
 func loadAvailableChains(configFilePath string) (map[string]ChainEntry, error) {
 	paths := []string{
 		configFilePath,
+		"../../../../configs/config.json",
+		"../../../configs/config.json",
 		"../../config.json",
 		"../config.json",
 		"./config.json",
@@ -324,39 +326,41 @@ func main() {
 		targetTo = posArgs[1]
 	}
 
+	if err := RunCaroTest(targetFrom, targetTo, configPath, *interactiveFlag); err != nil {
+		fmt.Printf("\n❌ %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// RunCaroTest thực thi toàn bộ kịch bản game Caro cross-chain.
+func RunCaroTest(targetFrom, targetTo, configPath string, interactive bool) error {
+	if targetFrom == "" {
+		targetFrom = "101"
+	}
+	if targetTo == "" {
+		targetTo = "102"
+	}
+
 	availableChains, errCfg := loadAvailableChains(configPath)
 	if errCfg != nil {
-		fmt.Printf("❌ Không thể đọc file cấu hình (%s): %v\n", configPath, errCfg)
-		return
+		return fmt.Errorf("không thể đọc file cấu hình (%s): %w", configPath, errCfg)
 	}
 
 	fromEntry, okFrom := availableChains[strings.ToLower(targetFrom)]
 	if !okFrom {
-		fmt.Printf("❌ Không tìm thấy thông tin Chain nguồn '%s' trong config.json (Các chain khả dụng: ", targetFrom)
-		for k := range availableChains {
-			fmt.Printf("%s ", k)
-		}
-		fmt.Println(")")
-		return
+		return fmt.Errorf("không tìm thấy thông tin Chain nguồn '%s' trong config", targetFrom)
 	}
 
 	toEntry, okTo := availableChains[strings.ToLower(targetTo)]
 	if !okTo {
-		fmt.Printf("❌ Không tìm thấy thông tin Chain đích '%s' trong config.json (Các chain khả dụng: ", targetTo)
-		for k := range availableChains {
-			fmt.Printf("%s ", k)
-		}
-		fmt.Println(")")
-		return
+		return fmt.Errorf("không tìm thấy thông tin Chain đích '%s' trong config", targetTo)
 	}
 
 	if len(fromEntry.PrivateKeys) == 0 {
-		fmt.Printf("❌ Không tìm thấy private key cho Chain nguồn %d trong config.json\n", fromEntry.ChainID)
-		return
+		return fmt.Errorf("không tìm thấy private key cho Chain nguồn %d trong config", fromEntry.ChainID)
 	}
 	if len(toEntry.PrivateKeys) == 0 {
-		fmt.Printf("❌ Không tìm thấy private key cho Chain đích %d trong config.json\n", toEntry.ChainID)
-		return
+		return fmt.Errorf("không tìm thấy private key cho Chain đích %d trong config", toEntry.ChainID)
 	}
 
 	keyA := fromEntry.PrivateKeys[0]
@@ -391,8 +395,7 @@ func main() {
 
 	deployHash, errDeploy := sendRawTransaction(toEntry.RpcUrl, rawDeployBytes)
 	if errDeploy != nil {
-		fmt.Printf("❌ Lỗi deploy Caro contract: %v\n", errDeploy)
-		return
+		return fmt.Errorf("lỗi deploy Caro contract: %w", errDeploy)
 	}
 	waitForReceipt(toEntry.RpcUrl, deployHash, 10*time.Second)
 	caroContractAddr := crypto.CreateAddress(player2Addr, nonceDeploy)
@@ -434,7 +437,7 @@ func main() {
 
 		if currentTurnCell == 1 {
 			// LƯỢT CỦA PLAYER X (CHAIN NGUỒN ➔ GỬI OUTBOUND SANG CHAIN ĐÍCH)
-			if *interactiveFlag {
+			if interactive {
 				for {
 					fmt.Printf("\n👉 %sLƯỢT CỦA BẠN (QUÂN [ X ] TRÊN CHAIN %d):%s Nhập 'hàng cột' (0-2), ví dụ '1 1': ", ColorRed+ColorBold, fromEntry.ChainID, ColorReset)
 					if !scanner.Scan() {
@@ -499,8 +502,7 @@ func main() {
 
 			txHashOutbound, errSend := sendRawTransaction(fromEntry.RpcUrl, rawTxBytes)
 			if errSend != nil {
-				fmt.Printf("   ❌ Lỗi gửi outbound trên Chain %d: %v\n", fromEntry.ChainID, errSend)
-				return
+				return fmt.Errorf("lỗi gửi outbound trên Chain %d: %w", fromEntry.ChainID, errSend)
 			}
 			fmt.Printf("   🚀 Lệnh nộp lên Gateway Chain %d (Tx: %s) ✅\n", fromEntry.ChainID, txHashOutbound.Hex())
 			waitForReceipt(fromEntry.RpcUrl, txHashOutbound, 10*time.Second)
@@ -529,8 +531,7 @@ func main() {
 			}
 
 			if !synced {
-				fmt.Printf("\n   ❌ Timeout chờ Relayer chuyển nước đi.\n")
-				return
+				return fmt.Errorf("timeout chờ Relayer chuyển nước đi (%d, %d)", row, col)
 			}
 
 		} else {
@@ -554,7 +555,10 @@ func main() {
 			signedTxB, _ := types.SignTx(txMoveB, types.NewEIP155Signer(new(big.Int).SetUint64(toEntry.ChainID)), privKey2)
 			rawTxB, _ := signedTxB.MarshalBinary()
 
-			txHashB, _ := sendRawTransaction(toEntry.RpcUrl, rawTxB)
+			txHashB, errSendB := sendRawTransaction(toEntry.RpcUrl, rawTxB)
+			if errSendB != nil {
+				return fmt.Errorf("lỗi gửi transaction Player O trên Chain %d: %w", toEntry.ChainID, errSendB)
+			}
 			waitForReceipt(toEntry.RpcUrl, txHashB, 10*time.Second)
 			board.Grid[row][col] = 2
 			fmt.Printf("   ✅ Đã đánh trực tiếp trên Chain %d (Tx: %s)!\n", toEntry.ChainID, txHashB.Hex())
@@ -597,4 +601,5 @@ func main() {
 	fmt.Println("\n" + ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
 	fmt.Printf(ColorGreen+ColorBold+"🏆 TRẬN ĐẤU CARO XUYÊN CHUỖI (CHAIN %d ➔ CHAIN %d) THÀNH CÔNG 100%%!\n"+ColorReset, fromEntry.ChainID, toEntry.ChainID)
 	fmt.Println(ColorCyan + ColorBold + "══════════════════════════════════════════════════════════════════════════════" + ColorReset)
+	return nil
 }
