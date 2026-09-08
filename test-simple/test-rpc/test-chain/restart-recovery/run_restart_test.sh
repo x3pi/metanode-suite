@@ -26,6 +26,9 @@ fi
 
 SPECIFIED_NODES=""
 TX_COUNT=15
+LOOP_COUNT=1          # Mặc định 1 vòng (tương thích ngược CI). 0 hoặc "infinite" là chạy mãi mãi.
+DURATION_HOURS=0      # Thời gian chạy tối đa theo giờ (0 = không giới hạn)
+SLEEP_BETWEEN_ROUNDS=10 # Thời gian nghỉ giữa các vòng (giây)
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -33,11 +36,35 @@ while [[ "$#" -gt 0 ]]; do
         --nodes=*) SPECIFIED_NODES="${1#*=}" ;;
         --count) TX_COUNT="$2"; shift ;;
         --count=*) TX_COUNT="${1#*=}" ;;
+        --loop|--loops) 
+            if [ "$2" == "infinite" ] || [ "$2" == "-1" ]; then
+                LOOP_COUNT=0
+            else
+                LOOP_COUNT="$2"
+            fi
+            shift ;;
+        --loop=*|--loops=*)
+            val="${1#*=}"
+            if [ "$val" == "infinite" ] || [ "$val" == "-1" ]; then
+                LOOP_COUNT=0
+            else
+                LOOP_COUNT="$val"
+            fi
+            ;;
+        --infinite) LOOP_COUNT=0 ;;
+        --duration-hours) DURATION_HOURS="$2"; shift ;;
+        --duration-hours=*) DURATION_HOURS="${1#*=}" ;;
+        --sleep-between) SLEEP_BETWEEN_ROUNDS="$2"; shift ;;
+        --sleep-between=*) SLEEP_BETWEEN_ROUNDS="${1#*=}" ;;
         --duration|--duration=*) shift ;; # Tương thích ngược
         -h|--help)
             echo "Cách dùng: $0 [OPTIONS]"
-            echo "  --nodes <0,1,2>        Chỉ định danh sách node cần test (Mặc định: tự động phát hiện node online)"
-            echo "  --count <15>           Số lượng giao dịch gửi và xác nhận mỗi chặng"
+            echo "  --nodes <0,1,2>           Chỉ định danh sách node cần test (Mặc định: tự động phát hiện node online)"
+            echo "  --count <15>              Số lượng giao dịch gửi và xác nhận mỗi chặng"
+            echo "  --loop <N|infinite>       Số vòng lặp test rolling restart (Mặc định: 1; 0 hoặc 'infinite' = vô tận)"
+            echo "  --infinite                Chạy lặp vô tận (tiện dụng để test qua đêm)"
+            echo "  --duration-hours <H>      Giới hạn số giờ chạy liên tục (ví dụ: --duration-hours 8 để test qua đêm 8 tiếng)"
+            echo "  --sleep-between <sec>     Thời gian nghỉ giữa các vòng lặp (Mặc định: 10s)"
             exit 0
             ;;
         *) echo "Tham số không hợp lệ: $1"; exit 1 ;;
@@ -50,6 +77,14 @@ echo "🚀 BẮT ĐẦU BÀI TEST: CLUSTER RESTART & ZERO-FORK RECOVERY"
 echo "📂 Thư mục: ${SCRIPT_DIR}"
 echo "⚙️  Ansible: ${ANSIBLE_DIR}/ansible_deploy.sh"
 echo "🔢 Số TX kiểm chứng mỗi chặng: ${TX_COUNT}"
+if [ "$LOOP_COUNT" -eq 0 ]; then
+    echo "🔁 Chế độ lặp: VÔ TẬN (Infinite / Qua đêm)"
+else
+    echo "🔁 Chế độ lặp: ${LOOP_COUNT} vòng"
+fi
+if (( $(echo "$DURATION_HOURS > 0" | bc -l 2>/dev/null || [ "$DURATION_HOURS" -gt 0 ] 2>/dev/null || echo 0) )); then
+    echo "⏱️  Giới hạn thời gian: ${DURATION_HOURS} giờ"
+fi
 echo "=========================================================="
 
 cd "${SCRIPT_DIR}"
@@ -178,82 +213,100 @@ wait_all_nodes_online() {
 }
 
 
-# ------------------------------------------------------------------------------
-# BƯỚC 1: KHỞI ĐỘNG BAN ĐẦU
-# ------------------------------------------------------------------------------
-echo -e "\n----------------------------------------------------------"
-echo "🏁 [BƯỚC 1] Kiểm tra ban đầu: gửi đợt giao dịch warm-up và check sức khỏe cụm..."
-echo "----------------------------------------------------------"
-go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
+START_TIME=$(date +%s)
+current_loop=1
 
-# ------------------------------------------------------------------------------
-# BƯỚC 2: ROLLING RESTART TỪNG NODE (LUÂN PHIÊN)
-# ------------------------------------------------------------------------------
-echo -e "\n=========================================================="
-echo "🔄 [BƯỚC 2] BẮT ĐẦU ROLLING RESTART TỪNG NODE (${#ACTIVE_NODES[@]} NODES)"
-echo "=========================================================="
-
-TOTAL_ACTIVE=${#ACTIVE_NODES[@]}
-round=1
-for node_id in "${ACTIVE_NODES[@]}"; do
-    echo -e "\n👉 [CHẶNG 2.${round}] TẮT & KIỂM CHỨNG & BẬT LẠI NODE ${node_id}..."
-    
-    echo "🔴 1. Tắt Node ${node_id}..."
-    echo "${node_id}" > /tmp/monitors_ignore_nodes 2>/dev/null || true
-    "${ANSIBLE_DIR}/ansible_deploy.sh" --stop --only-node "${node_id}"
-    wait_node_offline "${node_id}" || true
-
-    # NẾU CỤM CÓ TRÊN 3 NODES: Khi 1 node tắt, cụm còn lại >= 3 nodes (đủ 2f+1 quorum)
-    # Kiểm tra gửi giao dịch đến các node còn lại, đảm bảo các node còn lại đều sống và Zero-Fork
-    if [ "$TOTAL_ACTIVE" -gt 3 ]; then
-        echo "⚡ [Node ${node_id} ĐANG TẮT - Cụm còn $((TOTAL_ACTIVE - 1)) nodes] Gửi ${TX_COUNT} giao dịch, kiểm tra các node còn lại hoạt động và Zero-Fork..."
-        go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true -stopped-node="${node_id}"
+while true; do
+    echo -e "\n=========================================================="
+    if [ "$LOOP_COUNT" -eq 0 ]; then
+        echo "🔄 [VÒNG LẶP ${current_loop}] BẮT ĐẦU CHẶNG TEST (CHẾ ĐỘ QUA ĐÊM / INFINITE)"
     else
-        echo "ℹ️  Cụm ban đầu có ${TOTAL_ACTIVE} nodes. Khi dừng node ${node_id} thì chỉ còn $((TOTAL_ACTIVE - 1)) nodes (chưa đủ quorum để tiếp tục commit), bỏ qua bước gửi giao dịch trong lúc dừng."
+        echo "🔄 [VÒNG LẶP ${current_loop}/${LOOP_COUNT}] BẮT ĐẦU CHẶNG TEST"
     fi
+    echo "=========================================================="
 
-    echo "🟢 2. Bật lại Node ${node_id}..."
-    "${ANSIBLE_DIR}/ansible_deploy.sh" --restart --only-node "${node_id}"
-
-    wait_node_online "${node_id}"
-    rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
-
-    echo "⚡ [Node ${node_id} VỪA THỨC DẬY] Bơm ${TX_COUNT} giao dịch toàn cụm, kiểm tra catch-up sync, sức khỏe toàn bộ node và Zero-Fork..."
+    # ------------------------------------------------------------------------------
+    # BƯỚC 1: KHỞI ĐỘNG BAN ĐẦU
+    # ------------------------------------------------------------------------------
+    echo -e "\n----------------------------------------------------------"
+    echo "🏁 [BƯỚC 1] Kiểm tra ban đầu: gửi đợt giao dịch warm-up và check sức khỏe cụm..."
+    echo "----------------------------------------------------------"
     go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
 
-    round=$((round + 1))
-done
+    # ------------------------------------------------------------------------------
+    # BƯỚC 2: ROLLING RESTART TỪNG NODE (LUÂN PHIÊN)
+    # ------------------------------------------------------------------------------
+    echo -e "\n=========================================================="
+    echo "🔄 [BƯỚC 2] BẮT ĐẦU ROLLING RESTART TỪNG NODE (${#ACTIVE_NODES[@]} NODES)"
+    echo "=========================================================="
 
-# ------------------------------------------------------------------------------
-# BƯỚC 3: FULL CLUSTER RESTART (TẮT VÀ BẬT TOÀN BỘ CỤM NODE)
-# ------------------------------------------------------------------------------
-echo -e "\n=========================================================="
-echo "🛑 [BƯỚC 3] TẮT & BẬT LẠI TOÀN BỘ CỤM NODE (${ACTIVE_NODES[*]})"
-echo "=========================================================="
+    TOTAL_ACTIVE=${#ACTIVE_NODES[@]}
+    round=1
+    for node_id in "${ACTIVE_NODES[@]}"; do
+        echo -e "\n👉 [CHẶNG 2.${round}] TẮT & KIỂM CHỨNG & BẬT LẠI NODE ${node_id}..."
+        
+        echo "🔴 1. Tắt Node ${node_id} (Dự kiến tắt phục vụ test chịu lỗi)..."
+        echo "${node_id}" > /tmp/monitors_ignore_nodes 2>/dev/null || true
+        "${ANSIBLE_DIR}/ansible_deploy.sh" --stop --only-node "${node_id}"
+        wait_node_offline "${node_id}" || {
+            echo "❌ LỖI: Node ${node_id} không thể dừng hoàn toàn! Dừng bài test."
+            exit 1
+        }
 
-echo "🛑 Dừng toàn bộ cụm node..."
-echo "${ACTIVE_NODES[*]}" > /tmp/monitors_ignore_nodes 2>/dev/null || true
-"${ANSIBLE_DIR}/ansible_deploy.sh" --stop
-echo "⏳ Chờ 5s đảm bảo mọi process đã dừng hẳn..."
-sleep 5
+        # NẾU CỤM CÓ TRÊN 3 NODES: Khi 1 node tắt, cụm còn lại >= 3 nodes (đủ 2f+1 quorum)
+        # Kiểm tra gửi giao dịch đến các node còn lại, đảm bảo các node còn lại đều sống và Zero-Fork
+        if [ "$TOTAL_ACTIVE" -gt 3 ]; then
+            echo "⏳ Chờ 3s để các node còn lại ổn định round consensus sau khi Node ${node_id} dừng..."
+            sleep 3
+            echo "⚡ [Node ${node_id} ĐANG TẮT - Cụm còn $((TOTAL_ACTIVE - 1)) nodes online]"
+            echo "   👉 Gửi ${TX_COUNT} giao dịch phân bổ CHỈ qua các node đang online (loại trừ Node ${node_id})..."
+            go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true -stopped-node="${node_id}"
+        else
+            echo "ℹ️  Cụm ban đầu có ${TOTAL_ACTIVE} nodes. Khi dừng node ${node_id} thì chỉ còn $((TOTAL_ACTIVE - 1)) nodes (chưa đủ quorum để tiếp tục commit), bỏ qua bước gửi giao dịch trong lúc dừng."
+        fi
 
-echo "🚀 Khởi động lại toàn bộ cụm node..."
-"${ANSIBLE_DIR}/ansible_deploy.sh" --restart
+        echo "🟢 2. Bật lại Node ${node_id}..."
+        "${ANSIBLE_DIR}/ansible_deploy.sh" --restart --only-node "${node_id}"
 
-wait_all_nodes_online
-rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
+        wait_node_online "${node_id}"
+        rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
-echo "⚡ [Cả cụm vừa thức dậy] Bơm ${TX_COUNT} giao dịch load-balance, kiểm tra sống/chết và Zero-Fork..."
-go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
+        echo "⚡ [Node ${node_id} VỪA THỨC DẬY] Bơm ${TX_COUNT} giao dịch toàn cụm, kiểm tra catch-up sync, sức khỏe toàn bộ node và Zero-Fork..."
+        go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
 
-# ------------------------------------------------------------------------------
-# BƯỚC 4: KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE SAU TOÀN BỘ BÀI TEST
-# ------------------------------------------------------------------------------
-echo -e "\n=========================================================="
-echo "📡 [BƯỚC 4] KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE SAU TOÀN BỘ BÀI TEST"
-echo "=========================================================="
+        round=$((round + 1))
+    done
 
-python3 -c "
+    # ------------------------------------------------------------------------------
+    # BƯỚC 3: FULL CLUSTER RESTART (TẮT VÀ BẬT TOÀN BỘ CỤM NODE)
+    # ------------------------------------------------------------------------------
+    echo -e "\n=========================================================="
+    echo "🛑 [BƯỚC 3] TẮT & BẬT LẠI TOÀN BỘ CỤM NODE (${ACTIVE_NODES[*]})"
+    echo "=========================================================="
+
+    echo "🛑 Dừng toàn bộ cụm node..."
+    echo "${ACTIVE_NODES[*]}" > /tmp/monitors_ignore_nodes 2>/dev/null || true
+    "${ANSIBLE_DIR}/ansible_deploy.sh" --stop
+    echo "⏳ Chờ 5s đảm bảo mọi process đã dừng hẳn..."
+    sleep 5
+
+    echo "🚀 Khởi động lại toàn bộ cụm node..."
+    "${ANSIBLE_DIR}/ansible_deploy.sh" --restart
+
+    wait_all_nodes_online
+    rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
+
+    echo "⚡ [Cả cụm vừa thức dậy] Bơm ${TX_COUNT} giao dịch load-balance, kiểm tra sống/chết và Zero-Fork..."
+    go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
+
+    # ------------------------------------------------------------------------------
+    # BƯỚC 4: KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE SAU VÒNG TEST
+    # ------------------------------------------------------------------------------
+    echo -e "\n=========================================================="
+    echo "📡 [BƯỚC 4] KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE (VÒNG ${current_loop})"
+    echo "=========================================================="
+
+    python3 -c "
 import json, urllib.request, sys
 
 try:
@@ -282,8 +335,34 @@ except Exception as e:
     sys.exit(1)
 "
 
+    # Kiểm tra điều kiện kết thúc vòng lặp
+    CURRENT_TIME=$(date +%s)
+    ELAPSED_SEC=$((CURRENT_TIME - START_TIME))
+    ELAPSED_HOURS=$(echo "scale=2; $ELAPSED_SEC / 3600" | bc 2>/dev/null || echo "0")
+
+    echo -e "\n📊 Đã hoàn thành vòng lặp thứ ${current_loop} (Thời gian đã chạy: ${ELAPSED_SEC}s ~ ${ELAPSED_HOURS}h)"
+
+    if [ "$LOOP_COUNT" -gt 0 ] && [ "$current_loop" -ge "$LOOP_COUNT" ]; then
+        echo "🏁 Đã hoàn thành đủ ${LOOP_COUNT} vòng lặp yêu cầu."
+        break
+    fi
+
+    if (( $(echo "$DURATION_HOURS > 0" | bc -l 2>/dev/null || [ "$DURATION_HOURS" -gt 0 ] 2>/dev/null || echo 0) )); then
+        LIMIT_SEC=$(echo "$DURATION_HOURS * 3600" | bc 2>/dev/null || echo $((DURATION_HOURS * 3600)))
+        if [ "$ELAPSED_SEC" -ge "$LIMIT_SEC" ]; then
+            echo "🏁 Đã đạt thời gian chạy tối đa (${DURATION_HOURS} giờ). Kết thúc bài test qua đêm thành công!"
+            break
+        fi
+    fi
+
+    echo "⏳ Nghỉ ${SLEEP_BETWEEN_ROUNDS}s trước khi bước vào vòng test tiếp theo..."
+    sleep "${SLEEP_BETWEEN_ROUNDS}"
+    current_loop=$((current_loop + 1))
+done
+
 echo -e "\n=========================================================="
 echo "🏆 HOÀN THÀNH XUẤT SẮC BÀI TEST RECOVERY & ZERO-FORK!"
+echo "   • Tổng số vòng lặp hoàn thành: ${current_loop}"
 echo "   • Đã thử nghiệm luân phiên trên ${#ACTIVE_NODES[@]} nodes: [ ${ACTIVE_NODES[*]} ]"
 echo "   • Đã restart toàn bộ cụm và xác nhận đồng thuận tiếp tục hoạt động"
 echo "   • Đảm bảo TẤT CẢ các node ĐỀU ĐANG CÒN SỐNG (Đã kiểm tra độc lập)"

@@ -135,10 +135,20 @@ func main() {
 		pk, err := crypto.HexToECDSA(strings.TrimPrefix(kStr, "0x"))
 		if err == nil {
 			addr := crypto.PubkeyToAddress(pk.PublicKey)
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			n, nErr := activeNodes[0].Client.PendingNonceAt(ctx, addr)
-			cancel()
-			if nErr == nil {
+			var n uint64
+			var nErr error
+			gotNonce := false
+			// Chỉ query nonce từ các activeNodes (đang sống và KHÔNG bị stopped)
+			for _, an := range activeNodes {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				n, nErr = an.Client.PendingNonceAt(ctx, addr)
+				cancel()
+				if nErr == nil {
+					gotNonce = true
+					break
+				}
+			}
+			if gotNonce {
 				accounts = append(accounts, &AccountState{
 					Key:     pk,
 					Address: addr,
@@ -148,12 +158,22 @@ func main() {
 		}
 	}
 	if len(accounts) == 0 {
-		log.Fatalf("❌ Không thể khởi tạo tài khoản hợp lệ nào với nonce")
+		log.Fatalf("❌ Không thể lấy nonce từ bất kỳ node online nào trong: %v", activeNodes)
 	}
 
 	// 3. Gửi giao dịch có kiểm soát và xác nhận rõ ràng
-	fmt.Printf("⏳ Bắt đầu gửi %d giao dịch phân phối đều qua %d node đang sống (sử dụng %d ví)...\n",
-		*txCount, len(activeNodes), len(accounts))
+	var activeNames []string
+	for _, n := range activeNodes {
+		activeNames = append(activeNames, n.Name)
+	}
+	if *stoppedNode != "" {
+		fmt.Printf("⏳ [NODE %s ĐANG BỊ TẮT] Gửi %d giao dịch phân phối đều qua %d node ĐANG SỐNG: [%s] (sử dụng %d ví)...\n",
+			*stoppedNode, *txCount, len(activeNodes), strings.Join(activeNames, ", "), len(accounts))
+		fmt.Printf("   ℹ️  (Node %s cố ý tắt theo kịch bản test - KHÔNG gửi giao dịch tới node này)\n", *stoppedNode)
+	} else {
+		fmt.Printf("⏳ Bắt đầu gửi %d giao dịch phân phối đều qua %d node đang sống: [%s] (sử dụng %d ví)...\n",
+			*txCount, len(activeNodes), strings.Join(activeNames, ", "), len(accounts))
+	}
 	receiverAddr := common.HexToAddress("0x0000000000000000000000000000000000000088")
 	chainID := big.NewInt(cfg.ChainID)
 
@@ -187,7 +207,7 @@ func main() {
 			acct.Nonce++
 			acct.Mu.Unlock()
 
-			// Chọn node theo round-robin
+			// Chọn node theo round-robin (chỉ trong activeNodes - đã loại bỏ stoppedNode)
 			targetNode := activeNodes[txIdx%len(activeNodes)]
 
 			// Amount phân biệt để mỗi tx hash luôn là duy nhất
@@ -226,23 +246,25 @@ func main() {
 	}
 
 	wg.Wait()
-	fmt.Printf("📤 Đã gửi %d/%d giao dịch thành công vào mempool. Đang chờ xác nhận trong Block...\n", len(records), *txCount)
+	fmt.Printf("📤 Đã gửi %d/%d giao dịch thành công vào mempool các node sống: [%s]. Đang chờ xác nhận trong Block...\n",
+		len(records), *txCount, strings.Join(activeNames, ", "))
 
-	// 4. Chờ Receipt xác nhận trong Block
+	// 4. Chờ Receipt xác nhận trong Block (tối đa 45s để cụm kịp đồng thuận khi thiếu validator)
 	confirmedCount := 0
 	for _, rec := range records {
 		timeoutStart := time.Now()
 		for {
-			if time.Since(timeoutStart) > 20*time.Second {
-				fmt.Printf("   [TX %d/%d] ⚠️ Timeout chờ receipt cho hash: %s\n", rec.Index, *txCount, rec.TxHash.Hex())
+			if time.Since(timeoutStart) > 45*time.Second {
+				fmt.Printf("   [TX %d/%d qua %s] ⚠️ Timeout (45s) chờ receipt cho hash: %s\n",
+					rec.Index, *txCount, rec.NodeName, rec.TxHash.Hex())
 
 				// 🚨 KIỂM TRA SỨC KHỎE TOÀN BỘ CÁC NODE NGAY LẬP TỨC KHI BỊ TIMEOUT RECEIPT
-				fmt.Printf("   🔍 [HEALTH PROBE] Giao dịch %s bị timeout receipt! Đang kiểm tra xem có node nào bị crash không...\n",
-					rec.TxHash.Hex()[:14]+"...")
+				fmt.Printf("   🔍 [HEALTH PROBE] Giao dịch %s gửi qua %s bị timeout! Đang kiểm tra trạng thái cụm...\n",
+					rec.TxHash.Hex()[:14]+"...", rec.NodeName)
 				var crashedNodes []string
 				for _, n := range nodes {
 					if *stoppedNode != "" && matchNodeName(n.Name, *stoppedNode) {
-						fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Dự kiến tắt theo kịch bản test)\n", n.Name, n.URL)
+						fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Đang cố ý TẮT theo kịch bản test - KHÔNG CÓ LỖI)\n", n.Name, n.URL)
 						continue
 					}
 					c, dErr := dialClient(n.URL)
