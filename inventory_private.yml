@@ -57,6 +57,3 @@ all:
         #   rpc_port: 8549
         #   port_offset: 40
         #   install_dir: "/opt/metanode/chain-104"
-
-
-

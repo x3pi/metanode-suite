@@ -44,11 +44,21 @@ func dialClient(url string) (*ethclient.Client, error) {
 	return ethclient.NewClient(rpcClient), nil
 }
 
+func matchNodeName(name string, filter string) bool {
+	if filter == "" {
+		return false
+	}
+	cleanName := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(name, "m"), "node"))
+	cleanFilter := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(filter, "m"), "node"))
+	return cleanName == cleanFilter || strings.EqualFold(name, filter)
+}
+
 func main() {
 	configPath := flag.String("config", "../config.json", "Đường dẫn file config.json")
 	txCount := flag.Int("count", 15, "Số lượng giao dịch cần gửi và xác nhận")
 	checkFork := flag.Bool("check-fork", true, "Kiểm tra Block Hash & StateRoot giữa các node để đảm bảo không fork")
 	requireAllAlive := flag.Bool("require-all-alive", true, "Bắt buộc toàn bộ các node phải đang sống sau đợt test")
+	stoppedNode := flag.String("stopped-node", "", "Tên hoặc ID của node đang cố ý bị dừng (ví dụ: '0', 'm0'). Node này được phép offline, các node còn lại bắt buộc phải sống")
 	flag.Parse()
 
 	cfg, err := config.LoadConfig(*configPath)
@@ -84,6 +94,9 @@ func main() {
 	var activeNodes []*NodeClient
 	for _, n := range nodes {
 		if n.Online {
+			if *stoppedNode != "" && matchNodeName(n.Name, *stoppedNode) {
+				continue
+			}
 			activeNodes = append(activeNodes, n)
 		}
 	}
@@ -91,6 +104,9 @@ func main() {
 	fmt.Println("==========================================================")
 	fmt.Printf("🚀 METANODE RESTART & RECOVERY TEST\n")
 	fmt.Printf("   • Tổng số node cấu hình: %d\n", len(nodes))
+	if *stoppedNode != "" {
+		fmt.Printf("   • Node dự kiến TẮT     : %s (ngoại lệ kiểm tra sống/chết)\n", *stoppedNode)
+	}
 	fmt.Printf("   • Số node đang ONLINE  : %d (", len(activeNodes))
 	for i, n := range activeNodes {
 		if i > 0 {
@@ -225,6 +241,10 @@ func main() {
 					rec.TxHash.Hex()[:14]+"...")
 				var crashedNodes []string
 				for _, n := range nodes {
+					if *stoppedNode != "" && matchNodeName(n.Name, *stoppedNode) {
+						fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Dự kiến tắt theo kịch bản test)\n", n.Name, n.URL)
+						continue
+					}
 					c, dErr := dialClient(n.URL)
 					online := false
 					var bNum uint64
@@ -275,13 +295,15 @@ func main() {
 		log.Fatalf("❌ Không có giao dịch nào được xác nhận vào block! Bài test thất bại!")
 	}
 
-	// 5. KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE (ĐẢM BẢO TẤT CẢ CÒN SỐNG)
-	fmt.Println("\n📡 [CLUSTER HEALTH CHECK] Kiểm tra trạng thái sống/chết của toàn bộ các node...")
+	// 5. KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE (ĐẢM BẢO TẤT CẢ CÒN SỐNG NGOẠI TRỪ NODE CỐ Ý DỪNG)
+	fmt.Println("\n📡 [CLUSTER HEALTH CHECK] Kiểm tra trạng thái sống/chết của các node...")
 	var deadNodes []string
 	var aliveNodes []*NodeClient
 	nodeHeights := make(map[string]uint64)
 
 	for _, n := range nodes {
+		isStoppedExpected := *stoppedNode != "" && matchNodeName(n.Name, *stoppedNode)
+
 		c, err := dialClient(n.URL)
 		online := false
 		var bNum uint64
@@ -298,6 +320,15 @@ func main() {
 			}
 		}
 
+		if isStoppedExpected {
+			if online {
+				fmt.Printf("   • Node %s (%s): ⚠️ VẪN ONLINE (Dự kiến đã tắt)\n", n.Name, n.URL)
+			} else {
+				fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Đã tắt theo kịch bản test)\n", n.Name, n.URL)
+			}
+			continue
+		}
+
 		if online {
 			fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)\n", n.Name, n.URL, bNum)
 		} else {
@@ -308,17 +339,26 @@ func main() {
 
 	if len(deadNodes) > 0 {
 		if *requireAllAlive {
-			log.Fatalf("❌ PHÁT HIỆN CÓ %d NODE BỊ CHẾT: %s! BÀI TEST THẤT BẠI!", len(deadNodes), strings.Join(deadNodes, ", "))
+			log.Fatalf("❌ PHÁT HIỆN CÓ %d NODE BỊ CHẾT NGOÀI DỰ KIẾN: %s! BÀI TEST THẤT BẠI!", len(deadNodes), strings.Join(deadNodes, ", "))
 		} else {
-			fmt.Printf("⚠️ Cảnh báo: Có %d node bị chết: %s\n", len(deadNodes), strings.Join(deadNodes, ", "))
+			fmt.Printf("⚠️ Cảnh báo: Có %d node bị chết ngoài dự kiến: %s\n", len(deadNodes), strings.Join(deadNodes, ", "))
 		}
 	} else {
-		fmt.Printf("✅ TOÀN BỘ %d NODE ĐỀU ĐANG CÒN SỐNG VÀ ĐỒNG BỘ KHỎE MẠNH!\n", len(nodes))
+		if *stoppedNode != "" {
+			fmt.Printf("✅ TẤT CẢ %d NODE CÒN LẠI (ngoại trừ node %s) ĐỀU ĐANG SỐNG VÀ ĐỒNG THUẬN KHỎE MẠNH!\n", len(aliveNodes), *stoppedNode)
+		} else {
+			fmt.Printf("✅ TOÀN BỘ %d NODE ĐỀU ĐANG CÒN SỐNG VÀ ĐỒNG BỘ KHỎE MẠNH!\n", len(nodes))
+		}
 	}
 
 	// 6. KIỂM TRA ZERO-FORK (SO SÁNH BLOCK HASH & STATE ROOT)
 	if *checkFork && len(aliveNodes) >= 2 {
-		fmt.Println("\n🔍 [ZERO-FORK VERIFICATION] Kiểm tra đối chiếu Block Hash & StateRoot giữa các node sống...")
+		if *stoppedNode != "" {
+			fmt.Printf("\n🔍 [ZERO-FORK VERIFICATION] Kiểm tra đối chiếu Block Hash & StateRoot giữa %d node sống (ngoại trừ node %s đã dừng)...\n",
+				len(aliveNodes), *stoppedNode)
+		} else {
+			fmt.Println("\n🔍 [ZERO-FORK VERIFICATION] Kiểm tra đối chiếu Block Hash & StateRoot giữa các node sống...")
+		}
 
 		var minHeight uint64 = 0
 		first := true

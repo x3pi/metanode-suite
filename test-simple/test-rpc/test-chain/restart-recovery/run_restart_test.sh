@@ -54,6 +54,8 @@ echo "=========================================================="
 
 cd "${SCRIPT_DIR}"
 
+trap 'rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true' EXIT
+
 detect_online_nodes() {
     python3 -c "
 import json, urllib.request, sys
@@ -114,6 +116,33 @@ wait_node_online() {
     return 1
 }
 
+wait_node_offline() {
+    local target_node="$1"
+    local max_wait=30
+    local waited=0
+    echo -n "⏳ Đang xác nhận Node ${target_node} đã dừng hoàn toàn (tối đa ${max_wait}s)... "
+
+    while [ $waited -lt $max_wait ]; do
+        local online_now=$(detect_online_nodes)
+        local is_online=false
+        for n in $online_now; do
+            if [ "$n" == "$target_node" ]; then
+                is_online=true
+                break
+            fi
+        done
+        if [ "$is_online" == "false" ]; then
+            echo "✅ Node ${target_node} đã DỪNG OFFLINE (sau ${waited}s)!"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    echo "⚠️ Cảnh báo: Node ${target_node} vẫn phản hồi RPC sau ${max_wait}s!"
+    return 1
+}
+
 wait_all_nodes_online() {
     local max_wait=60
     local waited=0
@@ -164,20 +193,32 @@ echo -e "\n=========================================================="
 echo "🔄 [BƯỚC 2] BẮT ĐẦU ROLLING RESTART TỪNG NODE (${#ACTIVE_NODES[@]} NODES)"
 echo "=========================================================="
 
+TOTAL_ACTIVE=${#ACTIVE_NODES[@]}
 round=1
 for node_id in "${ACTIVE_NODES[@]}"; do
-    echo -e "\n👉 [CHẶNG 2.${round}] TẮT & BẬT LẠI NODE ${node_id}..."
+    echo -e "\n👉 [CHẶNG 2.${round}] TẮT & KIỂM CHỨNG & BẬT LẠI NODE ${node_id}..."
     
-    echo "🔴 Tắt Node ${node_id}..."
+    echo "🔴 1. Tắt Node ${node_id}..."
+    echo "${node_id}" > /tmp/monitors_ignore_nodes 2>/dev/null || true
     "${ANSIBLE_DIR}/ansible_deploy.sh" --stop --only-node "${node_id}"
-    sleep 3
+    wait_node_offline "${node_id}" || true
 
-    echo "🟢 Bật lại Node ${node_id}..."
+    # NẾU CỤM CÓ TRÊN 3 NODES: Khi 1 node tắt, cụm còn lại >= 3 nodes (đủ 2f+1 quorum)
+    # Kiểm tra gửi giao dịch đến các node còn lại, đảm bảo các node còn lại đều sống và Zero-Fork
+    if [ "$TOTAL_ACTIVE" -gt 3 ]; then
+        echo "⚡ [Node ${node_id} ĐANG TẮT - Cụm còn $((TOTAL_ACTIVE - 1)) nodes] Gửi ${TX_COUNT} giao dịch, kiểm tra các node còn lại hoạt động và Zero-Fork..."
+        go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true -stopped-node="${node_id}"
+    else
+        echo "ℹ️  Cụm ban đầu có ${TOTAL_ACTIVE} nodes. Khi dừng node ${node_id} thì chỉ còn $((TOTAL_ACTIVE - 1)) nodes (chưa đủ quorum để tiếp tục commit), bỏ qua bước gửi giao dịch trong lúc dừng."
+    fi
+
+    echo "🟢 2. Bật lại Node ${node_id}..."
     "${ANSIBLE_DIR}/ansible_deploy.sh" --restart --only-node "${node_id}"
 
     wait_node_online "${node_id}"
+    rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
-    echo "⚡ [Node ${node_id} vừa thức dậy] Bơm ${TX_COUNT} giao dịch load-balance, kiểm tra sống/chết và Zero-Fork..."
+    echo "⚡ [Node ${node_id} VỪA THỨC DẬY] Bơm ${TX_COUNT} giao dịch toàn cụm, kiểm tra catch-up sync, sức khỏe toàn bộ node và Zero-Fork..."
     go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
 
     round=$((round + 1))
@@ -191,6 +232,7 @@ echo "🛑 [BƯỚC 3] TẮT & BẬT LẠI TOÀN BỘ CỤM NODE (${ACTIVE_NODES
 echo "=========================================================="
 
 echo "🛑 Dừng toàn bộ cụm node..."
+echo "${ACTIVE_NODES[*]}" > /tmp/monitors_ignore_nodes 2>/dev/null || true
 "${ANSIBLE_DIR}/ansible_deploy.sh" --stop
 echo "⏳ Chờ 5s đảm bảo mọi process đã dừng hẳn..."
 sleep 5
@@ -199,6 +241,7 @@ echo "🚀 Khởi động lại toàn bộ cụm node..."
 "${ANSIBLE_DIR}/ansible_deploy.sh" --restart
 
 wait_all_nodes_online
+rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
 echo "⚡ [Cả cụm vừa thức dậy] Bơm ${TX_COUNT} giao dịch load-balance, kiểm tra sống/chết và Zero-Fork..."
 go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
