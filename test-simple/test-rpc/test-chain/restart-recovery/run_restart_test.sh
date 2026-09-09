@@ -217,6 +217,85 @@ wait_all_nodes_online() {
     return 1
 }
 
+# ------------------------------------------------------------------------------
+# CONSENSUS READINESS (2026-09-09): "online" above only means eth_blockNumber answers, i.e. the
+# HTTP/RPC server is up -- it says nothing about whether the node's Rust consensus layer would
+# actually accept/propose a transaction sent right now. Found live in this exact script: a node
+# that just restarted goes "online" within seconds, well before its ConsensusCoordinationHub
+# reaches a phase that accepts proposals, so a tx sent in that window times out with no
+# indication of why. eth_consensusReady (metanode repo: rpc_block.go's MetaAPI.ConsensusReady(),
+# backed by the Rust FFI added the same day) exposes exactly that gate. Poll it before every
+# tx-sending step below instead of trusting "online" alone.
+node_consensus_ready() {
+    local target_node="$1"
+    python3 -c "
+import json, urllib.request, sys
+
+try:
+    with open('${CONFIG_PATH}', 'r') as f:
+        c = json.load(f)
+    rpc_nodes = c.get('rpc_nodes', {})
+    url = None
+    for k, v in rpc_nodes.items():
+        if k.replace('m', '').replace('node', '') == '${target_node}':
+            url = v
+            break
+    if url is None:
+        sys.exit(1)
+    req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_consensusReady\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        body = json.loads(resp.read())
+        sys.exit(0 if body.get('result', {}).get('ready') else 1)
+except Exception:
+    sys.exit(1)
+"
+}
+
+wait_node_consensus_ready() {
+    local target_node="$1"
+    local max_wait=60
+    local waited=0
+    echo -n "⏳ Đang chờ Node ${target_node} sẵn sàng xử lý giao dịch (consensus ready, tối đa ${max_wait}s)... "
+
+    while [ $waited -lt $max_wait ]; do
+        if node_consensus_ready "${target_node}"; then
+            echo "✅ Node ${target_node} đã SẴN SÀNG (sau ${waited}s)!"
+            return 0
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    echo "⚠️ Cảnh báo: Node ${target_node} vẫn CHƯA sẵn sàng xử lý giao dịch sau ${max_wait}s (RPC online nhưng consensus chưa Healthy) -- gửi tx bây giờ có thể timeout không rõ lý do. Tiếp tục thử gửi..."
+    return 1
+}
+
+wait_all_nodes_consensus_ready() {
+    local max_wait=60
+    local waited=0
+    echo "⏳ Đang chờ TẤT CẢ các node [ ${ACTIVE_NODES[*]} ] sẵn sàng xử lý giao dịch (consensus ready)..."
+
+    while [ $waited -lt $max_wait ]; do
+        local all_ready=true
+        for target in "${ACTIVE_NODES[@]}"; do
+            if ! node_consensus_ready "${target}"; then
+                all_ready=false
+                break
+            fi
+        done
+
+        if [ "$all_ready" == "true" ]; then
+            echo "✅ Toàn bộ các node [ ${ACTIVE_NODES[*]} ] đều SẴN SÀNG xử lý giao dịch (sau ${waited}s)!"
+            return 0
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    echo "⚠️ Cảnh báo: Có node chưa sẵn sàng xử lý giao dịch sau ${max_wait}s -- gửi tx bây giờ có thể timeout không rõ lý do. Tiếp tục thử gửi..."
+    return 1
+}
+
 
 START_TIME=$(date +%s)
 current_loop=1
@@ -274,6 +353,7 @@ while true; do
         "${ANSIBLE_DIR}/ansible_deploy.sh" --restart --only-node "${node_id}"
 
         wait_node_online "${node_id}"
+        wait_node_consensus_ready "${node_id}"
         rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
         echo "⚡ [Node ${node_id} VỪA THỨC DẬY] Bơm ${TX_COUNT} giao dịch toàn cụm, kiểm tra catch-up sync, sức khỏe toàn bộ node và Zero-Fork..."
@@ -299,6 +379,7 @@ while true; do
     "${ANSIBLE_DIR}/ansible_deploy.sh" --restart
 
     wait_all_nodes_online
+    wait_all_nodes_consensus_ready
     rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
     echo "⚡ [Cả cụm vừa thức dậy] Bơm ${TX_COUNT} giao dịch load-balance, kiểm tra sống/chết và Zero-Fork..."
