@@ -250,6 +250,59 @@ wait_node_online() {
     return 1
 }
 
+# ------------------------------------------------------------------------------
+# CONSENSUS READINESS (2026-09-09): "online" ở trên chỉ có nghĩa eth_blockNumber trả lời --
+# tức RPC server đã lên -- không nói gì về việc Rust consensus layer bên dưới đã thực sự sẵn
+# sàng nhận/propose giao dịch hay chưa. Quan sát thực tế đúng ngay trong bài test này: sau
+# --restore-node, Node vừa khôi phục "online" chỉ vài giây sau, RẤT LÂU trước khi consensus
+# engine của nó thực sự bootstrap/rejoin xong -- gửi 15 tx ngay lúc đó cho kết quả 0/15
+# confirm, không có lỗi rõ ràng nào để debug. eth_consensusReady (metanode repo, commit
+# 22e0fb35) trả đúng tín hiệu này. Cùng pattern đã áp dụng cho restart-recovery (commit
+# 829c9fc) -- chờ tín hiệu này trước MỌI bước bơm giao dịch, không chỉ chờ "online".
+node_consensus_ready() {
+    local target_node="$1"
+    python3 -c "
+import json, urllib.request, sys
+
+try:
+    with open('${CONFIG_PATH}', 'r') as f:
+        c = json.load(f)
+    rpc_nodes = c.get('rpc_nodes', {})
+    url = None
+    for k, v in rpc_nodes.items():
+        if k.replace('m', '').replace('node', '') == '${target_node}':
+            url = v
+            break
+    if url is None:
+        sys.exit(1)
+    req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_consensusReady\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        body = json.loads(resp.read())
+        sys.exit(0 if body.get('result', {}).get('ready') else 1)
+except Exception:
+    sys.exit(1)
+"
+}
+
+wait_node_consensus_ready() {
+    local target_node="$1"
+    local max_wait=120
+    local waited=0
+    echo -n "⏳ Đang chờ Node ${target_node} sẵn sàng xử lý giao dịch (consensus ready, tối đa ${max_wait}s)... "
+
+    while [ $waited -lt $max_wait ]; do
+        if node_consensus_ready "${target_node}"; then
+            echo "✅ Node ${target_node} đã SẴN SÀNG (sau ${waited}s)!"
+            return 0
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    echo "⚠️ Cảnh báo: Node ${target_node} vẫn CHƯA sẵn sàng xử lý giao dịch sau ${max_wait}s (RPC online nhưng consensus chưa Healthy) -- gửi tx bây giờ có thể không confirm được. Tiếp tục thử gửi..."
+    return 1
+}
+
 wait_node_online "${TARGET_NODE}"
 
 echo "🔔 Bật lại giám sát cho Node ${TARGET_NODE} sau khi đã online..."
@@ -257,6 +310,8 @@ rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
 echo "📡 Kiểm tra đồng bộ catch-up của Node ${TARGET_NODE}..."
 go run main.go -wait-sync-node "${TARGET_NODE}" -max-lag 5 -count 0
+
+wait_node_consensus_ready "${TARGET_NODE}"
 
 # ------------------------------------------------------------------------------
 # BƯỚC 5: BƠM GIAO DỊCH QUA CHÍNH NODE VỪA KHÔI PHỤC
