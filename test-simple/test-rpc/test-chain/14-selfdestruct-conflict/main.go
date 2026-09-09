@@ -237,16 +237,20 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	if err != nil {
 		return nil, fmt.Errorf("lỗi sign deploy tx: %w", err)
 	}
+	txHash := signedTx.Hash()
+
 	if err := client.SendTransaction(context.Background(), signedTx); err != nil {
-		return nil, fmt.Errorf("lỗi send deploy tx: %w", err)
+		fmt.Printf("❌ Lỗi gửi Deploy Tx %s (nonce: %d): %v\n", txHash.Hex(), nonce, err)
+		return nil, fmt.Errorf("lỗi send deploy tx (%s, nonce %d): %w", txHash.Hex(), nonce, err)
 	}
+	fmt.Printf("✅ Đã push Deploy Tx: %s (nonce: %d), đang chờ receipt...\n", txHash.Hex(), nonce)
 
 	timeoutStart := time.Now()
 	for {
 		if time.Since(timeoutStart) > 60*time.Second {
-			return nil, fmt.Errorf("timeout waiting for deploy receipt")
+			return nil, fmt.Errorf("timeout waiting for deploy receipt của Tx %s (nonce: %d)", txHash.Hex(), nonce)
 		}
-		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
+		receipt, err := client.TransactionReceipt(context.Background(), txHash)
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return &receipt.ContractAddress, nil
 		}

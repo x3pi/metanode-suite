@@ -150,6 +150,22 @@ func RunTest(configPath string) error {
 	wg.Wait()
 
 	if mempoolRejectedCall {
+		// Đợi deploy tx được confirm để nonce của ví được cập nhật trên chain, tránh xung đột nonce với bài test sau
+		if txHashes[0] != (common.Hash{}) {
+			fmt.Println("⏳ Chờ Deploy Tx được confirm để đồng bộ nonce...")
+			timeoutStart := time.Now()
+			for {
+				if time.Since(timeoutStart) > 60*time.Second {
+					break
+				}
+				receipt, err := client.TransactionReceipt(context.Background(), txHashes[0])
+				if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
+					fmt.Printf("✅ Deploy Tx đã được confirm trong block %d\n", receipt.BlockNumber.Uint64())
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
 		return nil
 	}
 
