@@ -63,7 +63,7 @@ while [[ "$#" -gt 0 ]]; do
             echo "  --count <15>              Số lượng giao dịch gửi và xác nhận mỗi chặng"
             echo "  --loop <N|infinite>       Số vòng lặp test rolling restart (Mặc định: 1; 0 hoặc 'infinite' = vô tận)"
             echo "  --infinite                Chạy lặp vô tận (tiện dụng để test qua đêm)"
-            echo "  --duration-hours <H>      Giới hạn số giờ chạy liên tục (ví dụ: --duration-hours 8 để test qua đêm 8 tiếng)"
+            echo "  --duration-hours <H>      Lặp theo số giờ H > 0, ưu tiên hơn --loop; không cần --infinite; dừng sau vòng hiện tại"
             echo "  --sleep-between <sec>     Thời gian nghỉ giữa các vòng lặp (Mặc định: 10s)"
             exit 0
             ;;
@@ -72,13 +72,18 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# A positive duration selects timed repetition regardless of the loop flags.
+if (( $(echo "$DURATION_HOURS > 0" | bc -l 2>/dev/null || [ "$DURATION_HOURS" -gt 0 ] 2>/dev/null || echo 0) )); then
+    LOOP_COUNT=0
+fi
+
 echo "=========================================================="
 echo "🚀 BẮT ĐẦU BÀI TEST: CLUSTER RESTART & ZERO-FORK RECOVERY"
 echo "📂 Thư mục: ${SCRIPT_DIR}"
 echo "⚙️  Ansible: ${ANSIBLE_DIR}/ansible_deploy.sh"
 echo "🔢 Số TX kiểm chứng mỗi chặng: ${TX_COUNT}"
 if [ "$LOOP_COUNT" -eq 0 ]; then
-    echo "🔁 Chế độ lặp: VÔ TẬN (Infinite / Qua đêm)"
+    echo "🔁 Chế độ lặp: Không giới hạn số vòng (dừng theo thời lượng nếu có)"
 else
     echo "🔁 Chế độ lặp: ${LOOP_COUNT} vòng"
 fi
@@ -219,7 +224,7 @@ current_loop=1
 while true; do
     echo -e "\n=========================================================="
     if [ "$LOOP_COUNT" -eq 0 ]; then
-        echo "🔄 [VÒNG LẶP ${current_loop}] BẮT ĐẦU CHẶNG TEST (CHẾ ĐỘ QUA ĐÊM / INFINITE)"
+        echo "🔄 [VÒNG LẶP ${current_loop}] BẮT ĐẦU CHẶNG TEST"
     else
         echo "🔄 [VÒNG LẶP ${current_loop}/${LOOP_COUNT}] BẮT ĐẦU CHẶNG TEST"
     fi
