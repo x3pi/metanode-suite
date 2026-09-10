@@ -1,23 +1,8 @@
 # fix bug
 
-khi gọi start_unified_epoch_monitor thì cần hủy tiên trình ngầm đó để tránh bị lỗi
+TELEGRAM_BOT_TOKEN=8230176859:AAGoZ_78xzb1q4rgJJ5SYLxRhZBYBTSz_xo
+TELEGRAM_CHAT_ID=-1003867050625
 
-```bash
-# log đồng thuận rust : check bao nhiêu stake
-info!("Consensus committee: {:?}", committee);
-
-🔄 [EPOCH RECOVERY] Extracting  : node clean epoch pending
-🗑️ [DEBUG-RÁC]  : log check dọn rác
-
-Để kiểm tra trực tiếp xem có bao nhiêu dữ liệu đang "lơ lửng" trên RAM mà chưa kịp lưu xuống ổ cứng, bạn có thể chạy lệnh này trên Terminal của hệ điều hành Linux (tại máy Node 4) trong lúc Node đang hoạt động:
-cat /proc/meminfo | grep Dirty
-
-
-# xem log
-grep -rn "\[PERF-POOL-BATCH\] addTransactionsToPoolInternal took" /home/abc/nhat/con-chain-v2/metanode/consensus/logs_systemd/run_20260618_080945/
-grep -rnE "\[BLOCK-TRACE\]|\[PERF-EVM\]" /home/abc/nhat/con-chain-v2/metanode/consensus/logs_systemd/run_20260618_080945/
-
-```
 
 key genesis:
  {

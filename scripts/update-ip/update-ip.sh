@@ -280,6 +280,8 @@ cfg['chain_id'] = int(cid_str)
 cfg['rpc_url'] = '$P_M0_RPC'
 cfg['rpc_nodes'] = rpc_nodes_map
 cfg['tcp_nodes'] = tcp_nodes_map
+cfg['tcp_node'] = '$P_M0_TCP'
+cfg.pop('tcp_url', None)
 cfg['parent_connection_address'] = '$P_M0_TCP'
 cfg['connection_node_1'] = '$P_M1_TCP'
 cfg['connection_node_2'] = '$P_M2_TCP'
@@ -433,9 +435,9 @@ else
     if [ -f "$FILE6" ]; then
         echo "Updating $FILE6 using RPC & TCP Nodes (Unified Single Source of Truth)..."
         
-        new_rpc_url=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_parent=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_0=$(jq -r '((.nodes.m0 // "") // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
+        new_rpc_url=$(jq -r '((.nodes.m0 // (.nodes | to_entries[0].value // "")) // "")' "$RPC_NODES_FILE")
+        new_parent=$(jq -r '((.tcp_nodes.m0 // (.tcp_nodes | to_entries[0].value // "")) // "")' "$RPC_NODES_FILE")
+        new_rpc_0=$(jq -r '((.nodes.m0 // (.nodes | to_entries[0].value // "")) // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
 
         role_1=$(jq -r '((.roles.m1 // "validator"))' "$RPC_NODES_FILE")
         role_2=$(jq -r '((.roles.m2 // "validator"))' "$RPC_NODES_FILE")
@@ -468,8 +470,12 @@ else
            --arg c2 "$new_conn_2" --arg r2 "$new_rpc_2" \
            --arg c3 "$new_conn_3" --arg r3 "$new_rpc_3" \
            --slurpfile rpc "$RPC_NODES_FILE" \
-           'del(.all_nodes, .roles) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .rpc_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) | .tcp_nodes = ($rpc[0].tcp_nodes // {}) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly"))) | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | .parent_address = (.parent_address // "0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041") | .parent_connection_type = "client" | .version = "0.0.1.0" | .private_key = (if .private_key != "" and .private_key != null then .private_key else "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b" end)' \
+           'del(.all_nodes, .roles, .tcp_url) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .state_history_nodes = ($rpc[0].state_history_nodes // ($rpc[0].rpc_nodes // {})) | .rpc_nodes = (if ($rpc[0].rpc_nodes != null and ($rpc[0].rpc_nodes | length > 0)) then $rpc[0].rpc_nodes else ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) end) | .tcp_nodes = ($rpc[0].tcp_nodes // {}) | .tcp_node = (if $p != "" then $p else (.tcp_nodes.m0 // (.tcp_nodes | to_entries[0].value // .tcp_node // "")) end) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly"))) | .parent_connection_address = $p | .rpc_0 = $r0 | .connection_node_1 = $c1 | .rpc_1 = $r1 | .connection_node_2 = $c2 | .rpc_2 = $r2 | .connection_node_3 = $c3 | .rpc_3 = $r3 | .parent_address = (.parent_address // "0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041") | .parent_connection_type = "client" | .version = "0.0.1.0" | .private_key = (if .private_key != "" and .private_key != null then .private_key else "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b" end)' \
            "$FILE6" > "${FILE6}.tmp" && mv "${FILE6}.tmp" "$FILE6"
+
+        if [ -f "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json" ] && [ ! -L "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json" ]; then
+            cp -f "$FILE6" "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json"
+        fi
 
         # Cập nhật thông tin Private Chains từ /tmp/private_chains.json (nếu có)
         if [ -f "$PRIV_CHAINS_FILE" ]; then

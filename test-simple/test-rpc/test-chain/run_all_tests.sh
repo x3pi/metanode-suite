@@ -30,12 +30,14 @@ TESTS=(
     "24-contract-factory-info"
     "25-eip4844-blob-tx"
     "26-eip7702-setcode-tx"
+    "26.1-eip7702-setcode-tcp"
     "27-eip4844-edge-cases"
     "28-eip7702-delegated-execution-and-revocation"
     "29-blockhash-opcode-verifier"
     "30-eip7702-parallel-contention"
     "31-mixed-all-types-block"
     "32-xapian-parallel-stress"
+    "33-state-history"
 )
 
 # Xử lý tham số truyền vào: --chain=<tên_chain> hoặc --gotest
@@ -103,16 +105,25 @@ for test_dir in "${TESTS[@]}"; do
         # Phân tích kết quả dựa trên output và exit code
         if [ $exit_code -ne 0 ]; then
             FAILED=$((FAILED + 1))
-            REASONS["${test_dir}_run${run_idx}"]="Thất bại (Exit code: $exit_code)"
+            err_snippet=$(grep -E -i "error|fatal|panic|timeout|failed|❌" "$log_file" | head -n 5 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+            if [ -n "$err_snippet" ]; then
+                REASONS["${test_dir}_run${run_idx}"]="Thất bại (Exit code: $exit_code) - $err_snippet"
+            else
+                REASONS["${test_dir}_run${run_idx}"]="Thất bại (Exit code: $exit_code)"
+            fi
             echo "❌ THẤT BẠI (Exit Code: $exit_code)"
+            echo "   🚨 CHI TIẾT LỖI GẦN NHẤT:"
+            grep -E -i "error|fatal|panic|timeout|failed|❌" "$log_file" | head -n 8 | sed 's/^/      /'
             break 2
         fi
 
         # Kiểm tra các từ khóa báo lỗi trong code của chính các bài test
         if echo "$output" | grep -q "TEST FAILED"; then
             FAILED=$((FAILED + 1))
-            REASONS["${test_dir}_run${run_idx}"]="Kết quả tính toán sai hoặc Lỗi Block-STM (Phát hiện cờ TEST FAILED)"
-            echo "❌ THẤT BẠI (Sai Logic)"
+            err_line=$(grep "TEST FAILED" "$log_file" | head -n 1)
+            REASONS["${test_dir}_run${run_idx}"]="Kết quả tính toán sai hoặc Lỗi Block-STM: $err_line"
+            echo "❌ THẤT BẠI (Phát hiện cờ TEST FAILED)"
+            echo "   🚨 CHI TIẾT LỖI: $err_line"
             break 2
         fi
 
@@ -120,15 +131,17 @@ for test_dir in "${TESTS[@]}"; do
         if [ "$test_dir" == "1-update-same-contract" ] && echo "$output" | grep -q "Giá trị count cuối cùng: 1$"; then
             FAILED=$((FAILED + 1))
             REASONS["${test_dir}_run${run_idx}"]="Lỗi Block-STM Sequential Merge (Kỳ vọng count=10 nhưng ra 1)"
-            echo "❌ THẤT BẠI (Lỗi Block-STM Bug)"
+            echo "❌ THẤT BẠI (Lỗi Block-STM Bug: count=1)"
             break 2
         fi
 
         # Kiểm tra các bài test bị kẹt giao dịch hoặc có lỗi kết nối
         if echo "$output" | grep -q "lỗi send tx" || echo "$output" | grep -q "Lỗi kết nối" || echo "$output" | grep -q "timeout waiting for receipt"; then
             FAILED=$((FAILED + 1))
-            REASONS["${test_dir}_run${run_idx}"]="Gặp lỗi khi gửi Transaction, lỗi RPC hoặc Timeout"
+            err_line=$(grep -E -i "lỗi send tx|Lỗi kết nối|timeout waiting for receipt" "$log_file" | head -n 1)
+            REASONS["${test_dir}_run${run_idx}"]="Gặp lỗi khi gửi Transaction, lỗi RPC hoặc Timeout: $err_line"
             echo "❌ THẤT BẠI (Lỗi Gửi Tx / Timeout)"
+            echo "   🚨 CHI TIẾT LỖI: $err_line"
             break 2
         fi
 
@@ -136,8 +149,10 @@ for test_dir in "${TESTS[@]}"; do
         # Loại trừ các bài test cố ý gây revert: 4-abort, 11-double-spending-same-nonce, 12-insufficient-balance-parallel, 14-selfdestruct-conflict, 32-xapian-parallel-stress
         if [[ "$test_dir" != "4-abort" && "$test_dir" != "11-double-spending-same-nonce" && "$test_dir" != "12-insufficient-balance-parallel" && "$test_dir" != "14-selfdestruct-conflict" && "$test_dir" != "32-xapian-parallel-stress" ]] && echo "$output" | grep -q "❌"; then
             FAILED=$((FAILED + 1))
-            REASONS["${test_dir}_run${run_idx}"]="Có giao dịch bị Revert hoặc FAILED ngoài ý muốn"
-            echo "❌ THẤT BẠI (Lỗi Tx Revert)"
+            err_line=$(grep "❌" "$log_file" | head -n 2 | tr '\n' ' ')
+            REASONS["${test_dir}_run${run_idx}"]="Có giao dịch bị Revert hoặc FAILED ngoài ý muốn: $err_line"
+            echo "❌ THẤT BẠI (Lỗi Tx Revert / Lỗi State)"
+            echo "   🚨 CHI TIẾT LỖI: $err_line"
             break 2
         fi
 

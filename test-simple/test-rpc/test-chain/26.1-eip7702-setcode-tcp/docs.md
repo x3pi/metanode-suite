@@ -23,14 +23,14 @@ RUN_TCP_EIP7702=1 go test -v .
 - `bls_private_key`: key ký BLS của giao dịch và dùng khởi tạo TCP client. Account 0 phải đăng ký public key tương ứng; test kiểm tra điều này trước khi gửi.
 - `private_keys[0]`: suy ra địa chỉ `from` và ký `R/S/V` của giao dịch ngoài EIP-7702. `Sign` chứa chữ ký BLS, không chứa chữ ký secp256k1.
 - `private_keys[1]`: authority ký authorization EIP-7702 bằng secp256k1.
-- `tcp_url`: endpoint TCP, hiện cấu hình là `192.168.1.234:6200`.
+- `tcp_node`: endpoint TCP của Node 0 (hoặc node duy nhất nếu chạy 1 node), ví dụ `192.168.1.223:6200`.
 - `chain_id`: đọc từ cấu hình chung. `rpc_url` không được sử dụng. `parent_address` và `version` được dùng nếu có; version mặc định `0.0.1.0`.
 - `data.json`: chỉ chứa dữ liệu giao dịch, không chứa key hoặc endpoint.
 - `delegate`: địa chỉ implementation được authority ủy quyền. Mặc định `0x...7702` như test 26; test không deploy contract.
 - `input_data`: calldata dạng hex, mặc định `0x`; `gas`: gas limit.
 - `gas_tip_cap`, `gas_fee_cap`: phí tính bằng wei, mặc định trong data lần lượt 1 gwei và 20 gwei. Tip phải lớn hơn 0, fee cap phải >= tip và đủ đáp ứng phí mạng khi chạy.
 
-Toàn bộ thao tác dùng kết nối TCP tại `tcp_url`: `GetChainId`, `GetAccountState`, `GetDeviceKey`, `SendTransactionWithDeviceKey` và receipt. Nonce, BLS public key, balance và code hash được đọc từ `AccountState`; phí lấy từ `data.json`. Không khởi tạo HTTP client. Relayer cần đủ tiền trả gas. Dùng riêng hai tài khoản trong lúc chạy để tránh thay đổi nonce/balance bởi giao dịch khác.
+Toàn bộ thao tác dùng kết nối TCP tại `tcp_node`: `GetChainId`, `GetAccountState`, `GetDeviceKey`, `SendTransactionWithDeviceKey` và receipt. Nonce, BLS public key, balance và code hash được đọc từ `AccountState`; phí lấy từ `data.json`. Không khởi tạo HTTP client. Relayer cần đủ tiền trả gas. Dùng riêng hai tài khoản trong lúc chạy để tránh thay đổi nonce/balance bởi giao dịch khác.
 
 ## Điều kiện PASS
 

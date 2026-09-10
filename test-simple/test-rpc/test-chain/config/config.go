@@ -27,6 +27,8 @@ type PrivateChainConfig struct {
 type Config struct {
 	RPCUrl                  string                        `json:"rpc_url"`
 	RPCNodes                map[string]string             `json:"rpc_nodes"`
+	StateHistoryNodes       map[string]string             `json:"state_history_nodes,omitempty"`
+	TCPNode                 string                        `json:"tcp_node,omitempty"`
 	TCPNodes                map[string]string             `json:"tcp_nodes,omitempty"`
 	SyncNodes               map[string]string             `json:"sync_nodes"`
 	ChainID                 int64                         `json:"chain_id"`

@@ -28,12 +28,14 @@ import (
 )
 
 type ChainConfig struct {
-	BLSPrivateKey string   `json:"bls_private_key"`
-	PrivateKeys   []string `json:"private_keys"`
-	TCPURL        string   `json:"tcp_url"`
-	ChainID       uint64   `json:"chain_id"`
-	ParentAddress string   `json:"parent_address"`
-	Version       string   `json:"version"`
+	BLSPrivateKey           string            `json:"bls_private_key"`
+	PrivateKeys             []string          `json:"private_keys"`
+	TCPNode                 string            `json:"tcp_node"`
+	ParentConnectionAddress string            `json:"parent_connection_address"`
+	TCPNodes                map[string]string `json:"tcp_nodes"`
+	ChainID                 uint64            `json:"chain_id"`
+	ParentAddress           string            `json:"parent_address"`
+	Version                 string            `json:"version"`
 }
 
 type Data struct {
@@ -184,9 +186,26 @@ func RunTest(configPath, dataPath string) error {
 	if version == "" {
 		version = "0.0.1.0"
 	}
+	tcpAddr := strings.TrimSpace(shared.TCPNode)
+	if tcpAddr == "" {
+		tcpAddr = strings.TrimSpace(shared.ParentConnectionAddress)
+	}
+	if tcpAddr == "" && shared.TCPNodes != nil {
+		if node0, ok := shared.TCPNodes["m0"]; ok && strings.TrimSpace(node0) != "" {
+			tcpAddr = strings.TrimSpace(node0)
+		} else {
+			// If running 1 node or any node, pick first available
+			for _, addr := range shared.TCPNodes {
+				if strings.TrimSpace(addr) != "" {
+					tcpAddr = strings.TrimSpace(addr)
+					break
+				}
+			}
+		}
+	}
 	cfg := tcpconfig.ClientConfig{
 		PrivateKey_:             strings.TrimPrefix(shared.BLSPrivateKey, "0x"),
-		ParentConnectionAddress: shared.TCPURL, ParentConnectionType: "client",
+		ParentConnectionAddress: tcpAddr, ParentConnectionType: "client",
 		ParentAddress: shared.ParentAddress, ChainId: shared.ChainID, Version_: version,
 	}
 	raw, err = os.ReadFile(dataPath)
@@ -198,7 +217,7 @@ func RunTest(configPath, dataPath string) error {
 		return err
 	}
 	if cfg.ChainId == 0 || cfg.GetParentConnectionAddress() == "" {
-		return fmt.Errorf("chain_id and tcp_url are required")
+		return fmt.Errorf("chain_id and tcp_node are required")
 	}
 	if !common.IsHexAddress(d.Delegate) || common.HexToAddress(d.Delegate) == (common.Address{}) {
 		return fmt.Errorf("delegate must be a nonzero address")
@@ -233,7 +252,7 @@ func RunTest(configPath, dataPath string) error {
 			return fmt.Errorf("expected_return: %w", err)
 		}
 	}
-	fmt.Printf("Connecting to TCP: %s\n", shared.TCPURL)
+	fmt.Printf("Connecting to TCP: %s\n", tcpAddr)
 	cli, err := clienttcp.NewClient(&cfg)
 	if err != nil {
 		return err
@@ -308,7 +327,7 @@ func RunTest(configPath, dataPath string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("TCP: %s; transaction signer: BLS; from: private_keys[0]\n", shared.TCPURL)
+	fmt.Printf("TCP: %s; transaction signer: BLS; from: private_keys[0]\n", tcpAddr)
 	fmt.Printf("Relayer: %s; authority: %s; delegate: %s\n", relayer, authority, delegate)
 	fmt.Printf("TCP protobuf hash: %s; Ethereum hash: %s\n", hash, tx.Hash())
 	cc := cli.GetClientContext()
@@ -379,6 +398,34 @@ func RunTest(configPath, dataPath string) error {
 			if !bytes.Equal(persistedKey.Bytes(), rawDeviceKey) {
 				return fmt.Errorf("stored device key does not match submitted key")
 			}
+
+			spentRelayer := new(big.Int).Sub(senderBalanceBefore, senderAfter.Balance())
+			spentAuthority := new(big.Int).Sub(balanceBefore, authorityAfter.Balance())
+
+			fmt.Println("\n==================================================")
+			fmt.Println("📊 CHI TIẾT SỐ DƯ & NONCE (XÁC NHẬN EIP-7702 SPONSORSHIP):")
+			fmt.Println("==================================================")
+			fmt.Printf("1. NGƯỜI GỬI / TRẢ PHÍ GAS (Relayer): %s\n", relayer.Hex())
+			fmt.Printf("   • Nonce:         %d ➡️  %d (+1)\n", senderNonce, senderAfter.Nonce())
+			fmt.Printf("   • Số dư trước:   %s wei\n", senderBalanceBefore.String())
+			fmt.Printf("   • Số dư sau:     %s wei\n", senderAfter.Balance().String())
+			fmt.Printf("   • Biến động:     -%s wei (đúng bằng gas fee: %d gas * %d wei)\n", spentRelayer.String(), receipt.GasUsed(), receipt.GasFee())
+
+			fmt.Printf("\n2. NGƯỜI ỦY QUYỀN / KÝ HỘ (Authority): %s\n", authority.Hex())
+			fmt.Printf("   • Nonce:         %d ➡️  %d (+1)\n", authNonce, authorityAfter.Nonce())
+			fmt.Printf("   • Số dư trước:   %s wei\n", balanceBefore.String())
+			fmt.Printf("   • Số dư sau:     %s wei\n", authorityAfter.Balance().String())
+			if spentAuthority.Sign() == 0 {
+				fmt.Printf("   • Biến động:     0 wei (✅ HOÀN TOÀN KHÔNG BỊ TRỪ PHÍ - ĐÃ ĐƯỢC SPONSOR!)\n")
+			} else {
+				fmt.Printf("   • Biến động:     %s wei\n", spentAuthority.String())
+			}
+
+			fmt.Printf("\n3. TRẠNG THÁI DELEGATION CODE:\n")
+			fmt.Printf("   • Delegate To:   %s\n", delegate.Hex())
+			fmt.Printf("   • Code Hash:     %s (chuẩn 0xef0100 + delegate)\n", sc.CodeHash().Hex())
+			fmt.Printf("   • Status:        %s (Gas used: %d)\n", receipt.Status(), receipt.GasUsed())
+			fmt.Println("==================================================")
 			break
 		}
 		if time.Now().After(deadline) {
