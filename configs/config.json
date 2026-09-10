@@ -1,4 +1,5 @@
 {
+  "bls_private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
   "target_chain": "",
   "rpc_url": "http://192.168.1.234:10746",
   "rpc_nodes": {
@@ -7,6 +8,7 @@
     "m1": "http://192.168.1.230:10747",
     "m2": "http://192.168.1.230:10748"
   },
+  "tcp_url": "192.168.1.234:6200",
   "private_chains": {
     "chain_a": {
       "chain_id": 101,

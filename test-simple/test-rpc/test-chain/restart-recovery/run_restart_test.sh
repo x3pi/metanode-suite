@@ -103,9 +103,10 @@ import json, urllib.request, sys
 try:
     with open('${CONFIG_PATH}', 'r') as f:
         c = json.load(f)
-    rpc_nodes = c.get('rpc_nodes', {})
+    nodes_map = dict(c.get('rpc_nodes', {}))
+    nodes_map.update(c.get('sync_nodes', {}))
     online = []
-    for k, url in rpc_nodes.items():
+    for k, url in nodes_map.items():
         node_id = k.replace('m', '').replace('node', '')
         try:
             req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
@@ -220,12 +221,8 @@ wait_all_nodes_online() {
 # ------------------------------------------------------------------------------
 # CONSENSUS READINESS (2026-09-09): "online" above only means eth_blockNumber answers, i.e. the
 # HTTP/RPC server is up -- it says nothing about whether the node's Rust consensus layer would
-# actually accept/propose a transaction sent right now. Found live in this exact script: a node
-# that just restarted goes "online" within seconds, well before its ConsensusCoordinationHub
-# reaches a phase that accepts proposals, so a tx sent in that window times out with no
-# indication of why. eth_consensusReady (metanode repo: rpc_block.go's MetaAPI.ConsensusReady(),
-# backed by the Rust FFI added the same day) exposes exactly that gate. Poll it before every
-# tx-sending step below instead of trusting "online" alone.
+# actually accept/propose a transaction sent right now.
+# Note: SyncOnly nodes (e.g. node 4) do not propose blocks in DAG, so they are always ready once online.
 node_consensus_ready() {
     local target_node="$1"
     python3 -c "
@@ -234,6 +231,12 @@ import json, urllib.request, sys
 try:
     with open('${CONFIG_PATH}', 'r') as f:
         c = json.load(f)
+    # Nếu node thuộc sync_nodes (SyncOnly node), không tham gia propose block nên consensusReady không áp dụng
+    sync_nodes = c.get('sync_nodes', {})
+    for k in sync_nodes:
+        if k.replace('m', '').replace('node', '') == '${target_node}':
+            sys.exit(0)
+
     rpc_nodes = c.get('rpc_nodes', {})
     url = None
     for k, v in rpc_nodes.items():
@@ -296,6 +299,137 @@ wait_all_nodes_consensus_ready() {
     return 1
 }
 
+verify_equal_height_and_zero_fork() {
+    local stage_label="$1"
+    local timeout_sec="${2:-240}"
+    local exclude_node="${3:-""}"
+
+    STAGE_LABEL="$stage_label" TIMEOUT_SEC="$timeout_sec" EXCLUDE_NODE="$exclude_node" CONFIG_FILE="$CONFIG_PATH" python3 - << 'EOF'
+import json, urllib.request, time, sys, os
+
+config_path = os.environ.get("CONFIG_FILE", "../config.json")
+stage_label = os.environ.get("STAGE_LABEL", "Kiểm tra đồng bộ")
+timeout_sec = int(os.environ.get("TIMEOUT_SEC", "240"))
+exclude_node = os.environ.get("EXCLUDE_NODE", "").strip()
+
+with open(config_path, "r") as f:
+    cfg = json.load(f)
+
+# Gộp toàn bộ các node trong cụm (Validator + SyncOnly)
+all_nodes = dict(cfg.get("rpc_nodes", {}))
+all_nodes.update(cfg.get("sync_nodes", {}))
+
+# Loại trừ node đang tắt hoặc đang snapshot (nếu có chỉ định)
+if exclude_node:
+    exc_list = [x.strip().lower().replace("m", "").replace("node", "") for x in exclude_node.split(",") if x.strip()]
+    for k in list(all_nodes.keys()):
+        clean_k = k.lower().replace("m", "").replace("node", "")
+        if clean_k in exc_list or k in exc_list:
+            del all_nodes[k]
+
+print("\n==========================================================")
+print(f"🔍 [KIỂM TRA ĐỒNG BỘ CHIỀU CAO & ZERO-FORK] {stage_label}")
+if exclude_node:
+    print(f"ℹ️  Đang kiểm tra {len(all_nodes)} node (loại trừ Node [{exclude_node}] đang tắt/snapshot)")
+else:
+    print(f"ℹ️  Đang kiểm tra TOÀN BỘ {len(all_nodes)} node trong cụm (Validator + SyncOnly)")
+print(f"⏳ Đang chờ tất cả các node đạt chiều cao block bằng nhau (tối đa {timeout_sec}s / 4 phút)...")
+print("==========================================================")
+
+if not all_nodes:
+    print("❌ Không có node nào cần kiểm tra!")
+    sys.exit(1)
+
+start_time = time.time()
+equal_height = False
+final_heights = {}
+
+while time.time() - start_time < timeout_sec:
+    elapsed = int(time.time() - start_time)
+    heights = {}
+    all_ok = True
+
+    for name, url in sorted(all_nodes.items()):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=b'{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}',
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                res = json.loads(resp.read().decode())
+                blk = int(res.get("result", "0x0"), 16)
+                heights[name] = blk
+        except Exception:
+            all_ok = False
+            heights[name] = None
+
+    final_heights = heights
+    status_parts = [f"{k}: #{v if v is not None else 'DEAD'}" for k, v in heights.items()]
+    print(f"   [{elapsed}s/{timeout_sec}s] Chiều cao hiện tại: {' | '.join(status_parts)}")
+
+    if all_ok and len(heights) == len(all_nodes):
+        vals = list(heights.values())
+        if len(set(vals)) == 1:
+            equal_height = True
+            break
+
+    time.sleep(3)
+
+if not equal_height:
+    print(f"\n❌ [LỖI ĐỒNG BỘ TIMEOUT] Sau {timeout_sec}s (4 phút), các node vẫn CHƯA đạt chiều cao bằng nhau!")
+    for k, v in final_heights.items():
+        print(f"   • {k}: Block #{v}")
+    sys.exit(1)
+
+target_block = list(final_heights.values())[0]
+print(f"\n✅ Tất cả {len(all_nodes)} node đã có block number bằng nhau tại: Block #{target_block}!")
+print(f"🔍 Bắt đầu đối chiếu Block Hash & StateRoot tại Block #{target_block}...")
+
+hashes = {}
+state_roots = {}
+block_hex = hex(target_block)
+
+for name, url in sorted(all_nodes.items()):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[block_hex, False],"id":2}).encode(),
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        data = json.loads(resp.read().decode())
+        b_info = data.get("result", {})
+        hashes[name] = b_info.get("hash")
+        state_roots[name] = b_info.get("stateRoot")
+
+fork_detected = False
+ref_name = list(sorted(all_nodes.keys()))[0]
+ref_hash = hashes.get(ref_name)
+ref_root = state_roots.get(ref_name)
+
+for name in sorted(all_nodes.keys()):
+    h = hashes.get(name)
+    r = state_roots.get(name)
+    if h != ref_hash:
+        print(f"🚨 FORK DETECTED! Lệch Block Hash tại Block #{target_block}:")
+        print(f"   - {ref_name}: {ref_hash}")
+        print(f"   - {name}: {h}")
+        fork_detected = True
+    if r != ref_root:
+        print(f"🚨 FORK DETECTED! Lệch StateRoot tại Block #{target_block}:")
+        print(f"   - {ref_name}: {ref_root}")
+        print(f"   - {name}: {r}")
+        fork_detected = True
+
+if fork_detected:
+    print("❌ BÀI TEST THẤT BẠI DO PHÁT HIỆN FORK GIỮA CÁC NODE!")
+    sys.exit(1)
+
+print(f"🏆 [100% ZERO-FORK CONFIRMED] Block #{target_block} đồng nhất hoàn hảo trên toàn bộ {len(all_nodes)} node!")
+print(f"   • Block Hash : {ref_hash}")
+print(f"   • StateRoot  : {ref_root}\n")
+EOF
+}
 
 START_TIME=$(date +%s)
 current_loop=1
@@ -308,6 +442,9 @@ while true; do
         echo "🔄 [VÒNG LẶP ${current_loop}/${LOOP_COUNT}] BẮT ĐẦU CHẶNG TEST"
     fi
     echo "=========================================================="
+
+    # KIỂM CHỨNG ĐẦU ROUND: Đảm bảo toàn bộ node có chiều cao bằng nhau & 100% Zero-Fork trước khi test
+    verify_equal_height_and_zero_fork "ĐẦU VÒNG ${current_loop}/${LOOP_COUNT:-∞} (Trước khi bắt đầu chu kỳ Restart)" 240
 
     # ------------------------------------------------------------------------------
     # BƯỚC 1: KHỞI ĐỘNG BAN ĐẦU
@@ -393,24 +530,42 @@ while true; do
     echo "=========================================================="
 
     python3 -c "
-import json, urllib.request, sys
+import json, urllib.request, sys, os
 
 try:
     with open('${CONFIG_PATH}', 'r') as f:
         c = json.load(f)
-    rpc_nodes = c.get('rpc_nodes', {})
+    nodes_map = dict(c.get('rpc_nodes', {}))
+    nodes_map.update(c.get('sync_nodes', {}))
+
+    ignore_nodes = []
+    if os.path.isfile('/tmp/monitors_ignore_nodes'):
+        try:
+            with open('/tmp/monitors_ignore_nodes') as ig_f:
+                ignore_nodes = [x.strip().replace('m', '').replace('node', '') for x in ig_f.read().split() if x.strip()]
+        except Exception:
+            pass
+
     dead_nodes = []
-    print(f'🔍 Kiểm tra trạng thái {len(rpc_nodes)} node cấu hình:')
-    for name, url in rpc_nodes.items():
+    print(f'🔍 Kiểm tra trạng thái {len(nodes_map)} node cấu hình (Validator + SyncOnly):')
+    for name, url in sorted(nodes_map.items()):
+        node_id = name.replace('m', '').replace('node', '')
+        is_ignored = node_id in ignore_nodes
         try:
             req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
             with urllib.request.urlopen(req, timeout=3) as resp:
                 data = json.loads(resp.read().decode())
                 blk = int(data.get('result', '0x0'), 16)
-                print(f'   • Node {name} ({url}): 🟢 ALIVE (Block {blk})')
+                if is_ignored:
+                    print(f'   • Node {name} ({url}): ⚪ STOPPED/SNAPSHOT (Block {blk} - Ngoại lệ test)')
+                else:
+                    print(f'   • Node {name} ({url}): 🟢 ALIVE (Block {blk})')
         except Exception as e:
-            print(f'   • Node {name} ({url}): 🔴 DEAD / MẤT KẾT NỐI ({e})')
-            dead_nodes.append(name)
+            if is_ignored:
+                print(f'   • Node {name} ({url}): ⚪ STOPPED/SNAPSHOT (Đang tắt hoặc Snapshot theo kịch bản)')
+            else:
+                print(f'   • Node {name} ({url}): 🔴 DEAD / MẤT KẾT NỐI ({e})')
+                dead_nodes.append(name)
     if dead_nodes:
         print(f'\n❌ PHÁT HIỆN CÓ {len(dead_nodes)} NODE BỊ CHẾT: {dead_nodes}! BÀI TEST THẤT BẠI!')
         sys.exit(1)
@@ -420,6 +575,9 @@ except Exception as e:
     print(f'❌ Lỗi khi quét sức khỏe node: {e}')
     sys.exit(1)
 "
+
+    # KIỂM CHỨNG CUỐI ROUND: Đảm bảo toàn bộ node đã hội tụ chiều cao bằng nhau & 100% Zero-Fork sau chu kỳ restart
+    verify_equal_height_and_zero_fork "CUỐI VÒNG ${current_loop}/${LOOP_COUNT:-∞} (Sau khi hoàn tất toàn bộ chu kỳ Restart)" 240
 
     # Kiểm tra điều kiện kết thúc vòng lặp
     CURRENT_TIME=$(date +%s)

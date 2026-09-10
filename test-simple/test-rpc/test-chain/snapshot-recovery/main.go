@@ -10,6 +10,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -59,8 +60,21 @@ func matchNodeName(name string, filter string) bool {
 		return false
 	}
 	cleanName := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(name, "m"), "node"))
-	cleanFilter := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(filter, "m"), "node"))
-	return cleanName == cleanFilter || strings.EqualFold(name, filter)
+	for _, part := range strings.Split(filter, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		cleanFilter := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(part, "m"), "node"))
+		if cleanName == cleanFilter || strings.EqualFold(name, part) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNodeExcluded(name string, stopped string, exclude string) bool {
+	return matchNodeName(name, stopped) || matchNodeName(name, exclude)
 }
 
 func querySnapshotAPI(url string) ([]SnapshotItem, error) {
@@ -93,7 +107,8 @@ func main() {
 	txCount := flag.Int("count", 15, "Số lượng giao dịch cần gửi và xác nhận")
 	checkFork := flag.Bool("check-fork", true, "Kiểm tra Block Hash & StateRoot giữa các node")
 	requireAllAlive := flag.Bool("require-all-alive", true, "Bắt buộc các node còn lại phải sống")
-	stoppedNode := flag.String("stopped-node", "", "Node dự kiến đang tắt (ngoại lệ kiểm tra sống)")
+	stoppedNode := flag.String("stopped-node", "", "Node dự kiến đang tắt hoặc snapshot (ngoại lệ kiểm tra sống)")
+	excludeNodes := flag.String("exclude-nodes", "", "Danh sách node ngoại lệ kiểm tra sống (ví dụ: '1,4')")
 	targetNodeFlag := flag.String("target-node", "", "Chỉ định gửi giao dịch qua riêng node này (vd: '1' hoặc 'm1')")
 	minBlocks := flag.Int("min-blocks", 0, "Đảm bảo block height của cụm đạt tối thiểu giá trị này (sẽ tự động gửi tx để kích block)")
 	snapshotURL := flag.String("snapshot-url", "", "URL Snapshot Server để kiểm tra (vd: http://192.168.1.234:8600)")
@@ -128,9 +143,27 @@ func main() {
 		log.Fatalf("❌ Không có private keys trong config")
 	}
 
-	// 2. Khởi tạo danh sách các node RPC
-	var nodes []*NodeClient
+	// 2. Khởi tạo danh sách các node RPC (Gộp cả RPCNodes và SyncNodes để kiểm tra toàn bộ 5 node cụm)
+	urlMap := make(map[string]string)
 	for name, url := range cfg.RPCNodes {
+		urlMap[name] = url
+	}
+	for name, url := range cfg.SyncNodes {
+		urlMap[name] = url
+	}
+	if len(urlMap) == 0 && cfg.RPCUrl != "" {
+		urlMap["m0"] = cfg.RPCUrl
+	}
+
+	var nodeKeys []string
+	for k := range urlMap {
+		nodeKeys = append(nodeKeys, k)
+	}
+	sort.Strings(nodeKeys)
+
+	var nodes []*NodeClient
+	for _, name := range nodeKeys {
+		url := urlMap[name]
 		c, err := dialClient(url)
 		online := false
 		if err == nil {
@@ -152,15 +185,34 @@ func main() {
 	var activeNodes []*NodeClient
 	for _, n := range nodes {
 		if n.Online {
-			if *stoppedNode != "" && matchNodeName(n.Name, *stoppedNode) {
+			if isNodeExcluded(n.Name, *stoppedNode, *excludeNodes) {
 				continue
 			}
 			activeNodes = append(activeNodes, n)
 		}
 	}
 
-	// Lọc target-node nếu có chỉ định
+	// txSendNodes: Ưu tiên gửi qua các Validator RPC nodes đang online
+	var txSendNodes []*NodeClient
+	for _, n := range activeNodes {
+		if _, isVal := cfg.RPCNodes[n.Name]; isVal || len(cfg.RPCNodes) == 0 {
+			txSendNodes = append(txSendNodes, n)
+		}
+	}
+	if len(txSendNodes) == 0 {
+		txSendNodes = activeNodes
+	}
+
+	// Lọc target-node nếu có chỉ định (chỉ cho phép Validator nodes, loại trừ Snapshot / SyncOnly nodes)
 	if *targetNodeFlag != "" {
+		cleanTarget := strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(*targetNodeFlag), "m"), "node")
+		for syncKey := range cfg.SyncNodes {
+			cleanSync := strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(syncKey), "m"), "node")
+			if cleanTarget == cleanSync || *targetNodeFlag == syncKey {
+				log.Fatalf("❌ LỖI AN TOÀN: Node %s là Node Snapshot / SyncOnly! Không được tự khôi phục chính node snapshot, chỉ dùng các node Validator!", *targetNodeFlag)
+			}
+		}
+
 		var filtered []*NodeClient
 		for _, n := range activeNodes {
 			if matchNodeName(n.Name, *targetNodeFlag) {
@@ -168,14 +220,14 @@ func main() {
 			}
 		}
 		if len(filtered) > 0 {
-			activeNodes = filtered
-			fmt.Printf("🎯 Chỉ định gửi giao dịch qua duy nhất Node %s (%s)\n", activeNodes[0].Name, activeNodes[0].URL)
+			txSendNodes = filtered
+			fmt.Printf("🎯 Chỉ định gửi giao dịch qua duy nhất Node %s (%s)\n", txSendNodes[0].Name, txSendNodes[0].URL)
 		} else {
 			log.Fatalf("❌ Node chỉ định %s không online!", *targetNodeFlag)
 		}
 	}
 
-	if len(activeNodes) == 0 {
+	if len(txSendNodes) == 0 {
 		log.Fatalf("❌ Không có node nào online để thực hiện bài test!")
 	}
 
@@ -193,7 +245,7 @@ func main() {
 		if err == nil {
 			addr := crypto.PubkeyToAddress(pk.PublicKey)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			n, nErr := activeNodes[0].Client.PendingNonceAt(ctx, addr)
+			n, nErr := txSendNodes[0].Client.PendingNonceAt(ctx, addr)
 			cancel()
 			if nErr == nil {
 				accounts = append(accounts, &AccountState{
@@ -239,7 +291,7 @@ func main() {
 				acct.Nonce++
 				acct.Mu.Unlock()
 
-				targetNode := activeNodes[txIdx%len(activeNodes)]
+				targetNode := txSendNodes[txIdx%len(txSendNodes)]
 				amount := big.NewInt(int64(1000 + txIdx))
 				gasLimit := uint64(21000)
 				gasPrice := big.NewInt(1000000000)
@@ -247,6 +299,7 @@ func main() {
 				tx := types.NewTransaction(nonce, receiverAddr, amount, gasLimit, gasPrice, nil)
 				signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), acct.Key)
 				if err != nil {
+					fmt.Printf("   [TX %d/%d] ⚠️ Lỗi ký tx: %v\n", txIdx+1, count, err)
 					return
 				}
 
@@ -254,6 +307,7 @@ func main() {
 				err = targetNode.Client.SendTransaction(ctxSend, signedTx)
 				cancelSend()
 				if err != nil {
+					fmt.Printf("   [TX %d/%d] ⚠️ Lỗi gửi tx qua %s: %v\n", txIdx+1, count, targetNode.Name, err)
 					return
 				}
 
@@ -383,7 +437,7 @@ func main() {
 	nodeHeights := make(map[string]uint64)
 
 	for _, n := range nodes {
-		isStoppedExpected := *stoppedNode != "" && matchNodeName(n.Name, *stoppedNode)
+		isExcluded := isNodeExcluded(n.Name, *stoppedNode, *excludeNodes)
 		c, err := dialClient(n.URL)
 		online := false
 		var bNum uint64
@@ -395,21 +449,21 @@ func main() {
 				online = true
 				n.Client = c
 				n.Online = true
-				aliveNodes = append(aliveNodes, n)
-				nodeHeights[n.Name] = bNum
 			}
 		}
 
-		if isStoppedExpected {
+		if isExcluded {
 			if online {
-				fmt.Printf("   • Node %s (%s): ⚠️ VẪN ONLINE (Dự kiến đã tắt)\n", n.Name, n.URL)
+				fmt.Printf("   • Node %s (%s): ⚪ EXCLUDED / VẪN ONLINE (Block #%d - Bỏ qua theo kịch bản test)\n", n.Name, n.URL, bNum)
 			} else {
-				fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Đã tắt theo kịch bản)\n", n.Name, n.URL)
+				fmt.Printf("   • Node %s (%s): ⚪ STOPPED/SNAPSHOT (Đã tắt hoặc Snapshot theo kịch bản)\n", n.Name, n.URL)
 			}
 			continue
 		}
 
 		if online {
+			aliveNodes = append(aliveNodes, n)
+			nodeHeights[n.Name] = bNum
 			fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block #%d)\n", n.Name, n.URL, bNum)
 		} else {
 			fmt.Printf("   • Node %s (%s): 🔴 DEAD / MẤT KẾT NỐI!\n", n.Name, n.URL)
@@ -424,8 +478,12 @@ func main() {
 			fmt.Printf("⚠️ Cảnh báo: Có %d node bị chết: %s\n", len(deadNodes), strings.Join(deadNodes, ", "))
 		}
 	} else {
-		if *stoppedNode != "" {
-			fmt.Printf("✅ TẤT CẢ %d NODE CÒN LẠI ĐỀU ĐANG SỐNG VÀ ĐỒNG THUẬN KHỎE MẠNH!\n", len(aliveNodes))
+		excStr := *stoppedNode
+		if excStr == "" {
+			excStr = *excludeNodes
+		}
+		if excStr != "" {
+			fmt.Printf("✅ TẤT CẢ %d NODE CÒN LẠI (ngoại trừ [%s] đang tắt/snapshot) ĐỀU ĐANG SỐNG VÀ ĐỒNG THUẬN KHỎE MẠNH!\n", len(aliveNodes), excStr)
 		} else {
 			fmt.Printf("✅ TOÀN BỘ %d NODE ĐỀU ĐANG CÒN SỐNG VÀ ĐỒNG BỘ KHỎE MẠNH!\n", len(nodes))
 		}
