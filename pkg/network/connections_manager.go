@@ -201,7 +201,7 @@ func (cm *ConnectionsManager) AddParentConnection(conn network.Connection) {
 	cm.parentMu.Lock()
 	defer cm.parentMu.Unlock()
 	if conn == nil {
-		fmt.Printf("[CONN_MANAGER] ❌ AddParentConnection: Connection là nil\n")
+		fmt.Printf("[CONN_MANAGER] ⚠️ AddParentConnection: Connection là nil\n")
 		logger.Warn("AddParentConnection: Cố gắng thêm một kết nối cha nil. Bỏ qua.")
 		return
 	}

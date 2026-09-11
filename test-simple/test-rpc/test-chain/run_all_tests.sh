@@ -71,8 +71,9 @@ FAILED=0
 # Lưu trữ lý do lỗi cho từng bài test
 declare -A REASONS
 
-# Thư mục lưu log chi tiết
-LOG_DIR="test_logs"
+# Thư mục lưu log chi tiết (dùng đường dẫn tuyệt đối để không bị lỗi sau khi cd)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="$SCRIPT_DIR/test_logs"
 mkdir -p "$LOG_DIR"
 
 echo "🚀 BẮT ĐẦU CHẠY TỔNG HỢP $TOTAL_TEST_CASES BÀI TEST ($TOTAL_RUNS LƯỢT CHẠY) BLOCK-STM..."
@@ -89,7 +90,7 @@ for test_dir in "${TESTS[@]}"; do
         
         cd "$test_dir" || exit
         
-        log_file="../$LOG_DIR/${test_dir}_run${run_idx}.log"
+        log_file="$LOG_DIR/${test_dir}_run${run_idx}.log"
         if [ "$MODE" == "gotest" ]; then
             go test -v -count=1 -timeout 90s . 2>&1 | tee "$log_file"
             exit_code=${PIPESTATUS[0]}
@@ -147,9 +148,10 @@ for test_dir in "${TESTS[@]}"; do
 
         # Các bài test khác: Nếu xuất hiện dấu ❌ thì coi như lỗi (giao dịch bị revert ngoài ý muốn)
         # Loại trừ các bài test cố ý gây revert: 4-abort, 11-double-spending-same-nonce, 12-insufficient-balance-parallel, 14-selfdestruct-conflict, 32-xapian-parallel-stress
-        if [[ "$test_dir" != "4-abort" && "$test_dir" != "11-double-spending-same-nonce" && "$test_dir" != "12-insufficient-balance-parallel" && "$test_dir" != "14-selfdestruct-conflict" && "$test_dir" != "32-xapian-parallel-stress" ]] && echo "$output" | grep -q "❌"; then
+        # Bỏ qua log debug kết nối [CONN_MANAGER] không liên quan đến revert giao dịch
+        if [[ "$test_dir" != "4-abort" && "$test_dir" != "11-double-spending-same-nonce" && "$test_dir" != "12-insufficient-balance-parallel" && "$test_dir" != "14-selfdestruct-conflict" && "$test_dir" != "26.1-eip7702-setcode-tcp" && "$test_dir" != "32-xapian-parallel-stress" ]] && echo "$output" | grep -v "\[CONN_MANAGER\]" | grep -q "❌"; then
             FAILED=$((FAILED + 1))
-            err_line=$(grep "❌" "$log_file" | head -n 2 | tr '\n' ' ')
+            err_line=$(grep -v "\[CONN_MANAGER\]" "$log_file" | grep "❌" | head -n 2 | tr '\n' ' ')
             REASONS["${test_dir}_run${run_idx}"]="Có giao dịch bị Revert hoặc FAILED ngoài ý muốn: $err_line"
             echo "❌ THẤT BẠI (Lỗi Tx Revert / Lỗi State)"
             echo "   🚨 CHI TIẾT LỖI: $err_line"

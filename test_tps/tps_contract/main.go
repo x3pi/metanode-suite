@@ -855,8 +855,8 @@ func main() {
 			if err := json.Unmarshal(raw, &rawCfg); err == nil {
 				for k, v := range rawCfg {
 					if strings.HasPrefix(k, "connection_node_") {
-						if strV, ok := v.(string); ok {
-							targetAddresses = append(targetAddresses, strV)
+						if strV, ok := v.(string); ok && strings.TrimSpace(strV) != "" {
+							targetAddresses = append(targetAddresses, strings.TrimSpace(strV))
 						}
 					}
 				}
@@ -895,6 +895,10 @@ func main() {
 	}
 
 	reconnectNode := func(targetAddr string) *rawWriter {
+		targetAddr = strings.TrimSpace(targetAddr)
+		if targetAddr == "" {
+			return nil
+		}
 		for attempt := 1; attempt <= 30; attempt++ {
 			fmt.Printf("[%s]   🔌 Connecting to %s (attempt %d)...\n", ts(), targetAddr, attempt)
 			rw, err := newRawWriter(targetAddr, version, toAddrHex)
@@ -940,7 +944,13 @@ func main() {
 
 	connectAll := func() []*activeClient {
 		var clients []*activeClient
+		seen := make(map[string]bool)
 		for _, addr := range targetAddresses {
+			addr = strings.TrimSpace(addr)
+			if addr == "" || seen[addr] {
+				continue
+			}
+			seen[addr] = true
 			if rw := reconnectNode(addr); rw != nil {
 				clients = append(clients, &activeClient{addr: addr, rw: rw})
 			}
