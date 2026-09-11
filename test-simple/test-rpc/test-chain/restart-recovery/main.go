@@ -67,6 +67,129 @@ func isNodeExcluded(name string, stopped string, exclude string) bool {
 	return matchNodeName(name, stopped) || matchNodeName(name, exclude)
 }
 
+type NodeProbeResult struct {
+	Name    string
+	URL     string
+	Online  bool
+	Stopped bool
+	Block   uint64
+	Err     error
+}
+
+func probeCluster(nodes []*NodeClient, stoppedNode, excludeNodes string) (results []NodeProbeResult, crashed []string, minBlock uint64, maxBlock uint64, isSynced bool) {
+	minBlock = ^uint64(0)
+	maxBlock = 0
+	aliveCount := 0
+
+	for _, n := range nodes {
+		isStopped := isNodeExcluded(n.Name, stoppedNode, excludeNodes)
+		if isStopped {
+			results = append(results, NodeProbeResult{
+				Name:    n.Name,
+				URL:     n.URL,
+				Stopped: true,
+			})
+			continue
+		}
+
+		c, dErr := dialClient(n.URL)
+		online := false
+		var bNum uint64
+		if dErr == nil {
+			cCtx, cCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			bNum, dErr = c.BlockNumber(cCtx)
+			cCancel()
+			if dErr == nil {
+				online = true
+			}
+		}
+
+		res := NodeProbeResult{
+			Name:   n.Name,
+			URL:    n.URL,
+			Online: online,
+			Block:  bNum,
+			Err:    dErr,
+		}
+		results = append(results, res)
+
+		if online {
+			aliveCount++
+			if bNum < minBlock {
+				minBlock = bNum
+			}
+			if bNum > maxBlock {
+				maxBlock = bNum
+			}
+		} else {
+			crashed = append(crashed, fmt.Sprintf("%s (%s)", n.Name, n.URL))
+		}
+	}
+
+	if aliveCount <= 1 {
+		minBlock = maxBlock
+		isSynced = true
+	} else {
+		isSynced = (minBlock == maxBlock)
+	}
+	return
+}
+
+func printClusterProbe(results []NodeProbeResult, maxBlock uint64) {
+	for _, res := range results {
+		if res.Stopped {
+			fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Đang cố ý TẮT theo kịch bản test - KHÔNG CÓ LỖI)\n", res.Name, res.URL)
+		} else if res.Online {
+			if res.Block < maxBlock {
+				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)\n",
+					res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock)
+			} else {
+				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)\n", res.Name, res.URL, res.Block)
+			}
+		} else {
+			fmt.Printf("   • Node %s (%s): 🔴 DEAD / CRASH! (Lỗi: %v)\n", res.Name, res.URL, res.Err)
+		}
+	}
+}
+
+func reportDesyncFailure(reason string, stoppedNode, excludeNodes string, results []NodeProbeResult, minBlock, maxBlock uint64, elapsed time.Duration) {
+	fmt.Println("\n==================================================================")
+	fmt.Printf("❌ [LỖI ĐỒNG BỘ CHIỀU CAO CLUSTER / BLOCK HEIGHT DESYNC]\n")
+	fmt.Printf("   • Nguyên nhân: %s\n", reason)
+	exc := stoppedNode
+	if exc == "" {
+		exc = excludeNodes
+	}
+	if exc != "" {
+		fmt.Printf("   • Kịch bản test: Đang DỪNG node [%s], gửi giao dịch lên các node sống.\n", exc)
+	}
+	if elapsed > 0 {
+		fmt.Printf("   • Thời gian các node sống bị lệch chiều cao: %v\n", elapsed.Round(time.Second))
+	}
+	fmt.Printf("   • Danh sách Block hiện tại của toàn bộ các node:\n")
+	var laggingNodes []string
+	for _, res := range results {
+		if res.Stopped {
+			fmt.Printf("     - Node %s (%s): ⚪ STOPPED (Đang cố ý TẮT theo kịch bản test - KHÔNG CÓ LỖI)\n", res.Name, res.URL)
+		} else if res.Online {
+			if res.Block < maxBlock {
+				fmt.Printf("     - Node %s (%s): 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)\n",
+					res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock)
+				laggingNodes = append(laggingNodes, fmt.Sprintf("Node %s (Block %d < %d)", res.Name, res.Block, maxBlock))
+			} else {
+				fmt.Printf("     - Node %s (%s): 🟢 ALIVE (Block %d)\n", res.Name, res.URL, res.Block)
+			}
+		} else {
+			fmt.Printf("     - Node %s (%s): 🔴 DEAD / CRASH! (Lỗi: %v)\n", res.Name, res.URL, res.Err)
+		}
+	}
+	if len(laggingNodes) > 0 {
+		fmt.Printf("   => Phát hiện %s không đồng bộ chiều cao với các node còn lại!\n", strings.Join(laggingNodes, ", "))
+	}
+	fmt.Println("==================================================================")
+	log.Fatalf("❌ BÀI TEST THẤT BẠI: Các node sống không đồng bộ cùng chiều cao block!")
+}
+
 func main() {
 	configPath := flag.String("config", "../config.json", "Đường dẫn file config.json")
 	txCount := flag.Int("count", 15, "Số lượng giao dịch cần gửi và xác nhận")
@@ -74,6 +197,8 @@ func main() {
 	requireAllAlive := flag.Bool("require-all-alive", true, "Bắt buộc toàn bộ các node phải đang sống sau đợt test")
 	stoppedNode := flag.String("stopped-node", "", "Tên hoặc ID của node đang cố ý bị dừng (ví dụ: '0', 'm0', hoặc '1,4'). Node này được phép offline, các node còn lại bắt buộc phải sống")
 	excludeNodes := flag.String("exclude-nodes", "", "Danh sách node ngoại lệ bỏ qua kiểm tra sống (ví dụ: '4' hoặc '1,4')")
+	maxDesyncTimeouts := flag.Int("max-desync-timeouts", 6, "Số giao dịch timeout tối đa khi phát hiện các node sống bị lệch chiều cao trước khi báo lỗi")
+	maxDesyncDuration := flag.Duration("max-desync-duration", 4*time.Minute, "Thời gian tối đa cho phép các node sống bị lệch chiều cao (desync) trước khi báo lỗi chi tiết")
 	flag.Parse()
 
 	cfg, err := config.LoadConfig(*configPath)
@@ -303,44 +428,90 @@ func main() {
 
 	// 4. Chờ Receipt xác nhận trong Block (tối đa 45s để cụm kịp đồng thuận khi thiếu validator)
 	confirmedCount := 0
+	timedOutCount := 0
+	var desyncFirstDetected *time.Time
+	lastProbeTime := time.Now()
+
 	for _, rec := range records {
 		timeoutStart := time.Now()
 		for {
+			now := time.Now()
+
+			// Định kỳ mỗi 10 giây: kiểm tra trạng thái chiều cao các node để phát hiện desync kéo dài
+			if now.Sub(lastProbeTime) >= 10*time.Second {
+				lastProbeTime = now
+				results, crashed, minH, maxH, isSynced := probeCluster(nodes, *stoppedNode, *excludeNodes)
+				if len(crashed) > 0 {
+					printClusterProbe(results, maxH)
+					log.Fatalf("❌ PHÁT HIỆN CÓ %d NODE BỊ CRASH / KHÔNG PHẢN HỒI KHI CHỜ RECEIPT: %s! BÀI TEST THẤT BẠI NGAY LẬP TỨC!",
+						len(crashed), strings.Join(crashed, ", "))
+				}
+				if !isSynced {
+					if desyncFirstDetected == nil {
+						probeNow := time.Now()
+						desyncFirstDetected = &probeNow
+					} else if now.Sub(*desyncFirstDetected) >= *maxDesyncDuration {
+						elapsed := now.Sub(*desyncFirstDetected)
+						reportDesyncFailure(
+							fmt.Sprintf("Các node sống KHÔNG ĐỒNG BỘ cùng chiều cao liên tục trong hơn %v (đã trôi qua %.1fs)",
+								*maxDesyncDuration, elapsed.Seconds()),
+							*stoppedNode, *excludeNodes, results, minH, maxH, elapsed,
+						)
+					}
+				} else {
+					desyncFirstDetected = nil
+				}
+			}
+
 			if time.Since(timeoutStart) > 45*time.Second {
-				fmt.Printf("   [TX %d/%d qua %s] ⚠️ Timeout (45s) chờ receipt cho hash: %s\n",
-					rec.Index, *txCount, rec.NodeName, rec.TxHash.Hex())
+				timedOutCount++
+				fmt.Printf("   [TX %d/%d qua %s] ⚠️ Timeout (45s) chờ receipt cho hash: %s (Tổng timeout: %d/%d)\n",
+					rec.Index, *txCount, rec.NodeName, rec.TxHash.Hex(), timedOutCount, *maxDesyncTimeouts)
 
 				// 🚨 KIỂM TRA SỨC KHỎE TOÀN BỘ CÁC NODE NGAY LẬP TỨC KHI BỊ TIMEOUT RECEIPT
 				fmt.Printf("   🔍 [HEALTH PROBE] Giao dịch %s gửi qua %s bị timeout! Đang kiểm tra trạng thái cụm...\n",
 					rec.TxHash.Hex()[:14]+"...", rec.NodeName)
-				var crashedNodes []string
-				for _, n := range nodes {
-					if *stoppedNode != "" && matchNodeName(n.Name, *stoppedNode) {
-						fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Đang cố ý TẮT theo kịch bản test - KHÔNG CÓ LỖI)\n", n.Name, n.URL)
-						continue
-					}
-					c, dErr := dialClient(n.URL)
-					online := false
-					var bNum uint64
-					if dErr == nil {
-						cCtx, cCancel := context.WithTimeout(context.Background(), 2*time.Second)
-						bNum, dErr = c.BlockNumber(cCtx)
-						cCancel()
-						if dErr == nil {
-							online = true
-						}
-					}
-					if online {
-						fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)\n", n.Name, n.URL, bNum)
-					} else {
-						fmt.Printf("   • Node %s (%s): 🔴 DEAD / CRASH! (Lỗi: %v)\n", n.Name, n.URL, dErr)
-						crashedNodes = append(crashedNodes, fmt.Sprintf("%s (%s)", n.Name, n.URL))
-					}
-				}
-				if len(crashedNodes) > 0 {
+
+				results, crashed, minH, maxH, isSynced := probeCluster(nodes, *stoppedNode, *excludeNodes)
+				printClusterProbe(results, maxH)
+
+				if len(crashed) > 0 {
 					log.Fatalf("❌ PHÁT HIỆN CÓ %d NODE BỊ CRASH / KHÔNG PHẢN HỒI KHI CHỜ RECEIPT: %s! BÀI TEST THẤT BẠI NGAY LẬP TỨC!",
-						len(crashedNodes), strings.Join(crashedNodes, ", "))
+						len(crashed), strings.Join(crashed, ", "))
 				}
+
+				if !isSynced {
+					if desyncFirstDetected == nil {
+						probeNow := time.Now()
+						desyncFirstDetected = &probeNow
+					}
+				} else {
+					desyncFirstDetected = nil
+				}
+
+				// Điều kiện 1: Đã có đủ số giao dịch timeout (mặc định 4) mà các node sống không đồng bộ cùng chiều cao
+				if timedOutCount >= *maxDesyncTimeouts && !isSynced {
+					elapsed := time.Duration(0)
+					if desyncFirstDetected != nil {
+						elapsed = time.Since(*desyncFirstDetected)
+					}
+					reportDesyncFailure(
+						fmt.Sprintf("Đã có %d giao dịch bị timeout và phát hiện các node sống KHÔNG ĐỒNG BỘ cùng chiều cao (Min Block: %d, Max Block: %d)",
+							timedOutCount, minH, maxH),
+						*stoppedNode, *excludeNodes, results, minH, maxH, elapsed,
+					)
+				}
+
+				// Điều kiện 2: Đã quá thời gian maxDesyncDuration (mặc định 4 phút) mà các node sống vẫn không đồng bộ chiều cao
+				if desyncFirstDetected != nil && time.Since(*desyncFirstDetected) >= *maxDesyncDuration {
+					elapsed := time.Since(*desyncFirstDetected)
+					reportDesyncFailure(
+						fmt.Sprintf("Các node sống KHÔNG ĐỒNG BỘ cùng chiều cao liên tục trong hơn %v (đã trôi qua %.1fs)",
+							*maxDesyncDuration, elapsed.Seconds()),
+						*stoppedNode, *excludeNodes, results, minH, maxH, elapsed,
+					)
+				}
+
 				break
 			}
 
