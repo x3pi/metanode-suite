@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -23,13 +26,19 @@ import (
 )
 
 type NodeClient struct {
-	Name   string
-	URL    string
-	Client *ethclient.Client
-	Online bool
+	Name      string
+	URL       string
+	Client    *ethclient.Client
+	RPCClient *rpc.Client
+	Online    bool
 }
 
-func dialClient(url string) (*ethclient.Client, error) {
+type ConsensusReadyResult struct {
+	Ready bool   `json:"ready"`
+	Note  string `json:"note"`
+}
+
+func dialClient(urlStr string) (*ethclient.Client, *rpc.Client, error) {
 	httpClient := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
@@ -38,11 +47,92 @@ func dialClient(url string) (*ethclient.Client, error) {
 			IdleConnTimeout:     30 * time.Second,
 		},
 	}
-	rpcClient, err := rpc.DialHTTPWithClient(url, httpClient)
+	rpcClient, err := rpc.DialHTTPWithClient(urlStr, httpClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ethclient.NewClient(rpcClient), rpcClient, nil
+}
+
+func (n *NodeClient) CheckConsensusReady(timeout time.Duration) (*ConsensusReadyResult, error) {
+	if n.RPCClient == nil {
+		return nil, fmt.Errorf("rpc client is nil")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var res ConsensusReadyResult
+	err := n.RPCClient.CallContext(ctx, &res, "eth_consensusReady")
 	if err != nil {
 		return nil, err
 	}
-	return ethclient.NewClient(rpcClient), nil
+	return &res, nil
+}
+
+func sendTelegramAlert(text string) {
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
+	chatID := os.Getenv("TELEGRAM_CHAT_ID")
+	if token == "" || chatID == "" {
+		invPaths := []string{
+			"../../../../metanode/deploy/ansible/inventory.yml",
+			"../../metanode/deploy/ansible/inventory.yml",
+			"/home/abc/nhat/con-chain-v2/metanode/deploy/ansible/inventory.yml",
+		}
+		for _, p := range invPaths {
+			data, err := os.ReadFile(p)
+			if err == nil {
+				lines := strings.Split(string(data), "\n")
+				for _, l := range lines {
+					trimmed := strings.TrimSpace(l)
+					if strings.HasPrefix(trimmed, "bot_token:") && token == "" {
+						token = strings.Trim(strings.TrimPrefix(trimmed, "bot_token:"), ` "'`)
+					}
+					if strings.HasPrefix(trimmed, "chat_id:") && chatID == "" {
+						chatID = strings.Trim(strings.TrimPrefix(trimmed, "chat_id:"), ` "'`)
+					}
+				}
+				if token != "" && chatID != "" {
+					break
+				}
+			}
+		}
+	}
+	if token == "" {
+		token = "8230176859:AAG2MuF6RI3hRPm9H8_TctSSANkwwrEEdIc"
+	}
+	if chatID == "" {
+		chatID = "-1003867050625"
+	}
+
+	data := url.Values{}
+	data.Set("chat_id", chatID)
+	data.Set("parse_mode", "HTML")
+	data.Set("text", text)
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), strings.NewReader(data.Encode()))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
+}
+
+func alertNodeNotReady(nodeName string, ready bool, note string) {
+	jsonObj := map[string]interface{}{
+		"ready": ready,
+		"note":  note,
+	}
+	jsonBytes, _ := json.MarshalIndent(jsonObj, "", "  ")
+	msg := fmt.Sprintf(`⚠️ <b>[METANODE TEST CẢNH BÁO] Node Chưa Sẵn Sàng Xử Lý Giao Dịch!</b>
+• <b>Target Node:</b> Node %s
+• <b>Phản hồi eth_consensusReady:</b>
+<pre>%s</pre>`, nodeName, string(jsonBytes))
+
+	sendTelegramAlert(msg)
 }
 
 func matchNodeName(name string, filter string) bool {
@@ -68,12 +158,14 @@ func isNodeExcluded(name string, stopped string, exclude string) bool {
 }
 
 type NodeProbeResult struct {
-	Name    string
-	URL     string
-	Online  bool
-	Stopped bool
-	Block   uint64
-	Err     error
+	Name           string
+	URL            string
+	Online         bool
+	Stopped        bool
+	Block          uint64
+	ConsensusReady bool
+	ConsensusNote  string
+	Err            error
 }
 
 func probeCluster(nodes []*NodeClient, stoppedNode, excludeNodes string) (results []NodeProbeResult, crashed []string, minBlock uint64, maxBlock uint64, isSynced bool) {
@@ -85,31 +177,44 @@ func probeCluster(nodes []*NodeClient, stoppedNode, excludeNodes string) (result
 		isStopped := isNodeExcluded(n.Name, stoppedNode, excludeNodes)
 		if isStopped {
 			results = append(results, NodeProbeResult{
-				Name:    n.Name,
-				URL:     n.URL,
-				Stopped: true,
+				Name:           n.Name,
+				URL:            n.URL,
+				Stopped:        true,
+				ConsensusReady: true,
 			})
 			continue
 		}
 
-		c, dErr := dialClient(n.URL)
+		c, rpcC, dErr := dialClient(n.URL)
 		online := false
 		var bNum uint64
+		consensusReady := true
+		consensusNote := ""
 		if dErr == nil {
 			cCtx, cCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			bNum, dErr = c.BlockNumber(cCtx)
 			cCancel()
 			if dErr == nil {
 				online = true
+				var res ConsensusReadyResult
+				rCtx, rCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				rErr := rpcC.CallContext(rCtx, &res, "eth_consensusReady")
+				rCancel()
+				if rErr == nil {
+					consensusReady = res.Ready
+					consensusNote = res.Note
+				}
 			}
 		}
 
 		res := NodeProbeResult{
-			Name:   n.Name,
-			URL:    n.URL,
-			Online: online,
-			Block:  bNum,
-			Err:    dErr,
+			Name:           n.Name,
+			URL:            n.URL,
+			Online:         online,
+			Block:          bNum,
+			ConsensusReady: consensusReady,
+			ConsensusNote:  consensusNote,
+			Err:            dErr,
 		}
 		results = append(results, res)
 
@@ -140,11 +245,15 @@ func printClusterProbe(results []NodeProbeResult, maxBlock uint64) {
 		if res.Stopped {
 			fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Đang cố ý TẮT theo kịch bản test - KHÔNG CÓ LỖI)\n", res.Name, res.URL)
 		} else if res.Online {
+			consensusStr := ""
+			if !res.ConsensusReady {
+				consensusStr = fmt.Sprintf(" ⚠️ [CONSENSUS NOT READY: %s]", res.ConsensusNote)
+			}
 			if res.Block < maxBlock {
-				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)\n",
-					res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock)
+				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)%s\n",
+					res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock, consensusStr)
 			} else {
-				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)\n", res.Name, res.URL, res.Block)
+				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)%s\n", res.Name, res.URL, res.Block, consensusStr)
 			}
 		} else {
 			fmt.Printf("   • Node %s (%s): 🔴 DEAD / CRASH! (Lỗi: %v)\n", res.Name, res.URL, res.Err)
@@ -231,7 +340,7 @@ func main() {
 	var nodes []*NodeClient
 	for _, name := range nodeKeys {
 		url := urlMap[name]
-		c, err := dialClient(url)
+		c, rpcC, err := dialClient(url)
 		online := false
 		if err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -242,10 +351,11 @@ func main() {
 			}
 		}
 		nodes = append(nodes, &NodeClient{
-			Name:   name,
-			URL:    url,
-			Client: c,
-			Online: online,
+			Name:      name,
+			URL:       url,
+			Client:    c,
+			RPCClient: rpcC,
+			Online:    online,
 		})
 	}
 
@@ -259,9 +369,13 @@ func main() {
 		}
 	}
 
-	// txSendNodes: Ưu tiên gửi qua các Validator RPC nodes đang online
+	// txSendNodes: Ưu tiên gửi qua các Validator RPC nodes đang online (LOẠI BỎ SyncOnly nodes như m4)
 	var txSendNodes []*NodeClient
 	for _, n := range activeNodes {
+		// Bỏ qua nếu là SyncOnly node (ví dụ: m4) vì node này không propose block
+		if _, isSync := cfg.SyncNodes[n.Name]; isSync {
+			continue
+		}
 		if _, isVal := cfg.RPCNodes[n.Name]; isVal || len(cfg.RPCNodes) == 0 {
 			txSendNodes = append(txSendNodes, n)
 		}
@@ -293,6 +407,32 @@ func main() {
 
 	if len(txSendNodes) == 0 {
 		log.Fatalf("❌ Không có node nào online để gửi giao dịch!")
+	}
+
+	// Chờ các Validator node trong txSendNodes thực sự sẵn sàng consensus (tối đa 120s) trước khi gửi
+	fmt.Printf("⏳ Đang kiểm tra tính sẵn sàng (Consensus Ready) của các Validator gửi giao dịch...\n")
+	for _, n := range txSendNodes {
+		waitStart := time.Now()
+		isReady := false
+		var lastRes *ConsensusReadyResult
+		for time.Since(waitStart) < 120*time.Second {
+			cRes, cErr := n.CheckConsensusReady(2 * time.Second)
+			if cErr == nil && cRes.Ready {
+				isReady = true
+				break
+			}
+			lastRes = cRes
+			time.Sleep(2 * time.Second)
+		}
+
+		if isReady {
+			fmt.Printf("   ✅ Node %s (%s): Consensus đã SẴN SÀNG (Healthy)!\n", n.Name, n.URL)
+		} else if lastRes != nil {
+			fmt.Printf("   ⚠️ Cảnh báo: Node %s (%s) consensus VẪN CHƯA sẵn sàng sau 120s:\n", n.Name, n.URL)
+			resBytes, _ := json.MarshalIndent(lastRes, "      ", "  ")
+			fmt.Println("      " + string(resBytes))
+			alertNodeNotReady(n.Name, lastRes.Ready, lastRes.Note)
+		}
 	}
 
 	// 2. Chuẩn bị tài khoản gửi tiền và lấy nonce ban đầu an toàn
@@ -551,7 +691,7 @@ func main() {
 	for _, n := range nodes {
 		isExcluded := isNodeExcluded(n.Name, *stoppedNode, *excludeNodes)
 
-		c, err := dialClient(n.URL)
+		c, rpcC, err := dialClient(n.URL)
 		online := false
 		var bNum uint64
 		if err == nil {
@@ -561,6 +701,7 @@ func main() {
 			if err == nil {
 				online = true
 				n.Client = c
+				n.RPCClient = rpcC
 				n.Online = true
 			}
 		}

@@ -57,6 +57,7 @@ func main() {
 	loopFlag := flag.Bool("loop", false, "Lặp vô hạn tất cả tasks cho đến khi Ctrl+C")
 	delayFlag := flag.Int("delay", 2, "Thời gian chờ (giây) giữa các vòng lặp khi dùng -loop")
 	saveContractFlag := flag.String("save-contract", "", "Lưu địa chỉ contract vừa deploy vào file chỉ định")
+	timeoutFlag := flag.Duration("timeout", 60*time.Second, "Thời gian tối đa chờ receipt cho mỗi giao dịch (mặc định: 60s)")
 	flag.Parse()
 
 	fmt.Println("==================================================")
@@ -204,7 +205,7 @@ func main() {
 				if len(payloadData) == 0 {
 					taskErr = fmt.Errorf("Action Deploy yêu cầu phải có Bytecode truyền vào biến 'input_data'")
 				} else {
-					newAddr, err := executeDeploy(client, privateKey, cfg.ChainID, fromAddress, payloadData)
+					newAddr, err := executeDeploy(client, privateKey, cfg.ChainID, fromAddress, payloadData, *timeoutFlag)
 					if err != nil {
 						taskErr = err
 					} else if newAddr != nil {
@@ -220,7 +221,7 @@ func main() {
 			} else if action == "call" || action == "read" {
 				taskErr = executeCall(client, contractAddress, contractAbi, d.Method, payloadData, d.ExpectedOutput)
 			} else if action == "send" || action == "write" {
-				taskErr = executeSend(client, privateKey, cfg.ChainID, fromAddress, contractAddress, payloadData, d.Method, contractAbi, hasAbi, d.ExpectedEvents)
+				taskErr = executeSend(client, privateKey, cfg.ChainID, fromAddress, contractAddress, payloadData, d.Method, contractAbi, hasAbi, d.ExpectedEvents, *timeoutFlag)
 			} else {
 				taskErr = fmt.Errorf("Action không hợp lệ: %s", d.Action)
 			}
@@ -428,7 +429,7 @@ func convertToType(t abi.Type, val interface{}) (interface{}, error) {
 // ----------------------------------------------------
 // THỰC THI ACTION: DEPLOY (Tạo Contract Mới)
 // ----------------------------------------------------
-func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId int64, fromAddress common.Address, bytecode []byte) (*common.Address, error) {
+func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId int64, fromAddress common.Address, bytecode []byte, timeout time.Duration) (*common.Address, error) {
 	fmt.Println("▶️  Chạy eth_sendRawTransaction (DEPLOY CONTRACT)...")
 
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
@@ -473,9 +474,14 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 	}
 
 	fmt.Printf("   🚀 Đã gửi Tx Deploy. Hash: %s\n", signedTx.Hash().Hex())
-	fmt.Printf("   ⏳ Đang đợi mạng Mining (Polling Receipt) ")
+	fmt.Printf("   ⏳ Đang đợi mạng Mining (Polling Receipt, tối đa %v) ", timeout)
 
+	pollStart := time.Now()
 	for {
+		if timeout > 0 && time.Since(pollStart) > timeout {
+			fmt.Println()
+			return nil, fmt.Errorf("❌ Hết thời gian chờ (%v) cho receipt tx Deploy: %s", timeout, signedTx.Hash().Hex())
+		}
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
 		if err == nil {
 			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
@@ -549,7 +555,7 @@ func executeCall(client *ethclient.Client, contractAddress common.Address, parse
 // ----------------------------------------------------
 // THỰC THI ACTION: SEND (Giao dịch thực thụ)
 // ----------------------------------------------------
-func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId int64, fromAddress common.Address, contractAddress common.Address, payloadData []byte, methodName string, parsedABI abi.ABI, hasAbi bool, expectedEvents []ExpectedEvent) error {
+func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId int64, fromAddress common.Address, contractAddress common.Address, payloadData []byte, methodName string, parsedABI abi.ABI, hasAbi bool, expectedEvents []ExpectedEvent, timeout time.Duration) error {
 	fmt.Printf("▶️  Chạy eth_sendRawTransaction (WRITE/SEND) cho hàm %s...\n", methodName)
 
 	// 2. Cấu hình giao dịch
@@ -600,10 +606,15 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 	}
 
 	fmt.Printf("   🚀 Đã gửi Tx. Hash: %s\n", signedTx.Hash().Hex())
-	fmt.Printf("   ⏳ Đang đợi mạng Mining (Polling Receipt) ")
+	fmt.Printf("   ⏳ Đang đợi mạng Mining (Polling Receipt, tối đa %v) ", timeout)
 
 	// 5. Polling đợi mạng lưới
+	pollStart := time.Now()
 	for {
+		if timeout > 0 && time.Since(pollStart) > timeout {
+			fmt.Println()
+			return fmt.Errorf("❌ Hết thời gian chờ (%v) cho receipt tx Write: %s", timeout, signedTx.Hash().Hex())
+		}
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
 		if err == nil {
 			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
