@@ -302,7 +302,7 @@ func RunTest(configPath string) error {
 
 		client, errDial := dialRPCWithTimeout(rpcURL)
 		if errDial != nil {
-			allErrors = append(allErrors, fmt.Sprintf("Node %s (%s): Không thể kết nối: %v", name, rpcURL, errDial))
+			allErrors = append(allErrors, fmt.Sprintf("❌ Node %s (%s): Không thể kết nối RPC: %v", name, rpcURL, errDial))
 			continue
 		}
 
@@ -329,9 +329,9 @@ func RunTest(configPath string) error {
 
 		if !synced {
 			if lastErrCB != nil {
-				allErrors = append(allErrors, fmt.Sprintf("Node %s (%s): Chưa đồng bộ tới Block B (%d) sau 20s - Lỗi RPC eth_blockNumber: %v", name, rpcURL, blockB, lastErrCB))
+				allErrors = append(allErrors, fmt.Sprintf("❌ Node %s (%s): Chưa đồng bộ tới Block B (%d) sau 20s - Lỗi RPC eth_blockNumber: %v", name, rpcURL, blockB, lastErrCB))
 			} else {
-				allErrors = append(allErrors, fmt.Sprintf("Node %s (%s): Chưa đồng bộ tới Block B (%d) sau 20s - Đang dừng ở Block %d (tụt %d blocks)", name, rpcURL, blockB, lastCurBlock, blockB-lastCurBlock))
+				allErrors = append(allErrors, fmt.Sprintf("❌ Node %s (%s): Chưa đồng bộ tới Block B (%d) sau 20s - Đang dừng ở Block %d (tụt %d blocks)", name, rpcURL, blockB, lastCurBlock, blockB-lastCurBlock))
 			}
 			client.Close()
 			continue
@@ -349,7 +349,7 @@ func RunTest(configPath string) error {
 		qCancelA()
 
 		if errBalA != nil || errNonA != nil || errStA != nil {
-			allErrors = append(allErrors, fmt.Sprintf("Node %s: Lỗi query Block A (bal_err: %v, nonce_err: %v, state_err: %v)", name, errBalA, errNonA, errStA))
+			allErrors = append(allErrors, fmt.Sprintf("❌ Node %s: Lỗi query Block A (bal_err: %v, nonce_err: %v, state_err: %v)", name, errBalA, errNonA, errStA))
 			client.Close()
 			continue
 		}
@@ -370,7 +370,7 @@ func RunTest(configPath string) error {
 		client.Close()
 
 		if errBalB != nil || errNonB != nil || errStB != nil {
-			allErrors = append(allErrors, fmt.Sprintf("Node %s: Lỗi query Block B (bal_err: %v, nonce_err: %v, state_err: %v)", name, errBalB, errNonB, errStB))
+			allErrors = append(allErrors, fmt.Sprintf("❌ Node %s: Lỗi query Block B (bal_err: %v, nonce_err: %v, state_err: %v)", name, errBalB, errNonB, errStB))
 			continue
 		}
 
@@ -421,7 +421,7 @@ func RunTest(configPath string) error {
 			fmt.Printf("   ❌ Node %s phát hiện sai lệch lịch sử state:\n", name)
 			for _, ne := range nodeErrors {
 				fmt.Printf("      - %s\n", ne)
-				allErrors = append(allErrors, fmt.Sprintf("Node %s: %s", name, ne))
+				allErrors = append(allErrors, fmt.Sprintf("❌ Node %s: %s", name, ne))
 			}
 		} else {
 			fmt.Printf("   ✅ Node %s: Dữ liệu lịch sử Block A và hiện tại Block B HOÀN TOÀN CHÍNH XÁC!\n", name)

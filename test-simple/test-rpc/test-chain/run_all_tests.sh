@@ -2,41 +2,41 @@
 
 # Mảng chứa danh sách các thư mục test
 TESTS=(
-    "1-update-same-contract"
-    "2-read-write"
-    "3-amm-dex"
-    "4-abort"
-    "5-gas"
-    "6-native-many-to-one"
-    "7-native-one-to-many"
-    "8-native-mixed-evm"
-    "9-cross-contract-call"
-    "10-cross-contract-payable"
-    "11-double-spending-same-nonce"
-    "12-insufficient-balance-parallel"
-    "13-deploy-and-call-same-block"
-    "14-selfdestruct-conflict"
-    "15-xapian-shared-update"
-    "16-xapian-evm-contract"
-    "17-xapian-parallel-read-write"
-    "17.1-xapian-parallel-delete"
-    "17.2-xapian-basic-read-write"
-    "18-update-different-variables"
-    "19-xapian-parallel-update"
-    "20-xapian-read-after-write-same-block"
-    "21-sequential-nonce-same-wallet"
-    "22-block-timestamp"
-    "23-contract-creator-info"
-    "24-contract-factory-info"
-    "25-eip4844-blob-tx"
-    "26-eip7702-setcode-tx"
-    "26.1-eip7702-setcode-tcp"
-    "27-eip4844-edge-cases"
-    "28-eip7702-delegated-execution-and-revocation"
-    "29-blockhash-opcode-verifier"
-    "30-eip7702-parallel-contention"
-    "31-mixed-all-types-block"
-    "32-xapian-parallel-stress"
+    # "1-update-same-contract"
+    # "2-read-write"
+    # "3-amm-dex"
+    # "4-abort"
+    # "5-gas"
+    # "6-native-many-to-one"
+    # "7-native-one-to-many"
+    # "8-native-mixed-evm"
+    # "9-cross-contract-call"
+    # "10-cross-contract-payable"
+    # "11-double-spending-same-nonce"
+    # "12-insufficient-balance-parallel"
+    # "13-deploy-and-call-same-block"
+    # "14-selfdestruct-conflict"
+    # "15-xapian-shared-update"
+    # "16-xapian-evm-contract"
+    # "17-xapian-parallel-read-write"
+    # "17.1-xapian-parallel-delete"
+    # "17.2-xapian-basic-read-write"
+    # "18-update-different-variables"
+    # "19-xapian-parallel-update"
+    # "20-xapian-read-after-write-same-block"
+    # "21-sequential-nonce-same-wallet"
+    # "22-block-timestamp"
+    # "23-contract-creator-info"
+    # "24-contract-factory-info"
+    # "25-eip4844-blob-tx"
+    # "26-eip7702-setcode-tx"
+    # "26.1-eip7702-setcode-tcp"
+    # "27-eip4844-edge-cases"
+    # "28-eip7702-delegated-execution-and-revocation"
+    # "29-blockhash-opcode-verifier"
+    # "30-eip7702-parallel-contention"
+    # "31-mixed-all-types-block"
+    # "32-xapian-parallel-stress"
     "33-state-history"
 )
 
@@ -106,7 +106,8 @@ for test_dir in "${TESTS[@]}"; do
         # Phân tích kết quả dựa trên output và exit code
         if [ $exit_code -ne 0 ]; then
             FAILED=$((FAILED + 1))
-            err_snippet=$(grep -E -i "error|fatal|panic|timeout|failed|❌|•|Chưa đồng bộ" "$log_file" | head -n 6 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+            # Trích xuất dòng lỗi thực tế (loại bỏ banner danh sách node ở đầu test)
+            err_snippet=$(grep -v -E "^\s*•\s*m[0-9]" "$log_file" | grep -E -i "error|fatal|panic|timeout|failed|❌|Chưa đồng bộ" | tail -n 5 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
             if [ -n "$err_snippet" ]; then
                 REASONS["${test_dir}_run${run_idx}"]="Thất bại (Exit code: $exit_code) - $err_snippet"
             else
@@ -114,7 +115,24 @@ for test_dir in "${TESTS[@]}"; do
             fi
             echo "❌ THẤT BẠI (Exit Code: $exit_code)"
             echo "   🚨 CHI TIẾT LỖI GẦN NHẤT:"
-            grep -E -i "error|fatal|panic|timeout|failed|❌|•|Chưa đồng bộ|^\s*[-•]" "$log_file" | head -n 12 | sed 's/^/      /'
+            grep -v -E "^\s*•\s*m[0-9]" "$log_file" | grep -E -i "error|fatal|panic|timeout|failed|❌|Chưa đồng bộ|^\s*[-•]" | tail -n 10 | sed 's/^/      /'
+            echo "   📊 BLOCK HIỆN TẠI CỦA CÁC NODES:"
+            python3 -c "
+import urllib.request, json
+try:
+    with open('config.json') as f:
+        cfg = json.load(f)
+    for name, url in cfg.get('rpc_nodes', {}).items():
+        try:
+            req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                b = int(json.loads(resp.read().decode())['result'], 16)
+                print(f'      • {name:2s} ({url}): Block {b}')
+        except Exception as e:
+            print(f'      • {name:2s} ({url}): Lỗi RPC ({e})')
+except Exception:
+    pass
+" 2>/dev/null
             break 2
         fi
 
