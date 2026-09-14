@@ -340,13 +340,13 @@ for name in sorted(all_nodes.keys()):
     r = state_roots.get(name)
     if h != ref_hash:
         print(f"🚨 FORK DETECTED! Lệch Block Hash tại Block #{target_block}:")
-        print(f"   - {ref_name}: {ref_hash}")
-        print(f"   - {name}: {h}")
+        print(f"   - Lấy từ Node {ref_name} ({all_nodes.get(ref_name)}): {ref_hash}")
+        print(f"   - Lấy từ Node {name} ({all_nodes.get(name)}): {h}")
         fork_detected = True
     if r != ref_root:
         print(f"🚨 FORK DETECTED! Lệch StateRoot tại Block #{target_block}:")
-        print(f"   - {ref_name}: {ref_root}")
-        print(f"   - {name}: {r}")
+        print(f"   - Lấy từ Node {ref_name} ({all_nodes.get(ref_name)}): {ref_root}")
+        print(f"   - Lấy từ Node {name} ({all_nodes.get(name)}): {r}")
         fork_detected = True
 
 if fork_detected:
@@ -492,8 +492,8 @@ try:
             if is_ignored:
                 print(f'   • Node {name} ({url}): ⚪ STOPPED/SNAPSHOT (Đang tắt hoặc Snapshot theo kịch bản)')
             else:
-                print(f'   • Node {name} ({url}): 🔴 DEAD / MẤT KẾT NỐI ({e})')
-                dead_nodes.append(name)
+                print(f'   • Node {name} ({url}): 🔴 DEAD / MẤT KẾT NỐI (Lỗi kết nối RPC tới Node {name} tại {url}: {e})')
+                dead_nodes.append(f\"{name} ({url})\")
     if dead_nodes:
         print(f'\n❌ PHÁT HIỆN CÓ {len(dead_nodes)} NODE BỊ CHẾT: {dead_nodes}! BÀI TEST THẤT BẠI!')
         sys.exit(1)

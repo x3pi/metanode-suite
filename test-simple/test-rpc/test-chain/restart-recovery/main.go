@@ -31,6 +31,7 @@ type NodeClient struct {
 	Client    *ethclient.Client
 	RPCClient *rpc.Client
 	Online    bool
+	IsSync    bool
 }
 
 type ConsensusReadyResult struct {
@@ -121,16 +122,18 @@ func sendTelegramAlert(text string) {
 	}
 }
 
-func alertNodeNotReady(nodeName string, ready bool, note string) {
+func alertNodeNotReady(nodeName string, nodeURL string, ready bool, note string) {
 	jsonObj := map[string]interface{}{
+		"node":  nodeName,
+		"url":   nodeURL,
 		"ready": ready,
 		"note":  note,
 	}
 	jsonBytes, _ := json.MarshalIndent(jsonObj, "", "  ")
 	msg := fmt.Sprintf(`⚠️ <b>[METANODE TEST CẢNH BÁO] Node Chưa Sẵn Sàng Xử Lý Giao Dịch!</b>
-• <b>Target Node:</b> Node %s
-• <b>Phản hồi eth_consensusReady:</b>
-<pre>%s</pre>`, nodeName, string(jsonBytes))
+• <b>Target Node:</b> Node %s (%s)
+• <b>Phản hồi lấy từ RPC eth_consensusReady của Node %s (%s):</b>
+<pre>%s</pre>`, nodeName, nodeURL, nodeName, nodeURL, string(jsonBytes))
 
 	sendTelegramAlert(msg)
 }
@@ -162,6 +165,7 @@ type NodeProbeResult struct {
 	URL            string
 	Online         bool
 	Stopped        bool
+	IsSync         bool
 	Block          uint64
 	ConsensusReady bool
 	ConsensusNote  string
@@ -180,6 +184,7 @@ func probeCluster(nodes []*NodeClient, stoppedNode, excludeNodes string) (result
 				Name:           n.Name,
 				URL:            n.URL,
 				Stopped:        true,
+				IsSync:         n.IsSync,
 				ConsensusReady: true,
 			})
 			continue
@@ -196,13 +201,16 @@ func probeCluster(nodes []*NodeClient, stoppedNode, excludeNodes string) (result
 			cCancel()
 			if dErr == nil {
 				online = true
-				var res ConsensusReadyResult
-				rCtx, rCancel := context.WithTimeout(context.Background(), 2*time.Second)
-				rErr := rpcC.CallContext(rCtx, &res, "eth_consensusReady")
-				rCancel()
-				if rErr == nil {
-					consensusReady = res.Ready
-					consensusNote = res.Note
+				// CHỈ kiểm tra eth_consensusReady đối với Validator node (KHÔNG kiểm tra với SyncOnly node vì không tham gia đồng thuận)
+				if !n.IsSync {
+					var res ConsensusReadyResult
+					rCtx, rCancel := context.WithTimeout(context.Background(), 2*time.Second)
+					rErr := rpcC.CallContext(rCtx, &res, "eth_consensusReady")
+					rCancel()
+					if rErr == nil {
+						consensusReady = res.Ready
+						consensusNote = res.Note
+					}
 				}
 			}
 		}
@@ -211,6 +219,8 @@ func probeCluster(nodes []*NodeClient, stoppedNode, excludeNodes string) (result
 			Name:           n.Name,
 			URL:            n.URL,
 			Online:         online,
+			Stopped:        false,
+			IsSync:         n.IsSync,
 			Block:          bNum,
 			ConsensusReady: consensusReady,
 			ConsensusNote:  consensusNote,
@@ -245,18 +255,27 @@ func printClusterProbe(results []NodeProbeResult, maxBlock uint64) {
 		if res.Stopped {
 			fmt.Printf("   • Node %s (%s): ⚪ STOPPED (Đang cố ý TẮT theo kịch bản test - KHÔNG CÓ LỖI)\n", res.Name, res.URL)
 		} else if res.Online {
-			consensusStr := ""
-			if !res.ConsensusReady {
-				consensusStr = fmt.Sprintf(" ⚠️ [CONSENSUS NOT READY: %s]", res.ConsensusNote)
-			}
-			if res.Block < maxBlock {
-				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)%s\n",
-					res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock, consensusStr)
+			if res.IsSync {
+				if res.Block < maxBlock {
+					fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Sync Node - Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)\n",
+						res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock)
+				} else {
+					fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Sync Node - Block %d)\n", res.Name, res.URL, res.Block)
+				}
 			} else {
-				fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)%s\n", res.Name, res.URL, res.Block, consensusStr)
+				consensusStr := ""
+				if !res.ConsensusReady {
+					consensusStr = fmt.Sprintf(" ⚠️ [CONSENSUS NOT READY lấy từ RPC Node %s (%s): %s]", res.Name, res.URL, res.ConsensusNote)
+				}
+				if res.Block < maxBlock {
+					fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)%s\n",
+						res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock, consensusStr)
+				} else {
+					fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)%s\n", res.Name, res.URL, res.Block, consensusStr)
+				}
 			}
 		} else {
-			fmt.Printf("   • Node %s (%s): 🔴 DEAD / CRASH! (Lỗi: %v)\n", res.Name, res.URL, res.Err)
+			fmt.Printf("   • Node %s (%s): 🔴 DEAD / CRASH! (Lỗi truy vấn RPC tới Node %s (%s): %v)\n", res.Name, res.URL, res.Name, res.URL, res.Err)
 		}
 	}
 }
@@ -281,15 +300,19 @@ func reportDesyncFailure(reason string, stoppedNode, excludeNodes string, result
 		if res.Stopped {
 			fmt.Printf("     - Node %s (%s): ⚪ STOPPED (Đang cố ý TẮT theo kịch bản test - KHÔNG CÓ LỖI)\n", res.Name, res.URL)
 		} else if res.Online {
+			nodeRole := "Validator"
+			if res.IsSync {
+				nodeRole = "Sync Node"
+			}
 			if res.Block < maxBlock {
-				fmt.Printf("     - Node %s (%s): 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)\n",
-					res.Name, res.URL, res.Block, maxBlock-res.Block, maxBlock)
-				laggingNodes = append(laggingNodes, fmt.Sprintf("Node %s (Block %d < %d)", res.Name, res.Block, maxBlock))
+				fmt.Printf("     - Node %s (%s) [%s]: 🟢 ALIVE (Block %d) ⚠️ TỤT %d BLOCK so với cụm (Max Block %d)\n",
+					res.Name, res.URL, nodeRole, res.Block, maxBlock-res.Block, maxBlock)
+				laggingNodes = append(laggingNodes, fmt.Sprintf("Node %s (%s, Block %d < %d)", res.Name, res.URL, res.Block, maxBlock))
 			} else {
-				fmt.Printf("     - Node %s (%s): 🟢 ALIVE (Block %d)\n", res.Name, res.URL, res.Block)
+				fmt.Printf("     - Node %s (%s) [%s]: 🟢 ALIVE (Block %d)\n", res.Name, res.URL, nodeRole, res.Block)
 			}
 		} else {
-			fmt.Printf("     - Node %s (%s): 🔴 DEAD / CRASH! (Lỗi: %v)\n", res.Name, res.URL, res.Err)
+			fmt.Printf("     - Node %s (%s): 🔴 DEAD / CRASH! (Lỗi truy vấn RPC tới Node %s (%s): %v)\n", res.Name, res.URL, res.Name, res.URL, res.Err)
 		}
 	}
 	if len(laggingNodes) > 0 {
@@ -350,12 +373,14 @@ func main() {
 				online = true
 			}
 		}
+		_, isSync := cfg.SyncNodes[name]
 		nodes = append(nodes, &NodeClient{
 			Name:      name,
 			URL:       url,
 			Client:    c,
 			RPCClient: rpcC,
 			Online:    online,
+			IsSync:    isSync,
 		})
 	}
 
@@ -428,10 +453,10 @@ func main() {
 		if isReady {
 			fmt.Printf("   ✅ Node %s (%s): Consensus đã SẴN SÀNG (Healthy)!\n", n.Name, n.URL)
 		} else if lastRes != nil {
-			fmt.Printf("   ⚠️ Cảnh báo: Node %s (%s) consensus VẪN CHƯA sẵn sàng sau 120s:\n", n.Name, n.URL)
+			fmt.Printf("   ⚠️ Cảnh báo: Node %s (%s) consensus VẪN CHƯA sẵn sàng sau 120s (thông tin lấy từ RPC eth_consensusReady của Node %s - %s):\n", n.Name, n.URL, n.Name, n.URL)
 			resBytes, _ := json.MarshalIndent(lastRes, "      ", "  ")
 			fmt.Println("      " + string(resBytes))
-			alertNodeNotReady(n.Name, lastRes.Ready, lastRes.Note)
+			alertNodeNotReady(n.Name, n.URL, lastRes.Ready, lastRes.Note)
 		}
 	}
 
@@ -497,6 +522,7 @@ func main() {
 	type TxRecord struct {
 		Index    int
 		NodeName string
+		NodeURL  string
 		TxHash   common.Hash
 		Client   *ethclient.Client
 		BlockNum uint64
@@ -544,14 +570,15 @@ func main() {
 			cancelSend()
 
 			if err != nil {
-				fmt.Printf("   [TX %d/%d] ⚠️ Lỗi gửi tx qua %s (ví %s, nonce %d): %v\n",
-					txIdx+1, *txCount, targetNode.Name, acct.Address.Hex()[:10], nonce, err)
+				fmt.Printf("   [TX %d/%d] ⚠️ Lỗi gửi tx qua Node %s (%s) (ví %s, nonce %d): %v\n",
+					txIdx+1, *txCount, targetNode.Name, targetNode.URL, acct.Address.Hex()[:10], nonce, err)
 				return
 			}
 
 			rec := &TxRecord{
 				Index:    txIdx + 1,
 				NodeName: targetNode.Name,
+				NodeURL:  targetNode.URL,
 				TxHash:   signedTx.Hash(),
 				Client:   targetNode.Client,
 			}
@@ -605,12 +632,12 @@ func main() {
 
 			if time.Since(timeoutStart) > 45*time.Second {
 				timedOutCount++
-				fmt.Printf("   [TX %d/%d qua %s] ⚠️ Timeout (45s) chờ receipt cho hash: %s (Tổng timeout: %d/%d)\n",
-					rec.Index, *txCount, rec.NodeName, rec.TxHash.Hex(), timedOutCount, *maxDesyncTimeouts)
+				fmt.Printf("   [TX %d/%d qua Node %s (%s)] ⚠️ Timeout (45s) chờ receipt cho hash: %s (Tổng timeout: %d/%d)\n",
+					rec.Index, *txCount, rec.NodeName, rec.NodeURL, rec.TxHash.Hex(), timedOutCount, *maxDesyncTimeouts)
 
 				// 🚨 KIỂM TRA SỨC KHỎE TOÀN BỘ CÁC NODE NGAY LẬP TỨC KHI BỊ TIMEOUT RECEIPT
-				fmt.Printf("   🔍 [HEALTH PROBE] Giao dịch %s gửi qua %s bị timeout! Đang kiểm tra trạng thái cụm...\n",
-					rec.TxHash.Hex()[:14]+"...", rec.NodeName)
+				fmt.Printf("   🔍 [HEALTH PROBE] Giao dịch %s gửi qua Node %s (%s) bị timeout! Đang kiểm tra trạng thái cụm...\n",
+					rec.TxHash.Hex()[:14]+"...", rec.NodeName, rec.NodeURL)
 
 				results, crashed, minH, maxH, isSynced := probeCluster(nodes, *stoppedNode, *excludeNodes)
 				printClusterProbe(results, maxH)
@@ -664,8 +691,8 @@ func main() {
 				rec.BlockNum = receipt.BlockNumber.Uint64()
 				rec.Status = true
 				confirmedCount++
-				fmt.Printf("   ✅ [TX %d/%d] Đã confirm tại Block #%d qua %s (Hash: %s)\n",
-					rec.Index, *txCount, rec.BlockNum, rec.NodeName, rec.TxHash.Hex()[:14]+"...")
+				fmt.Printf("   ✅ [TX %d/%d] Đã confirm tại Block #%d qua Node %s (%s) (Hash: %s)\n",
+					rec.Index, *txCount, rec.BlockNum, rec.NodeName, rec.NodeURL, rec.TxHash.Hex()[:14]+"...")
 				break
 			}
 			time.Sleep(300 * time.Millisecond)
@@ -718,10 +745,14 @@ func main() {
 		if online {
 			aliveNodes = append(aliveNodes, n)
 			nodeHeights[n.Name] = bNum
-			fmt.Printf("   • Node %s (%s): 🟢 ALIVE (Block %d)\n", n.Name, n.URL, bNum)
+			nodeRole := ""
+			if n.IsSync {
+				nodeRole = " (Sync Node)"
+			}
+			fmt.Printf("   • Node %s (%s)%s: 🟢 ALIVE (Block %d)\n", n.Name, n.URL, nodeRole, bNum)
 		} else {
 			deadNodes = append(deadNodes, fmt.Sprintf("%s (%s)", n.Name, n.URL))
-			fmt.Printf("   • Node %s (%s): 🔴 DEAD / MẤT KẾT NỐI!\n", n.Name, n.URL)
+			fmt.Printf("   • Node %s (%s): 🔴 DEAD / MẤT KẾT NỐI (Lỗi kết nối RPC tới Node %s (%s): %v)\n", n.Name, n.URL, n.Name, n.URL, err)
 		}
 	}
 
@@ -773,6 +804,7 @@ func main() {
 				var referenceHash common.Hash
 				var referenceRoot common.Hash
 				var referenceNode string
+				var referenceURL string
 
 				for _, n := range aliveNodes {
 					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -789,18 +821,19 @@ func main() {
 						referenceHash = h
 						referenceRoot = root
 						referenceNode = n.Name
+						referenceURL = n.URL
 					} else {
 						if h != referenceHash {
 							forkDetected = true
 							fmt.Printf("🚨 FORK DETECTED TẠI BLOCK %d!\n", b)
-							fmt.Printf("   - Node %s: Hash=%s\n", referenceNode, referenceHash.Hex())
-							fmt.Printf("   - Node %s: Hash=%s\n", n.Name, h.Hex())
+							fmt.Printf("   - Lấy từ Node %s (%s): Hash=%s\n", referenceNode, referenceURL, referenceHash.Hex())
+							fmt.Printf("   - Lấy từ Node %s (%s): Hash=%s\n", n.Name, n.URL, h.Hex())
 						}
 						if root != referenceRoot {
 							forkDetected = true
 							fmt.Printf("🚨 STATE ROOT MISMATCH TẠI BLOCK %d!\n", b)
-							fmt.Printf("   - Node %s: StateRoot=%s\n", referenceNode, referenceRoot.Hex())
-							fmt.Printf("   - Node %s: StateRoot=%s\n", n.Name, root.Hex())
+							fmt.Printf("   - Lấy từ Node %s (%s): StateRoot=%s\n", referenceNode, referenceURL, referenceRoot.Hex())
+							fmt.Printf("   - Lấy từ Node %s (%s): StateRoot=%s\n", n.Name, n.URL, root.Hex())
 						}
 					}
 				}

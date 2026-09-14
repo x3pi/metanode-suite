@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # consensus_readiness.sh — shared "is this node actually ready for a transaction"
-# check, meant to be `source`d by test scripts (not executed directly).
+# check, meant to be sourced by test scripts (not executed directly).
 #
 # WHY THIS EXISTS (2026-09-09): eth_blockNumber answering only means the Go RPC
 # server is up -- it says nothing about whether the node's Rust consensus layer
@@ -12,12 +12,8 @@
 # gives a silent "0/N confirmed" with no error to debug from. eth_consensusReady
 # (metanode repo, commit 22e0fb35) exposes exactly this signal.
 #
-# This was independently duplicated into restart-recovery/run_restart_test.sh
-# (commit 829c9fc) and snapshot-recovery/run_snapshot_test.sh (commit c53f280)
-# as near-identical inline copies before being extracted here -- if a future
-# test script needs the same wait, source this instead of copy-pasting a third
-# time, and any future fix to the check itself (e.g. the RPC method's shape
-# changing) only needs to happen in one place.
+# SyncOnly / Sync nodes (e.g. m4) do NOT participate in consensus proposals,
+# so consensus readiness checks are skipped for them.
 #
 # REQUIRES: the sourcing script must already have CONFIG_PATH set to its
 # config.json (the one holding an "rpc_nodes" map of node-name -> RPC URL)
@@ -28,6 +24,48 @@
 #   wait_node_consensus_ready "1"          # single node, e.g. after --restore-node 1
 #   wait_all_nodes_consensus_ready "0 1 2" # whole cluster, e.g. after --restart
 # ==============================================================================
+
+# get_node_url TARGET_NODE
+# Trả về URL RPC của node (hỗ trợ cả rpc_nodes và sync_nodes)
+get_node_url() {
+    local target_node="$1"
+    python3 -c "
+import json, sys
+
+try:
+    with open('${CONFIG_PATH}', 'r') as f:
+        c = json.load(f)
+    nodes_map = dict(c.get('rpc_nodes', {}))
+    nodes_map.update(c.get('sync_nodes', {}))
+    for k, v in nodes_map.items():
+        if k.replace('m', '').replace('node', '') == '${target_node}':
+            print(v)
+            sys.exit(0)
+except Exception:
+    pass
+print('unknown')
+"
+}
+
+# is_sync_node TARGET_NODE
+# Trả về 0 nếu là sync node (không tham gia consensus), 1 nếu là validator
+is_sync_node() {
+    local target_node="$1"
+    python3 -c "
+import json, sys
+
+try:
+    with open('${CONFIG_PATH}', 'r') as f:
+        c = json.load(f)
+    sync_nodes = c.get('sync_nodes', {})
+    for k in sync_nodes:
+        if k.replace('m', '').replace('node', '') == '${target_node}':
+            sys.exit(0)
+    sys.exit(1)
+except Exception:
+    sys.exit(1)
+"
+}
 
 # node_consensus_ready TARGET_NODE
 # Returns 0 (success) if the node's consensus layer reports ready, 1 otherwise
@@ -54,7 +92,8 @@ try:
             break
     if url is None:
         sys.exit(1)
-    req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_consensusReady\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
+    payload = json.dumps({'jsonrpc': '2.0', 'method': 'eth_consensusReady', 'params': [], 'id': 1}).encode()
+    req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=3) as resp:
         body = json.loads(resp.read())
         sys.exit(0 if body.get('result', {}).get('ready') else 1)
@@ -73,30 +112,40 @@ import json, urllib.request, sys
 try:
     with open('${CONFIG_PATH}', 'r') as f:
         c = json.load(f)
-    rpc_nodes = c.get('rpc_nodes', {})
+    nodes_map = dict(c.get('rpc_nodes', {}))
+    nodes_map.update(c.get('sync_nodes', {}))
     url = None
-    for k, v in rpc_nodes.items():
+    for k, v in nodes_map.items():
         if k.replace('m', '').replace('node', '') == '${target_node}':
             url = v
             break
     if url is None:
         print(json.dumps({'ready': False, 'note': 'Node URL not found in config'}, indent=2))
         sys.exit(0)
-    req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_consensusReady\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
+    payload = json.dumps({'jsonrpc': '2.0', 'method': 'eth_consensusReady', 'params': [], 'id': 1}).encode()
+    req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=3) as resp:
         body = json.loads(resp.read())
         res = body.get('result', {})
         print(json.dumps(res, indent=2, ensure_ascii=False))
 except Exception as e:
-    print(json.dumps({'ready': False, 'note': f'Error querying RPC: {e}'}, indent=2))
+    print(json.dumps({'ready': False, 'note': f'Lỗi truy vấn RPC từ Node ${target_node} ({url}): {e}'}, indent=2))
 "
 }
 
-# send_telegram_readiness_alert TARGET_NODE JSON_BODY WAITED_SECS
+# send_telegram_readiness_alert TARGET_NODE TARGET_URL JSON_BODY WAITED_SECS
 send_telegram_readiness_alert() {
     local target_node="$1"
-    local json_body="$2"
-    local waited="$3"
+    local target_url="${2:-""}"
+    local json_body="${3:-""}"
+    local waited="${4:-""}"
+
+    # Tương thích nếu gọi 3 tham số (thiếu target_url)
+    if [ -z "$waited" ]; then
+        json_body="$2"
+        waited="$3"
+        target_url=$(get_node_url "${target_node}")
+    fi
 
     local token="${TELEGRAM_BOT_TOKEN:-}"
     local chat_id="${TELEGRAM_CHAT_ID:-}"
@@ -115,61 +164,80 @@ send_telegram_readiness_alert() {
     fi
 
     local msg="⚠️ <b>[METANODE CẢNH BÁO] Node Chưa Sẵn Sàng Xử Lý Giao Dịch!</b>
-• <b>Target Node:</b> Node ${target_node}
+• <b>Target Node:</b> Node ${target_node} (${target_url})
 • <b>Thời gian chờ:</b> ${waited}s
-• <b>Phản hồi eth_consensusReady:</b>
+• <b>Phản hồi lấy từ RPC eth_consensusReady của Node ${target_node} (${target_url}):</b>
 <pre>${json_body}</pre>"
 
-    curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
-        -d chat_id="${chat_id}" \
-        -d parse_mode="HTML" \
-        --data-urlencode text="${msg}" >/dev/null 2>&1 || true
+    curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage"         -d chat_id="${chat_id}"         -d parse_mode="HTML"         --data-urlencode text="${msg}" >/dev/null 2>&1 || true
 }
 
 # wait_node_consensus_ready TARGET_NODE [MAX_WAIT_SECONDS=120]
 # Polls node_consensus_ready every 2s until it succeeds or MAX_WAIT_SECONDS elapses.
-# Does NOT hard-fail the caller on timeout (returns 1, but doesn't `exit`/`set -e`
-# out) -- callers decide whether "still not ready, proceeding anyway" is fatal for
-# their scenario. A tx sent right after a timeout is exactly the failure mode this
-# exists to catch, so the warning is loud on purpose.
 wait_node_consensus_ready() {
     local target_node="$1"
     local max_wait="${2:-120}"
+    local target_url
+    target_url=$(get_node_url "${target_node}")
+
+    # Nếu là sync node, không tham gia đồng thuận nên không cần check ready
+    if is_sync_node "${target_node}"; then
+        echo "ℹ️  Node ${target_node} (${target_url}) là node đồng bộ (Sync Node, không tham gia đồng thuận) => Bỏ qua kiểm tra consensus ready."
+        return 0
+    fi
+
     local waited=0
-    echo -n "⏳ Đang chờ Node ${target_node} sẵn sàng xử lý giao dịch (consensus ready, tối đa ${max_wait}s)... "
+    echo -n "⏳ Đang chờ Validator Node ${target_node} (${target_url}) sẵn sàng xử lý giao dịch (consensus ready, tối đa ${max_wait}s)... "
 
     while [ "$waited" -lt "$max_wait" ]; do
         if node_consensus_ready "${target_node}"; then
-            echo "✅ Node ${target_node} đã SẴN SÀNG (sau ${waited}s)!"
+            echo "✅ Node ${target_node} (${target_url}) đã SẴN SÀNG (sau ${waited}s)!"
             return 0
         fi
         sleep 2
         waited=$((waited + 2))
     done
 
-    echo "⚠️ Cảnh báo: Node ${target_node} vẫn CHƯA sẵn sàng xử lý giao dịch sau ${max_wait}s (RPC online nhưng consensus chưa Healthy) -- gửi tx bây giờ có thể không confirm được. Tiếp tục thử gửi..."
+    echo "⚠️ Cảnh báo: Node ${target_node} (${target_url}) vẫn CHƯA sẵn sàng xử lý giao dịch sau ${max_wait}s (RPC online nhưng consensus chưa Healthy) -- gửi tx bây giờ có thể không confirm được. Tiếp tục thử gửi..."
     local info_json
     info_json=$(get_node_consensus_info "${target_node}")
-    echo "📋 Phản hồi từ RPC eth_consensusReady:"
+    echo "📋 Phản hồi lấy từ RPC eth_consensusReady của Node ${target_node} (${target_url}):"
     echo "${info_json}"
-    send_telegram_readiness_alert "${target_node}" "${info_json}" "${max_wait}"
-    echo "📨 Đã gửi cảnh báo Node chưa sẵn sàng qua Telegram."
+    send_telegram_readiness_alert "${target_node}" "${target_url}" "${info_json}" "${max_wait}"
+    echo "📨 Đã gửi cảnh báo Node ${target_node} (${target_url}) chưa sẵn sàng qua Telegram."
     return 1
 }
 
 # wait_all_nodes_consensus_ready "NODE1 NODE2 ..." [MAX_WAIT_SECONDS=60]
-# Same as wait_node_consensus_ready, but for a whole space-separated list of node
-# ids at once (e.g. after a full-cluster --restart) -- returns success only once
-# every listed node reports ready.
+# Chờ tất cả các Validator nodes trong danh sách sẵn sàng xử lý giao dịch.
+# Tự động bỏ qua các sync nodes (không tham gia consensus).
 wait_all_nodes_consensus_ready() {
     local nodes_str="$1"
     local max_wait="${2:-60}"
     local waited=0
-    echo "⏳ Đang chờ TẤT CẢ các node [ ${nodes_str} ] sẵn sàng xử lý giao dịch (consensus ready)..."
+
+    # Lọc chỉ giữ lại các Validator nodes (loại bỏ sync nodes)
+    local val_nodes=""
+    for target in $nodes_str; do
+        if ! is_sync_node "${target}"; then
+            val_nodes="${val_nodes:+$val_nodes }$target"
+        else
+            local target_url
+            target_url=$(get_node_url "${target}")
+            echo "ℹ️  Node ${target} (${target_url}) là node đồng bộ (Sync Node, không tham gia đồng thuận) => Bỏ qua kiểm tra consensus ready."
+        fi
+    done
+
+    if [ -z "$val_nodes" ]; then
+        echo "ℹ️  Không có Validator node nào trong danh sách cần kiểm tra consensus ready."
+        return 0
+    fi
+
+    echo "⏳ Đang chờ các Validator node [ ${val_nodes} ] sẵn sàng xử lý giao dịch (consensus ready)..."
 
     while [ "$waited" -lt "$max_wait" ]; do
         local all_ready=true
-        for target in $nodes_str; do
+        for target in $val_nodes; do
             if ! node_consensus_ready "${target}"; then
                 all_ready=false
                 break
@@ -177,23 +245,25 @@ wait_all_nodes_consensus_ready() {
         done
 
         if [ "$all_ready" == "true" ]; then
-            echo "✅ Toàn bộ các node [ ${nodes_str} ] đều SẴN SÀNG xử lý giao dịch (sau ${waited}s)!"
+            echo "✅ Toàn bộ Validator node [ ${val_nodes} ] đều SẴN SÀNG xử lý giao dịch (sau ${waited}s)!"
             return 0
         fi
         sleep 2
         waited=$((waited + 2))
     done
 
-    echo "⚠️ Cảnh báo: Có node chưa sẵn sàng xử lý giao dịch sau ${max_wait}s -- gửi tx bây giờ có thể timeout không rõ lý do. Tiếp tục thử gửi..."
-    for target in $nodes_str; do
+    echo "⚠️ Cảnh báo: Có Validator node chưa sẵn sàng xử lý giao dịch sau ${max_wait}s -- gửi tx bây giờ có thể timeout không rõ lý do. Tiếp tục thử gửi..."
+    for target in $val_nodes; do
         if ! node_consensus_ready "${target}"; then
             local info_json
             info_json=$(get_node_consensus_info "${target}")
-            echo "📋 Phản hồi Node ${target} eth_consensusReady:"
+            local target_url
+            target_url=$(get_node_url "${target}")
+            echo "📋 Phản hồi lấy từ RPC eth_consensusReady của Node ${target} (${target_url}):"
             echo "${info_json}"
-            send_telegram_readiness_alert "${target}" "${info_json}" "${max_wait}"
+            send_telegram_readiness_alert "${target}" "${target_url}" "${info_json}" "${max_wait}"
         fi
     done
-    echo "📨 Đã gửi cảnh báo các Node chưa sẵn sàng qua Telegram."
+    echo "📨 Đã gửi cảnh báo các Validator Node chưa sẵn sàng qua Telegram."
     return 1
 }
