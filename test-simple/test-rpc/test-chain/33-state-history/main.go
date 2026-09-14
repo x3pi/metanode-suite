@@ -309,13 +309,16 @@ func RunTest(configPath string) error {
 		// Đợi node này sync tới ít nhất Block B (tối đa 20s)
 		waitStart := time.Now()
 		synced := false
+		var lastCurBlock uint64
+		var lastErrCB error
 		for time.Since(waitStart) < 20*time.Second {
 			cCtx, cCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			var curBlockHex string
-			errCB := client.CallContext(cCtx, &curBlockHex, "eth_blockNumber")
+			lastErrCB = client.CallContext(cCtx, &curBlockHex, "eth_blockNumber")
 			cCancel()
-			if errCB == nil {
+			if lastErrCB == nil {
 				curBlock, _ := hexutil.DecodeUint64(curBlockHex)
+				lastCurBlock = curBlock
 				if curBlock >= blockB {
 					synced = true
 					break
@@ -325,7 +328,11 @@ func RunTest(configPath string) error {
 		}
 
 		if !synced {
-			allErrors = append(allErrors, fmt.Sprintf("Node %s (%s): Chưa đồng bộ tới Block B (%d) sau 20s", name, rpcURL, blockB))
+			if lastErrCB != nil {
+				allErrors = append(allErrors, fmt.Sprintf("Node %s (%s): Chưa đồng bộ tới Block B (%d) sau 20s - Lỗi RPC eth_blockNumber: %v", name, rpcURL, blockB, lastErrCB))
+			} else {
+				allErrors = append(allErrors, fmt.Sprintf("Node %s (%s): Chưa đồng bộ tới Block B (%d) sau 20s - Đang dừng ở Block %d (tụt %d blocks)", name, rpcURL, blockB, lastCurBlock, blockB-lastCurBlock))
+			}
 			client.Close()
 			continue
 		}

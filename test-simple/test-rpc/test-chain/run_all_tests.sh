@@ -106,7 +106,7 @@ for test_dir in "${TESTS[@]}"; do
         # Phân tích kết quả dựa trên output và exit code
         if [ $exit_code -ne 0 ]; then
             FAILED=$((FAILED + 1))
-            err_snippet=$(grep -E -i "error|fatal|panic|timeout|failed|❌" "$log_file" | head -n 5 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+            err_snippet=$(grep -E -i "error|fatal|panic|timeout|failed|❌|•|Chưa đồng bộ" "$log_file" | head -n 6 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
             if [ -n "$err_snippet" ]; then
                 REASONS["${test_dir}_run${run_idx}"]="Thất bại (Exit code: $exit_code) - $err_snippet"
             else
@@ -114,7 +114,7 @@ for test_dir in "${TESTS[@]}"; do
             fi
             echo "❌ THẤT BẠI (Exit Code: $exit_code)"
             echo "   🚨 CHI TIẾT LỖI GẦN NHẤT:"
-            grep -E -i "error|fatal|panic|timeout|failed|❌" "$log_file" | head -n 8 | sed 's/^/      /'
+            grep -E -i "error|fatal|panic|timeout|failed|❌|•|Chưa đồng bộ|^\s*[-•]" "$log_file" | head -n 12 | sed 's/^/      /'
             break 2
         fi
 
