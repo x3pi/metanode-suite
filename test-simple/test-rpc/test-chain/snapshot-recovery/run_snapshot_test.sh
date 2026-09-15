@@ -462,6 +462,9 @@ echo "🎯 Danh sách Candidate Nodes (CHỈ Validator Nodes, loại trừ Snaps
 
 LAST_SNAPSHOT_BLOCK=0
 
+# Xóa file lịch sử contract cũ khi bắt đầu một phiên chạy mới để tránh tồn đọng contract từ chain cũ đã bị reset
+rm -f "${XAPIAN_CONTRACT_FILE}"
+
 for round_idx in $(seq 1 $LOOP_COUNT); do
     echo -e "\n=========================================================="
     echo "🔄 [VÒNG LẶP ${round_idx}/${LOOP_COUNT}] BẮT ĐẦU CHU KỲ TEST SNAPSHOT RECOVERY"

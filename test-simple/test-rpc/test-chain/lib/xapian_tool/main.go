@@ -117,16 +117,21 @@ func saveContractAddress(filePath string, addr common.Address, chainID int64, ro
 	store.DeployedAt = newEntry.DeployedAt
 	store.ChainID = newEntry.ChainID
 
-	alreadyExists := false
-	for i, entry := range store.History {
-		if strings.EqualFold(entry.ContractAddress, newEntry.ContractAddress) {
-			store.History[i] = newEntry
-			alreadyExists = true
-			break
+	// Khi bắt đầu Vòng 1: reset hoàn toàn lịch sử cũ để không bị sót contract từ chain cũ đã reset
+	if round <= 1 {
+		store.History = []ContractEntry{newEntry}
+	} else {
+		alreadyExists := false
+		for i, entry := range store.History {
+			if strings.EqualFold(entry.ContractAddress, newEntry.ContractAddress) {
+				store.History[i] = newEntry
+				alreadyExists = true
+				break
+			}
 		}
-	}
-	if !alreadyExists {
-		store.History = append(store.History, newEntry)
+		if !alreadyExists {
+			store.History = append(store.History, newEntry)
+		}
 	}
 
 	// Giới hạn tối đa 100 contract:
@@ -341,6 +346,9 @@ func executeCallWithVerification(client *ethclient.Client, from common.Address, 
 	}, nil)
 	if err != nil {
 		return "", fmt.Errorf("lỗi eth_call %s: %v", method, err)
+	}
+	if len(res) == 0 {
+		return "", fmt.Errorf("lỗi toàn vẹn dữ liệu: hợp đồng %s trả về kết quả rỗng (0x) khi gọi %s - giao dịch đã có receipt trước khi dừng nhưng node không đọc được state sau khi restart", contractAddr.Hex(), method)
 	}
 
 	outputs, err := contractABI.Unpack(method, res)

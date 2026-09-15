@@ -386,6 +386,9 @@ EOF
 START_TIME=$(date +%s)
 current_loop=1
 
+# Xóa file lịch sử contract cũ khi bắt đầu một phiên chạy mới từ Vòng 1 để tránh tồn đọng contract từ chain cũ đã bị reset
+rm -f "${XAPIAN_CONTRACT_FILE}"
+
 while true; do
     echo -e "\n=========================================================="
     if [ "$LOOP_COUNT" -eq 0 ]; then
