@@ -543,12 +543,39 @@ func main() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			// Cấp phát nonce an toàn, độc quyền theo từng tài khoản
+			// ROOT-CAUSE FIX (2026-09-15, found while chasing a "node stuck 4-8
+			// blocks behind" false lead all the way into metanode's Rust
+			// GLOBAL_TX_CACHE and Go noncesCache -- the real bug was here all
+			// along): nonce used to be allocated (acct.Nonce++) BEFORE knowing
+			// whether SendTransaction would actually succeed. A restart test
+			// deliberately stops/starts nodes mid-flight, so a transient send
+			// failure (timeout, node briefly down, connection reset) is not a
+			// corner case here, it is an expected, routine occurrence -- and
+			// every time it happened, that nonce was permanently burned: never
+			// landed on any node, yet every later transaction for the same
+			// wallet was signed with nonce+1, nonce+2, ... racing ahead of a
+			// gap that would never close. Every node in the cluster (not just
+			// one) then classified that wallet's later, individually-valid
+			// transactions as a "future nonce" forever -- confirmed live via
+			// metanode's own ProcessTransactionsInPoolSub warning ("Race
+			// condition detected... pool_size=3->3, but retrieved 0
+			// transactions") firing tens of thousands of times identically
+			// across ALL 4 nodes, never self-correcting, because the missing
+			// predecessor transaction genuinely did not exist anywhere to
+			// arrive via gossip or a future commit.
+			//
+			// Fix: hold the per-account lock across the ENTIRE allocate-sign-
+			// send sequence (not just the increment), and only advance
+			// acct.Nonce on a CONFIRMED successful SendTransaction. A failed
+			// send now safely leaves the nonce counter unchanged for a later
+			// transaction to reuse, instead of silently stranding every
+			// subsequent nonce for that wallet. This serializes sends for the
+			// SAME wallet (correct and necessary anyway -- two nonces for one
+			// account can never safely race) while leaving different wallets
+			// fully concurrent.
 			acct := accounts[txIdx%len(accounts)]
 			acct.Mu.Lock()
 			nonce := acct.Nonce
-			acct.Nonce++
-			acct.Mu.Unlock()
 
 			// Chọn node theo round-robin (chỉ trong txSendNodes - Validator RPC)
 			targetNode := txSendNodes[txIdx%len(txSendNodes)]
@@ -561,6 +588,7 @@ func main() {
 			tx := types.NewTransaction(nonce, receiverAddr, amount, gasLimit, gasPrice, nil)
 			signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), acct.Key)
 			if err != nil {
+				acct.Mu.Unlock()
 				fmt.Printf("   [TX %d/%d] ⚠️ Lỗi ký tx: %v\n", txIdx+1, *txCount, err)
 				return
 			}
@@ -570,10 +598,14 @@ func main() {
 			cancelSend()
 
 			if err != nil {
+				// Nonce NOT advanced -- safe for a later transaction to reuse it.
+				acct.Mu.Unlock()
 				fmt.Printf("   [TX %d/%d] ⚠️ Lỗi gửi tx qua Node %s (%s) (ví %s, nonce %d): %v\n",
 					txIdx+1, *txCount, targetNode.Name, targetNode.URL, acct.Address.Hex()[:10], nonce, err)
 				return
 			}
+			acct.Nonce++
+			acct.Mu.Unlock()
 
 			rec := &TxRecord{
 				Index:    txIdx + 1,
