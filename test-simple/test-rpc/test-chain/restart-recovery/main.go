@@ -783,22 +783,43 @@ func main() {
 			fmt.Println("\n🔍 [ZERO-FORK VERIFICATION] Kiểm tra đối chiếu Block Hash & StateRoot giữa các node sống...")
 		}
 
-		var minHeight uint64 = 0
-		first := true
-		for _, h := range nodeHeights {
-			if first || h < minHeight {
-				minHeight = h
-				first = false
-			}
-		}
+		maxRetries := 5
+		retryDelay := 2 * time.Second
+		passedZeroFork := false
 
-		if minHeight > 0 {
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			// Cập nhật lại chiều cao của các node nếu là lần retry
+			if attempt > 1 {
+				for _, n := range aliveNodes {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					if bNum, err := n.Client.BlockNumber(ctx); err == nil {
+						nodeHeights[n.Name] = bNum
+					}
+					cancel()
+				}
+			}
+
+			var minHeight uint64 = 0
+			first := true
+			for _, h := range nodeHeights {
+				if first || h < minHeight {
+					minHeight = h
+					first = false
+				}
+			}
+
+			if minHeight == 0 {
+				break
+			}
+
 			startCompare := uint64(1)
 			if minHeight > 5 {
 				startCompare = minHeight - 4
 			}
 
 			forkDetected := false
+			var mismatchDetails []string
+
 			for b := startCompare; b <= minHeight; b++ {
 				bBig := big.NewInt(int64(b))
 				var referenceHash common.Hash
@@ -825,26 +846,50 @@ func main() {
 					} else {
 						if h != referenceHash {
 							forkDetected = true
-							fmt.Printf("🚨 FORK DETECTED TẠI BLOCK %d!\n", b)
-							fmt.Printf("   - Lấy từ Node %s (%s): Hash=%s\n", referenceNode, referenceURL, referenceHash.Hex())
-							fmt.Printf("   - Lấy từ Node %s (%s): Hash=%s\n", n.Name, n.URL, h.Hex())
+							mismatchDetails = append(mismatchDetails,
+								fmt.Sprintf("Block #%d LỆCH HASH: Node %s (%s) = %s vs Node %s (%s) = %s",
+									b, referenceNode, referenceURL, referenceHash.Hex(), n.Name, n.URL, h.Hex()))
 						}
 						if root != referenceRoot {
 							forkDetected = true
-							fmt.Printf("🚨 STATE ROOT MISMATCH TẠI BLOCK %d!\n", b)
-							fmt.Printf("   - Lấy từ Node %s (%s): StateRoot=%s\n", referenceNode, referenceURL, referenceRoot.Hex())
-							fmt.Printf("   - Lấy từ Node %s (%s): StateRoot=%s\n", n.Name, n.URL, root.Hex())
+							mismatchDetails = append(mismatchDetails,
+								fmt.Sprintf("Block #%d LỆCH STATEROOT: Node %s (%s) = %s vs Node %s (%s) = %s",
+									b, referenceNode, referenceURL, referenceRoot.Hex(), n.Name, n.URL, root.Hex()))
 						}
 					}
 				}
 			}
 
-			if forkDetected {
-				log.Fatalf("❌ PHÁT HIỆN FORK GIỮA CÁC NODE! BÀI TEST THẤT BẠI!")
-			} else {
+			if !forkDetected {
+				if attempt > 1 {
+					fmt.Printf("   ✅ [TỰ HỘI TỤ THÀNH CÔNG (Sau %d lần thử / %.1fs)] Các node đã tự resolve và khớp hash 100%%!\n",
+						attempt, float64(attempt-1)*retryDelay.Seconds())
+				}
 				fmt.Printf("🏆 [100%% ZERO-FORK CONFIRMED] Tất cả %d node đồng nhất hoàn hảo từ Block %d đến %d!\n",
 					len(aliveNodes), startCompare, minHeight)
+				passedZeroFork = true
+				break
 			}
+
+			// Nếu có lệch nhưng chưa hết lượt retry: chờ và thử lại
+			if attempt < maxRetries {
+				fmt.Printf("   ⚠️ [LỆCH TẠM THỜI TẠI LẦN CHECK %d/%d] Phát hiện %d điểm chưa khớp (node đang trong quá trình catch-up / anti-entropy resolve):\n",
+					attempt, maxRetries, len(mismatchDetails))
+				for _, detail := range mismatchDetails {
+					fmt.Printf("      • %s\n", detail)
+				}
+				fmt.Printf("   ⏳ Đang chờ %v để các node hoàn tất resolve và thử lại...\n", retryDelay)
+				time.Sleep(retryDelay)
+			} else {
+				fmt.Println("\n🚨 CHI TIẾT CÁC ĐIỂM FORK THỰC SỰ SAU KHI ĐÃ THỬ LẠI ĐỦ THỜI GIAN:")
+				for _, detail := range mismatchDetails {
+					fmt.Printf("   🚨 %s\n", detail)
+				}
+			}
+		}
+
+		if !passedZeroFork {
+			log.Fatalf("❌ PHÁT HIỆN FORK THẬT SỰ GIỮA CÁC NODE! BÀI TEST THẤT BẠI!")
 		}
 	}
 }

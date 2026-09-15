@@ -231,6 +231,13 @@ func loadData(path string) []DataPayload {
 // ----------------------------------------------------
 func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, fromAddress common.Address, bytecode []byte, lastDeployed **common.Address) {
 	fmt.Println("▶️  Chạy TCP Deploy Contract...")
+	if as, err := cli.GetAccountState(fromAddress, 3*time.Second); err == nil && as != nil {
+		fmt.Printf("   📝 CHI TIẾT TX DEPLOY:\n")
+		fmt.Printf("      - From: %s\n", fromAddress.Hex())
+		fmt.Printf("      - Nonce: %d\n", as.Nonce())
+		fmt.Printf("      - Balance: %s wei\n", as.Balance().String())
+		fmt.Printf("      - Bytecode Length: %d bytes\n", len(bytecode))
+	}
 	emptyAddress := common.Address{}
 
 	receipt, err := tx_helper.SendTransaction(
@@ -347,6 +354,13 @@ func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 // ----------------------------------------------------
 func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contractAddress common.Address, fromAddress common.Address, payloadData []byte, amount *big.Int, methodName string) {
 	fmt.Printf("▶️  Chạy TCP SendTransaction (WRITE) cho hàm/hành động %s...\n", methodName)
+	if as, err := cli.GetAccountState(fromAddress, 3*time.Second); err == nil && as != nil {
+		fmt.Printf("   📝 CHI TIẾT TX GỬI ĐI (%s):\n", methodName)
+		fmt.Printf("      - From: %s\n", fromAddress.Hex())
+		fmt.Printf("      - Nonce: %d\n", as.Nonce())
+		fmt.Printf("      - Balance: %s wei\n", as.Balance().String())
+		fmt.Printf("      - To Contract: %s\n", contractAddress.Hex())
+	}
 
 	// Cố tình set MaxGas cực lớn để vi phạm MAX_GROUP_GAS
 	options := &tx_models.TxOptions{

@@ -37,6 +37,7 @@ type Handler struct {
 	pendingChainRequests *sync.Map    // map[string]chan []byte — chain-direct responses
 	eventCallbacks       sync.Map     // map[subscriptionID]func([]byte)
 	receiptCallback      func([]byte) // callback khi nhận receipt forwarded từ RPC server
+	blockDataChan        chan []byte
 }
 
 func NewHandler(
@@ -89,6 +90,15 @@ func (h *Handler) HandleRequest(request network.Request) (err error) {
 	case command.ChainId, command.TransactionReceipt, command.BlockNumber,
 		command.Logs, command.TransactionByHash, command.Nonce, command.TransactionSuccess:
 		return h.handleChainResponse(request)
+
+	case command.BlockDataFromMainMaster:
+		if h.blockDataChan != nil {
+			select {
+			case h.blockDataChan <- request.Message().Body():
+			default:
+			}
+		}
+		return nil
 	}
 	return ErrorCommandNotFound
 }
@@ -107,6 +117,14 @@ func (h *Handler) SetPendingRpcRequests(pending *sync.Map) {
 
 func (h *Handler) SetPendingChainRequests(pending *sync.Map) {
 	h.pendingChainRequests = pending
+}
+
+func (h *Handler) SetBlockDataChan(ch chan []byte) {
+	h.blockDataChan = ch
+}
+
+func (h *Handler) GetBlockDataChan() chan []byte {
+	return h.blockDataChan
 }
 
 /*

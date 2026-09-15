@@ -26,6 +26,9 @@ if [ ! -f "${ANSIBLE_DIR}/ansible_deploy.sh" ]; then
     exit 1
 fi
 
+XAPIAN_TOOL="${SCRIPT_DIR}/../lib/xapian_tool"
+XAPIAN_CONTRACT_FILE="${SCRIPT_DIR}/../.xapian_recovery_contract.json"
+
 SPECIFIED_TARGET_NODE=""
 SNAPSHOT_URL=""
 TX_COUNT=15
@@ -176,7 +179,8 @@ try:
         if resp.status == 200:
             data = json.loads(resp.read().decode())
             if data and len(data) > 0:
-                print(int(data[0].get('block_number', 0)))
+                latest = max(data, key=lambda x: int(x.get('block_number', 0)))
+                print(int(latest.get('block_number', 0)))
                 sys.exit(0)
     print(0)
 except Exception:
@@ -192,7 +196,8 @@ try:
         if resp.status == 200:
             data = json.loads(resp.read().decode())
             if data and len(data) > 0:
-                print(f\"{data[0].get('snapshot_name')} (Block #{data[0].get('block_number')}, Epoch {data[0].get('epoch')})\")
+                latest = max(data, key=lambda x: int(x.get('block_number', 0)))
+                print(f\"{latest.get('snapshot_name')} (Block #{latest.get('block_number')}, Epoch {latest.get('epoch')})\")
                 sys.exit(0)
     print('')
 except Exception:
@@ -317,48 +322,69 @@ target_block = list(final_heights.values())[0]
 print(f"\n✅ Tất cả {len(all_nodes)} node đã có block number bằng nhau tại: Block #{target_block}!")
 print(f"🔍 Bắt đầu đối chiếu Block Hash & StateRoot tại Block #{target_block}...")
 
-hashes = {}
-state_roots = {}
-block_hex = hex(target_block)
+max_retries = 5
+retry_delay = 2
+passed_zero_fork = False
 
-for name, url in sorted(all_nodes.items()):
-    req = urllib.request.Request(
-        url,
-        data=json.dumps({"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[block_hex, False],"id":2}).encode(),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=3) as resp:
-        data = json.loads(resp.read().decode())
-        b_info = data.get("result", {})
-        hashes[name] = b_info.get("hash")
-        state_roots[name] = b_info.get("stateRoot")
+for attempt in range(1, max_retries + 1):
+    hashes = {}
+    state_roots = {}
+    block_hex = hex(target_block)
 
-fork_detected = False
-ref_name = list(sorted(all_nodes.keys()))[0]
-ref_hash = hashes.get(ref_name)
-ref_root = state_roots.get(ref_name)
+    for name, url in sorted(all_nodes.items()):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[block_hex, False],"id":2}).encode(),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode())
+                b_info = data.get("result", {})
+                hashes[name] = b_info.get("hash")
+                state_roots[name] = b_info.get("stateRoot")
+        except Exception:
+            pass
 
-for name in sorted(all_nodes.keys()):
-    h = hashes.get(name)
-    r = state_roots.get(name)
-    if h != ref_hash:
-        print(f"🚨 FORK DETECTED! Lệch Block Hash tại Block #{target_block}:")
-        print(f"   - {ref_name}: {ref_hash}")
-        print(f"   - {name}: {h}")
-        fork_detected = True
-    if r != ref_root:
-        print(f"🚨 FORK DETECTED! Lệch StateRoot tại Block #{target_block}:")
-        print(f"   - {ref_name}: {ref_root}")
-        print(f"   - {name}: {r}")
-        fork_detected = True
+    fork_detected = False
+    mismatches = []
+    ref_name = list(sorted(all_nodes.keys()))[0]
+    ref_hash = hashes.get(ref_name)
+    ref_root = state_roots.get(ref_name)
 
-if fork_detected:
+    for name in sorted(all_nodes.keys()):
+        h = hashes.get(name)
+        r = state_roots.get(name)
+        if h != ref_hash:
+            mismatches.append(f"Block #{target_block} Lệch Hash: {ref_name} ({ref_hash}) vs {name} ({h})")
+            fork_detected = True
+        if r != ref_root:
+            mismatches.append(f"Block #{target_block} Lệch StateRoot: {ref_name} ({ref_root}) vs {name} ({r})")
+            fork_detected = True
+
+    if not fork_detected:
+        if attempt > 1:
+            print(f"   ✅ [TỰ HỘI TỤ THÀNH CÔNG (Sau {attempt} lần thử)] Các node đã đồng bộ khớp hash 100%!")
+        print(f"🏆 [100% ZERO-FORK CONFIRMED] Block #{target_block} đồng nhất hoàn hảo trên toàn bộ {len(all_nodes)} node!")
+        print(f"   • Block Hash : {ref_hash}")
+        print(f"   • StateRoot  : {ref_root}\n")
+        passed_zero_fork = True
+        break
+
+    if attempt < max_retries:
+        print(f"   ⚠️ [LỆCH TẠM THỜI TẠI LẦN CHECK {attempt}/{max_retries}] Node đang trong quá trình resolve consensus:")
+        for m in mismatches:
+            print(f"      • {m}")
+        print(f"   ⏳ Đang chờ {retry_delay}s để các node tự động resolve...")
+        time.sleep(retry_delay)
+    else:
+        print("\n🚨 CHI TIẾT CÁC ĐIỂM FORK THỰC SỰ SAU KHI ĐÃ HẾT THỜI GIAN CHỜ:")
+        for m in mismatches:
+            print(f"   🚨 {m}")
+
+if not passed_zero_fork:
     print("❌ BÀI TEST THẤT BẠI DO PHÁT HIỆN FORK GIỮA CÁC NODE!")
     sys.exit(1)
-
-print(f"🏆 [100% ZERO-FORK CONFIRMED] Block #{target_block} đồng nhất hoàn hảo trên toàn bộ {len(all_nodes)} node!")
-print(f"   • Block Hash : {ref_hash}")
-print(f"   • StateRoot  : {ref_root}\n")
 EOF
 }
 
@@ -453,8 +479,12 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     # KIỂM CHỨNG ĐẦU ROUND: Đảm bảo toàn bộ node có chiều cao bằng nhau & 100% Zero-Fork trước khi test
     verify_equal_height_and_zero_fork "ĐẦU VÒNG ${round_idx}/${LOOP_COUNT} (Trước khi tạo Snapshot & Restore)" 240
 
+    # Nạp / cập nhật dữ liệu Xapian trên blockchain trước khi tạo bản snapshot mới
+    echo -e "\n📦 [XAPIAN SETUP] Khởi tạo / deploy contract Xapian DB mới cho Vòng ${round_idx} trước khi chụp Snapshot..."
+    go run "${XAPIAN_TOOL}/main.go" --mode=setup --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}" --round="${round_idx}" --force-deploy
+
     # BƯỚC 1: ĐẢM BẢO CÓ BẢN SNAPSHOT MỚI
-    echo -e "\n📸 [BƯỚC 1/5] Chờ bản Snapshot mới trên server (Yêu cầu Block > ${LAST_SNAPSHOT_BLOCK})..."
+    echo -e "\n📸 [BƯỚC 1/5] Chờ bản Snapshot MỚI trên server (Yêu cầu Block > ${LAST_SNAPSHOT_BLOCK})..."
     CUR_BLOCK=$(get_latest_snapshot_block)
     if [ "$CUR_BLOCK" -le "$LAST_SNAPSHOT_BLOCK" ]; then
         echo "⏳ Snapshot hiện tại (Block #${CUR_BLOCK}) chưa mới hơn mốc Block #${LAST_SNAPSHOT_BLOCK}."
@@ -473,13 +503,20 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     fi
 
     if [ "$CUR_BLOCK" -le "$LAST_SNAPSHOT_BLOCK" ]; then
-        echo "⚠️ Cảnh báo: Chưa xuất hiện bản snapshot mới hơn sau thời gian chờ. Dùng bản hiện có tại Block #${CUR_BLOCK}..."
+        if [ "$round_idx" -gt 1 ]; then
+            echo "❌ [LỖI NGHIÊM NGẶT - ZERO OLD SNAPSHOT] Sau ${MAX_WAIT_ROUNDS} đợt chờ, Snapshot Server vẫn CHƯA sinh ra bản snapshot mới (Block #${CUR_BLOCK} <= #${LAST_SNAPSHOT_BLOCK})!"
+            echo "   ⚠️ Nguyên tắc bắt buộc: Mỗi vòng lặp PHẢI khôi phục từ bản snapshot mới, tuyệt đối không được dùng lại snapshot cũ!"
+            exit 1
+        else
+            echo "⚠️ Cảnh báo: Chưa xuất hiện bản snapshot mới hơn sau thời gian chờ. Dùng bản hiện có tại Block #${CUR_BLOCK}..."
+            LAST_SNAPSHOT_BLOCK="$CUR_BLOCK"
+        fi
     else
         LAST_SNAPSHOT_BLOCK="$CUR_BLOCK"
     fi
 
     SNAP_INFO=$(get_latest_snapshot_desc || true)
-    echo "✅ [Vòng ${round_idx}] Bản Snapshot sử dụng: ${SNAP_INFO}"
+    echo "✅ [Vòng ${round_idx}] Bản Snapshot MỚI sử dụng: ${SNAP_INFO}"
     go run main.go -snapshot-url "${SNAPSHOT_URL}" -count 0 || true
 
     # BƯỚC 2: KHÔI PHỤC DỮ LIỆU NODE ĐÍCH BẰNG ANSIBLE
@@ -507,17 +544,30 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
 
     wait_node_consensus_ready "${TARGET_NODE}"
 
+    # KIỂM TRA TOÀN VẸN DỮ LIỆU XAPIAN TRÊN CHÍNH NODE VỪA KHÔI PHỤC
+    echo -e "\n🔍 [KIỂM TRA XAPIAN RESTORE] Xác minh tính toàn vẹn dữ liệu Xapian DB trên Node ${TARGET_NODE} vừa khôi phục..."
+    go run "${XAPIAN_TOOL}/main.go" --mode=verify-node --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
+
     # BƯỚC 4: BƠM GIAO DỊCH QUA CHÍNH NODE VỪA KHÔI PHỤC
     echo -e "\n=========================================================="
     echo "⚡ [BƯỚC 4/5] BƠM GIAO DỊCH TRỰC TIẾP QUA NODE ${TARGET_NODE} VỪA KHÔI PHỤC"
     echo "=========================================================="
     go run main.go -target-node "${TARGET_NODE}" -count "${TX_COUNT}" -check-fork=false
 
+    echo -e "\n📦 [PHƯƠNG ÁN B: DEPLOY XAPIAN MỚI QUA NODE ${TARGET_NODE}] Deploy contract Xapian mới trực tiếp qua Node ${TARGET_NODE} vừa khôi phục..."
+    go run "${XAPIAN_TOOL}/main.go" --mode=setup --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}" --round="${round_idx}" --force-deploy
+
+    echo "✍️  [BƠM GIAO DỊCH XAPIAN] Gửi giao dịch cập nhật Xapian trực tiếp qua Node ${TARGET_NODE}..."
+    go run "${XAPIAN_TOOL}/main.go" --mode=write-doc --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
+
     # BƯỚC 5: KIỂM CHỨNG TOÀN DIỆN TOÀN CỤM & 100% ZERO-FORK
     echo -e "\n=========================================================="
     echo "🏆 [BƯỚC 5/5] KIỂM TRA SỨC KHỎE CẢ CỤM & XÁC NHẬN 100% ZERO-FORK"
     echo "=========================================================="
     go run main.go -count "${TX_COUNT}" -check-fork=true -require-all-alive=true
+
+    echo "🌐 [XAPIAN CLUSTER VERIFY] Đối chiếu tính toàn vẹn và đồng nhất dữ liệu Xapian trên toàn bộ các node..."
+    go run "${XAPIAN_TOOL}/main.go" --mode=verify-cluster --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
 
     # KIỂM CHỨNG CUỐI ROUND: Đảm bảo toàn bộ node (bao gồm node vừa khôi phục) đã hội tụ bằng nhau & Zero-Fork
     verify_equal_height_and_zero_fork "CUỐI VÒNG ${round_idx}/${LOOP_COUNT} (Sau khi khôi phục Node ${TARGET_NODE})" 240

@@ -1748,3 +1748,17 @@ func (client *Client) SendTransactionWithFullInfo(
 func (s *Client) GetMtnAddress() common.Address {
 	return s.clientContext.KeyPair.Address()
 }
+
+func (s *Client) SetBlockDataChan(ch chan []byte) {
+	if h, ok := s.clientContext.Handler.(*c_network.Handler); ok {
+		h.SetBlockDataChan(ch)
+	}
+}
+
+func (s *Client) GetBlockDataChan() chan []byte {
+	if h, ok := s.clientContext.Handler.(*c_network.Handler); ok {
+		return h.GetBlockDataChan()
+	}
+	return nil
+}
+

@@ -64,4 +64,8 @@ const (
 	TransactionByHash     = "TransactionByHash"
 
 	TransactionSuccess    = "TransactionSuccess"
+
+	// Backup DB sync commands
+	GetBlockDataByNumberFromMaster = "GetBlockDataByNumberFromMaster"
+	BlockDataFromMainMaster       = "BlockDataFromMainMaster"
 )

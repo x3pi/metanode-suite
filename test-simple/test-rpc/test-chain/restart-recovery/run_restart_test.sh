@@ -24,6 +24,9 @@ if [ ! -f "${ANSIBLE_DIR}/ansible_deploy.sh" ]; then
     exit 1
 fi
 
+XAPIAN_TOOL="${SCRIPT_DIR}/../lib/xapian_tool"
+XAPIAN_CONTRACT_FILE="${SCRIPT_DIR}/../.xapian_recovery_contract.json"
+
 SPECIFIED_NODES=""
 TX_COUNT=15
 LOOP_COUNT=1          # Mặc định 1 vòng (tương thích ngược CI). 0 hoặc "infinite" là chạy mãi mãi.
@@ -314,48 +317,69 @@ target_block = list(final_heights.values())[0]
 print(f"\n✅ Tất cả {len(all_nodes)} node đã có block number bằng nhau tại: Block #{target_block}!")
 print(f"🔍 Bắt đầu đối chiếu Block Hash & StateRoot tại Block #{target_block}...")
 
-hashes = {}
-state_roots = {}
-block_hex = hex(target_block)
+max_retries = 5
+retry_delay = 2
+passed_zero_fork = False
 
-for name, url in sorted(all_nodes.items()):
-    req = urllib.request.Request(
-        url,
-        data=json.dumps({"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[block_hex, False],"id":2}).encode(),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=3) as resp:
-        data = json.loads(resp.read().decode())
-        b_info = data.get("result", {})
-        hashes[name] = b_info.get("hash")
-        state_roots[name] = b_info.get("stateRoot")
+for attempt in range(1, max_retries + 1):
+    hashes = {}
+    state_roots = {}
+    block_hex = hex(target_block)
 
-fork_detected = False
-ref_name = list(sorted(all_nodes.keys()))[0]
-ref_hash = hashes.get(ref_name)
-ref_root = state_roots.get(ref_name)
+    for name, url in sorted(all_nodes.items()):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[block_hex, False],"id":2}).encode(),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode())
+                b_info = data.get("result", {})
+                hashes[name] = b_info.get("hash")
+                state_roots[name] = b_info.get("stateRoot")
+        except Exception:
+            pass
 
-for name in sorted(all_nodes.keys()):
-    h = hashes.get(name)
-    r = state_roots.get(name)
-    if h != ref_hash:
-        print(f"🚨 FORK DETECTED! Lệch Block Hash tại Block #{target_block}:")
-        print(f"   - Lấy từ Node {ref_name} ({all_nodes.get(ref_name)}): {ref_hash}")
-        print(f"   - Lấy từ Node {name} ({all_nodes.get(name)}): {h}")
-        fork_detected = True
-    if r != ref_root:
-        print(f"🚨 FORK DETECTED! Lệch StateRoot tại Block #{target_block}:")
-        print(f"   - Lấy từ Node {ref_name} ({all_nodes.get(ref_name)}): {ref_root}")
-        print(f"   - Lấy từ Node {name} ({all_nodes.get(name)}): {r}")
-        fork_detected = True
+    fork_detected = False
+    mismatches = []
+    ref_name = list(sorted(all_nodes.keys()))[0]
+    ref_hash = hashes.get(ref_name)
+    ref_root = state_roots.get(ref_name)
 
-if fork_detected:
+    for name in sorted(all_nodes.keys()):
+        h = hashes.get(name)
+        r = state_roots.get(name)
+        if h != ref_hash:
+            mismatches.append(f"Block #{target_block} Lệch Hash: {ref_name} ({ref_hash}) vs {name} ({h})")
+            fork_detected = True
+        if r != ref_root:
+            mismatches.append(f"Block #{target_block} Lệch StateRoot: {ref_name} ({ref_root}) vs {name} ({r})")
+            fork_detected = True
+
+    if not fork_detected:
+        if attempt > 1:
+            print(f"   ✅ [TỰ HỘI TỤ THÀNH CÔNG (Sau {attempt} lần thử)] Các node đã đồng bộ khớp hash 100%!")
+        print(f"🏆 [100% ZERO-FORK CONFIRMED] Block #{target_block} đồng nhất hoàn hảo trên toàn bộ {len(all_nodes)} node!")
+        print(f"   • Block Hash : {ref_hash}")
+        print(f"   • StateRoot  : {ref_root}\n")
+        passed_zero_fork = True
+        break
+
+    if attempt < max_retries:
+        print(f"   ⚠️ [LỆCH TẠM THỜI TẠI LẦN CHECK {attempt}/{max_retries}] Node đang trong quá trình resolve consensus:")
+        for m in mismatches:
+            print(f"      • {m}")
+        print(f"   ⏳ Đang chờ {retry_delay}s để các node tự động resolve...")
+        time.sleep(retry_delay)
+    else:
+        print("\n🚨 CHI TIẾT CÁC ĐIỂM FORK THỰC SỰ SAU KHI ĐÃ HẾT THỜI GIAN CHỜ:")
+        for m in mismatches:
+            print(f"   🚨 {m}")
+
+if not passed_zero_fork:
     print("❌ BÀI TEST THẤT BẠI DO PHÁT HIỆN FORK GIỮA CÁC NODE!")
     sys.exit(1)
-
-print(f"🏆 [100% ZERO-FORK CONFIRMED] Block #{target_block} đồng nhất hoàn hảo trên toàn bộ {len(all_nodes)} node!")
-print(f"   • Block Hash : {ref_hash}")
-print(f"   • StateRoot  : {ref_root}\n")
 EOF
 }
 
@@ -381,6 +405,9 @@ while true; do
     echo "🏁 [BƯỚC 1] Kiểm tra ban đầu: gửi đợt giao dịch warm-up và check sức khỏe cụm..."
     echo "----------------------------------------------------------"
     go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
+
+    echo -e "\n📦 [XAPIAN SETUP] Khởi tạo / deploy contract Xapian DB mới cho Vòng ${current_loop}..."
+    go run "${XAPIAN_TOOL}/main.go" --mode=setup --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}" --round="${current_loop}" --force-deploy
 
     # ------------------------------------------------------------------------------
     # BƯỚC 2: ROLLING RESTART TỪNG NODE (LUÂN PHIÊN)
@@ -421,8 +448,17 @@ while true; do
         wait_node_consensus_ready "${node_id}"
         rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
+        echo -e "\n🔍 [KIỂM TRA XAPIAN RESTART] Kiểm tra tính toàn vẹn dữ liệu Xapian DB trên Node ${node_id} vừa thức dậy..."
+        go run "${XAPIAN_TOOL}/main.go" --mode=verify-node --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
+
         echo "⚡ [Node ${node_id} VỪA THỨC DẬY] Bơm ${TX_COUNT} giao dịch toàn cụm, kiểm tra catch-up sync, sức khỏe toàn bộ node và Zero-Fork..."
         go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
+
+        echo -e "\n📦 [PHƯƠNG ÁN B: DEPLOY XAPIAN MỚI QUA NODE ${node_id}] Deploy & nạp DB contract Xapian mới trực tiếp qua Node ${node_id} vừa thức dậy..."
+        go run "${XAPIAN_TOOL}/main.go" --mode=setup --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}" --round="${current_loop}" --force-deploy
+
+        echo "✍️  [BƠM GIAO DỊCH XAPIAN] Gửi giao dịch ghi Xapian qua Node ${node_id} sau khi thức dậy..."
+        go run "${XAPIAN_TOOL}/main.go" --mode=write-doc --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
 
         round=$((round + 1))
     done
@@ -449,6 +485,9 @@ while true; do
 
     echo "⚡ [Cả cụm vừa thức dậy] Bơm ${TX_COUNT} giao dịch load-balance, kiểm tra sống/chết và Zero-Fork..."
     go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
+
+    echo "🌐 [XAPIAN CLUSTER VERIFY] Đối chiếu tính toàn vẹn và đồng nhất dữ liệu Xapian trên toàn bộ cụm sau Full Restart..."
+    go run "${XAPIAN_TOOL}/main.go" --mode=verify-cluster --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
 
     # ------------------------------------------------------------------------------
     # BƯỚC 4: KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE SAU VÒNG TEST

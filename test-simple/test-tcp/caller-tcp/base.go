@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,13 +48,14 @@ func main() {
 		"account_state": runAccountState,
 		"get_chain_id":  runGetChainID,
 		"get_devicekey": runGetDeviceKey,
+		"get_backup_db": runGetBackupDb,
 	}
 
 	runType := strings.ToLower(strings.TrimSpace(toolCfg.Type))
 	handler, ok := handlers[runType]
 	if !ok {
 		fmt.Printf("Unsupported type: %q\n", toolCfg.Type)
-		fmt.Println("Supported types: get_logs, account_state, get_chain_id")
+		fmt.Println("Supported types: get_logs, account_state, get_chain_id, get_devicekey, get_backup_db")
 		os.Exit(1)
 	}
 
@@ -228,6 +230,51 @@ func runGetDeviceKey(cli *client_tcp.Client, cfg ToolConfig) (string, error) {
 		return fmt.Sprintf("TransactionHash=%s | LastDeviceKey=%s", txHashHex, lastDeviceKeyHex), nil
 	case <-time.After(5 * time.Second):
 		return "", fmt.Errorf("timeout waiting for device key")
+	}
+}
+
+func runGetBackupDb(cli *client_tcp.Client, cfg ToolConfig) (string, error) {
+	var blockNum uint64
+	switch v := cfg.Params["block_number"].(type) {
+	case float64:
+		blockNum = uint64(v)
+	case int:
+		blockNum = uint64(v)
+	case string:
+		parsed, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid block_number string: %w", err)
+		}
+		blockNum = parsed
+	default:
+		return "", fmt.Errorf("params.block_number is required")
+	}
+
+	blockDataChan := make(chan []byte, 1)
+	cli.SetBlockDataChan(blockDataChan)
+
+	parentConn := cli.GetClientContext().ConnectionsManager.ParentConnection()
+	if parentConn == nil || !parentConn.IsConnect() {
+		return "", fmt.Errorf("parent connection not available")
+	}
+
+	bBlockNum := make([]byte, 8)
+	binary.BigEndian.PutUint64(bBlockNum, blockNum)
+
+	err := cli.GetClientContext().MessageSender.SendBytes(
+		parentConn,
+		"GetBlockDataByNumberFromMaster",
+		bBlockNum,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to send GetBlockDataByNumberFromMaster: %w", err)
+	}
+
+	select {
+	case body := <-blockDataChan:
+		return fmt.Sprintf("✅ Block #%d CÓ BackupDb trong StorageBackupDb! Payload size = %d bytes", blockNum, len(body)), nil
+	case <-time.After(3 * time.Second):
+		return fmt.Sprintf("❌ Block #%d KHÔNG CÓ BackupDb trong StorageBackupDb (Master không tìm thấy và không trả lời)", blockNum), nil
 	}
 }
 
