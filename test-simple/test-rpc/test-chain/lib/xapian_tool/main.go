@@ -185,16 +185,30 @@ func loadContractAddresses(filePath string) ([]ContractEntry, error) {
 	return valid, nil
 }
 
+// receiptWaitIterations / receiptWaitInterval: bumped from 90*500ms=45s to
+// 240*500ms=120s (2026-09-15) -- reproduced live, CI's "Chaos Rolling Restart"
+// step failing this exact wait right after `pre_action: restart_chain` resets
+// the chain to a fresh genesis: the search tx genuinely succeeded (confirmed
+// via eth_getTransactionReceipt after the fact -- status=0x1, real block/logs)
+// but took longer than 45s to land because the freshly-bootstrapped DAG/leader
+// rotation hasn't settled yet, matching this project's own established pattern
+// of loosening a tolerance that was too tight for a legitimate startup/reset
+// condition rather than a real bug (see e.g. the ±5→±50 block-parity fix and
+// the 90-180s peer_rpc bind-confirmation note in metanode's own memory).
+const receiptWaitIterations = 240
+const receiptWaitInterval = 500 * time.Millisecond
+
 func waitReceiptAndPoll(client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
 	ctx := context.Background()
-	for i := 0; i < 90; i++ {
+	for i := 0; i < receiptWaitIterations; i++ {
 		receipt, err := client.TransactionReceipt(ctx, txHash)
 		if err == nil && receipt != nil && receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 			return receipt, nil
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(receiptWaitInterval)
 	}
-	return nil, fmt.Errorf("timeout (45s) chờ receipt cho tx %s", txHash.Hex())
+	waited := time.Duration(receiptWaitIterations) * receiptWaitInterval
+	return nil, fmt.Errorf("timeout (%s) chờ receipt cho tx %s", waited, txHash.Hex())
 }
 
 func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64, from common.Address, bytecode []byte) (common.Address, error) {
