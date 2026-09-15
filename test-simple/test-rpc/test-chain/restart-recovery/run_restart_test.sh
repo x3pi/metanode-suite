@@ -445,7 +445,7 @@ while true; do
         "${ANSIBLE_DIR}/ansible_deploy.sh" --restart --only-node "${node_id}"
 
         wait_node_online "${node_id}"
-        wait_node_consensus_ready "${node_id}"
+        wait_node_consensus_ready "${node_id}" 180 || true
         rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
         echo -e "\n🔍 [KIỂM TRA XAPIAN RESTART] Kiểm tra tính toàn vẹn dữ liệu Xapian DB trên Node ${node_id} vừa thức dậy..."

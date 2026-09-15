@@ -72,3 +72,4 @@ file-storage/**/deployment_*.json
 test-simple/test-rpc/test-chain/2-read-write/main
 test-simple/test-rpc/test-chain/cross-chain/01-client-only-transfer/test_client
 test-simple/test-rpc/test-chain/spam-contract/spam-contract
+test-simple/test-rpc/test-chain/.xapian_recovery_contract.json
