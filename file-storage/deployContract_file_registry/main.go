@@ -221,11 +221,21 @@ func deployRegistryProxy(client *ethclient.Client, auth *bind.TransactOpts, impl
 	constructorArgs, _ := parsedProxyABI.Pack("", implementationAddress, initData)
 	fullBytecode := append(proxyBytecode, constructorArgs...)
 
+	gasPrice := auth.GasPrice
+	if gasPrice == nil || gasPrice.Cmp(big.NewInt(100000)) < 0 {
+		var err error
+		gasPrice, err = client.SuggestGasPrice(context.Background())
+		if err != nil || gasPrice == nil || gasPrice.Cmp(big.NewInt(100000)) < 0 {
+			gasPrice = big.NewInt(100000)
+		}
+		auth.GasPrice = gasPrice
+	}
+
 	tx := types.NewContractCreation(
 		auth.Nonce.Uint64(),
 		auth.Value,
 		auth.GasLimit,
-		auth.GasPrice,
+		gasPrice,
 		fullBytecode,
 	)
 
@@ -272,9 +282,16 @@ func getDeployerAuth(client *ethclient.Client, privateKeyHex string, isDeploy bo
 	}
 	chainID, _ := client.ChainID(context.Background())
 	auth, _ := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
+
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil || gasPrice == nil || gasPrice.Cmp(big.NewInt(100000)) < 0 {
+		gasPrice = big.NewInt(100000)
+	}
+
 	auth.Nonce = big.NewInt(int64(nonce))
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(30000000)
+	auth.GasPrice = gasPrice
 	return auth, nil
 }
 

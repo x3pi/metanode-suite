@@ -521,20 +521,21 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 	ethBalanceBefore := new(big.Float).Quo(new(big.Float).SetInt(balanceBefore), big.NewFloat(1e15))
 	fmt.Printf("💰 Số dư ban đầu trước khi PushFileInfo: %s wei (%.6f ETH)\n", balanceBefore.String(), ethBalanceBefore)
 
-	requiredPayment, err := instance.CalculatePrice(&bind.CallOpts{}, big.NewInt(int64(totalChunks)))
-	if err != nil {
-		log.Fatalf("Failed to calculate price: %v", err)
-	}
-	fmt.Printf("Required payment: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e15)
+	requiredPayment := big.NewInt(0)
+	fmt.Printf("Required payment: %s wei (0 ETH)\n", requiredPayment.String())
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
 		log.Fatalf("Failed to create transactor: %v", err)
 	}
-	auth.GasLimit = uint64(3_000_000_0000000)
-	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
+	auth.GasLimit = uint64(30_000_000)
+	gasPrice, _ := client.SuggestGasPrice(context.Background())
+	if gasPrice == nil || gasPrice.Cmp(big.NewInt(100000)) < 0 {
+		gasPrice = big.NewInt(100000)
+	}
+	auth.GasPrice = gasPrice
 	logger.Info("Gas price", auth.GasPrice)
-	auth.Value = requiredPayment // Gửi kèm thanh toán
+	auth.Value = requiredPayment // Gửi kèm thanh toán (0)
 	logger.Info("___ RequiredPayment", requiredPayment)
 
 	tx, err := instance.PushFileInfo(auth, info)
@@ -748,15 +749,16 @@ func DownloadFile(client *ethclient.Client, privateKey *ecdsa.PrivateKey, instan
 		return 0, 0, 0, fmt.Errorf("lỗi tạo transactor: %v", err)
 	}
 
-	requiredPayment, err := instance.CalculatePrice(&bind.CallOpts{}, big.NewInt(int64(fileInfo.TotalChunks)))
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("lỗi tính toán giá: %v", err)
-	}
-	fmt.Printf("Yêu cầu thanh toán để tải xuống: %s wei (%.6f ETH)\n", requiredPayment.String(), float64(requiredPayment.Int64())/1e15)
+	requiredPayment := big.NewInt(0)
+	fmt.Printf("Yêu cầu thanh toán để tải xuống: %s wei (0 ETH)\n", requiredPayment.String())
 
-	auth.GasLimit = uint64(3_000_000)
-	auth.GasPrice, _ = client.SuggestGasPrice(context.Background())
-	auth.Value = requiredPayment // Gửi kèm thanh toán
+	auth.GasLimit = uint64(30_000_000)
+	gasPrice, _ := client.SuggestGasPrice(context.Background())
+	if gasPrice == nil || gasPrice.Cmp(big.NewInt(100000)) < 0 {
+		gasPrice = big.NewInt(100000)
+	}
+	auth.GasPrice = gasPrice
+	auth.Value = requiredPayment // Gửi kèm thanh toán (0)
 
 	tx, err := instance.PayForDownload(auth, fileKey, big.NewInt(1))
 	if err != nil {
