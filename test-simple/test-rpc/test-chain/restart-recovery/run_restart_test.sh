@@ -26,6 +26,8 @@ fi
 
 XAPIAN_TOOL="${SCRIPT_DIR}/../lib/xapian_tool"
 XAPIAN_CONTRACT_FILE="${SCRIPT_DIR}/../.xapian_recovery_contract.json"
+EVM_TOOL="${SCRIPT_DIR}/../lib/evm_tool"
+EVM_CONTRACT_FILE="${SCRIPT_DIR}/../.evm_recovery_contract.json"
 
 SPECIFIED_NODES=""
 TX_COUNT=15
@@ -387,7 +389,7 @@ START_TIME=$(date +%s)
 current_loop=1
 
 # Xóa file lịch sử contract cũ khi bắt đầu một phiên chạy mới từ Vòng 1 để tránh tồn đọng contract từ chain cũ đã bị reset
-rm -f "${XAPIAN_CONTRACT_FILE}"
+rm -f "${XAPIAN_CONTRACT_FILE}" "${EVM_CONTRACT_FILE}"
 
 while true; do
     echo -e "\n=========================================================="
@@ -411,6 +413,9 @@ while true; do
 
     echo -e "\n📦 [XAPIAN SETUP] Khởi tạo / deploy contract Xapian DB mới cho Vòng ${current_loop}..."
     go run "${XAPIAN_TOOL}/main.go" --mode=setup --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}" --round="${current_loop}" --force-deploy
+
+    echo -e "\n📦 [EVM SETUP] Khởi tạo / deploy contract EVM State mới cho Vòng ${current_loop}..."
+    go run "${EVM_TOOL}/main.go" --mode=setup --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}" --round="${current_loop}" --force-deploy
 
     # ------------------------------------------------------------------------------
     # BƯỚC 2: ROLLING RESTART TỪNG NODE (LUÂN PHIÊN)
@@ -454,6 +459,9 @@ while true; do
         echo -e "\n🔍 [KIỂM TRA XAPIAN RESTART] Kiểm tra tính toàn vẹn dữ liệu Xapian DB trên Node ${node_id} vừa thức dậy..."
         go run "${XAPIAN_TOOL}/main.go" --mode=verify-node --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
 
+        echo -e "\n🔍 [KIỂM TRA EVM RESTART] Kiểm tra tính toàn vẹn trạng thái EVM trên Node ${node_id} vừa thức dậy..."
+        go run "${EVM_TOOL}/main.go" --mode=verify-node --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}"
+
         echo "⚡ [Node ${node_id} VỪA THỨC DẬY] Bơm ${TX_COUNT} giao dịch toàn cụm, kiểm tra catch-up sync, sức khỏe toàn bộ node và Zero-Fork..."
         go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
 
@@ -462,6 +470,12 @@ while true; do
 
         echo "✍️  [BƠM GIAO DỊCH XAPIAN] Gửi giao dịch ghi Xapian qua Node ${node_id} sau khi thức dậy..."
         go run "${XAPIAN_TOOL}/main.go" --mode=write-doc --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
+
+        echo -e "\n📦 [DEPLOY EVM MỚI QUA NODE ${node_id}] Deploy contract EVM mới trực tiếp qua Node ${node_id} vừa thức dậy..."
+        go run "${EVM_TOOL}/main.go" --mode=setup --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}" --round="${current_loop}" --force-deploy
+
+        echo "✍️  [BƠM GIAO DỊCH EVM] Gửi giao dịch cập nhật State EVM qua Node ${node_id} sau khi thức dậy..."
+        go run "${EVM_TOOL}/main.go" --mode=write-state --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}"
 
         round=$((round + 1))
     done
@@ -491,6 +505,9 @@ while true; do
 
     echo "🌐 [XAPIAN CLUSTER VERIFY] Đối chiếu tính toàn vẹn và đồng nhất dữ liệu Xapian trên toàn bộ cụm sau Full Restart..."
     go run "${XAPIAN_TOOL}/main.go" --mode=verify-cluster --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
+
+    echo "🌐 [EVM CLUSTER VERIFY] Đối chiếu tính toàn vẹn và đồng nhất trạng thái EVM trên toàn bộ cụm sau Full Restart..."
+    go run "${EVM_TOOL}/main.go" --mode=verify-cluster --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}"
 
     # ------------------------------------------------------------------------------
     # BƯỚC 4: KIỂM TRA SỨC KHỎE TẤT CẢ CÁC NODE SAU VÒNG TEST

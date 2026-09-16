@@ -28,6 +28,8 @@ fi
 
 XAPIAN_TOOL="${SCRIPT_DIR}/../lib/xapian_tool"
 XAPIAN_CONTRACT_FILE="${SCRIPT_DIR}/../.xapian_recovery_contract.json"
+EVM_TOOL="${SCRIPT_DIR}/../lib/evm_tool"
+EVM_CONTRACT_FILE="${SCRIPT_DIR}/../.evm_recovery_contract.json"
 
 SPECIFIED_TARGET_NODE=""
 SNAPSHOT_URL=""
@@ -225,6 +227,69 @@ wait_node_online() {
 
     echo "❌ HẾT THỜI GIAN CHỜ: Node ${target} không phản hồi RPC sau ${max_wait}s!"
     return 1
+}
+
+wait_node_offline() {
+    local target_node="$1"
+    local max_wait=30
+    local waited=0
+    echo -n "⏳ Đang xác nhận Node ${target_node} đã dừng hoàn toàn (tối đa ${max_wait}s)... "
+
+    while [ $waited -lt $max_wait ]; do
+        local online_now=$(detect_online_nodes)
+        local is_online=false
+        for n in $online_now; do
+            if [ "$n" == "$target_node" ]; then
+                is_online=true
+                break
+            fi
+        done
+        if [ "$is_online" == "false" ]; then
+            echo "✅ Node ${target_node} đã DỪNG OFFLINE (sau ${waited}s)!"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    echo "❌ HẾT THỜI GIAN CHỜ: Node ${target_node} vẫn chưa dừng sau ${max_wait}s!"
+    return 1
+}
+
+print_snapshot_details() {
+    local target_node="$1"
+    python3 -c "
+import urllib.request, json, sys
+try:
+    with urllib.request.urlopen('${SNAPSHOT_URL}/api/snapshots', timeout=4) as resp:
+        if resp.status == 200:
+            data = json.loads(resp.read().decode())
+            if data and len(data) > 0:
+                latest = max(data, key=lambda x: int(x.get('block_number', 0)))
+                s_name = latest.get('snapshot_name', 'N/A')
+                s_block = latest.get('block_number', 'N/A')
+                s_epoch = latest.get('epoch', 'N/A')
+                s_created = latest.get('created_at', 'N/A')
+                s_size = latest.get('total_size_str', latest.get('size', 'N/A'))
+                s_root = latest.get('state_root', 'N/A')
+                s_chk = latest.get('metadata_checksum', 'N/A')
+                print('\n==========================================================')
+                print(f'📦 [THÔNG TIN BẢN SNAPSHOT ĐANG KHÔI PHỤC CHO NODE ${target_node}]')
+                print(f'   • Tên Snapshot   : {s_name}')
+                print(f'   • Block Height   : #{s_block}')
+                print(f'   • Epoch          : {s_epoch}')
+                print(f'   • Thời điểm tạo  : {s_created}')
+                print(f'   • Dung lượng     : {s_size}')
+                print(f'   • State Root     : {s_root}')
+                print(f'   • Checksum       : {s_chk}')
+                print(f'   • Nguồn Snapshot : ${SNAPSHOT_URL}')
+                print(f'   • Node khôi phục : Node ${target_node} (Validator)')
+                print('==========================================================\n')
+                sys.exit(0)
+    print(f'⚠️ Không lấy được chi tiết bản snapshot từ ${SNAPSHOT_URL}')
+except Exception as e:
+    print(f'⚠️ Lỗi truy vấn thông tin snapshot từ ${SNAPSHOT_URL}: {e}')
+"
 }
 
 # CONSENSUS READINESS: node_consensus_ready / wait_node_consensus_ready -- see
@@ -463,7 +528,7 @@ echo "🎯 Danh sách Candidate Nodes (CHỈ Validator Nodes, loại trừ Snaps
 LAST_SNAPSHOT_BLOCK=0
 
 # Xóa file lịch sử contract cũ khi bắt đầu một phiên chạy mới để tránh tồn đọng contract từ chain cũ đã bị reset
-rm -f "${XAPIAN_CONTRACT_FILE}"
+rm -f "${XAPIAN_CONTRACT_FILE}" "${EVM_CONTRACT_FILE}"
 
 for round_idx in $(seq 1 $LOOP_COUNT); do
     echo -e "\n=========================================================="
@@ -485,6 +550,10 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     # Nạp / cập nhật dữ liệu Xapian trên blockchain trước khi tạo bản snapshot mới
     echo -e "\n📦 [XAPIAN SETUP] Khởi tạo / deploy contract Xapian DB mới cho Vòng ${round_idx} trước khi chụp Snapshot..."
     go run "${XAPIAN_TOOL}/main.go" --mode=setup --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}" --round="${round_idx}" --force-deploy
+
+    # Nạp / cập nhật trạng thái hợp đồng EVM trên blockchain trước khi tạo bản snapshot mới
+    echo -e "\n📦 [EVM SETUP] Khởi tạo / deploy contract EVM State mới cho Vòng ${round_idx} trước khi chụp Snapshot..."
+    go run "${EVM_TOOL}/main.go" --mode=setup --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}" --round="${round_idx}" --force-deploy
 
     # BƯỚC 1: ĐẢM BẢO CÓ BẢN SNAPSHOT MỚI
     echo -e "\n📸 [BƯỚC 1/5] Chờ bản Snapshot MỚI trên server (Yêu cầu Block > ${LAST_SNAPSHOT_BLOCK})..."
@@ -524,13 +593,40 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
 
     # BƯỚC 2: KHÔI PHỤC DỮ LIỆU NODE ĐÍCH BẰNG ANSIBLE
     echo -e "\n=========================================================="
-    echo "🔄 [BƯỚC 2/5] KHÔI PHỤC NODE ${TARGET_NODE} TỪ SNAPSHOT ${SNAPSHOT_URL} BẰNG ANSIBLE"
+    echo "🔄 [BƯỚC 2/5] KHÔI PHỤC NODE ${TARGET_NODE} TỪ SNAPSHOT BẰNG ANSIBLE"
     echo "=========================================================="
     echo "🔕 Tạm thời bỏ qua giám sát Node ${TARGET_NODE} trong thời gian khôi phục snapshot..."
     mkdir -p /tmp
     echo "${TARGET_NODE}" > /tmp/monitors_ignore_nodes
 
-    echo "🚀 Thực thi ansible_deploy.sh với --restore-node ${TARGET_NODE}..."
+    # Hiển thị thông tin chi tiết bản snapshot cụ thể đang được khôi phục
+    print_snapshot_details "${TARGET_NODE}"
+
+    # 1. Dừng Node đích trước để kiểm chứng cụm còn lại vẫn hoạt động ổn định
+    echo "🔴 Dừng Node ${TARGET_NODE} trước khi khôi phục dữ liệu snapshot..."
+    "${ANSIBLE_DIR}/ansible_deploy.sh" --stop --only-node "${TARGET_NODE}"
+    wait_node_offline "${TARGET_NODE}" || {
+        echo "❌ LỖI: Node ${TARGET_NODE} không thể dừng hoàn toàn! Dừng bài test."
+        exit 1
+    }
+
+    # 2. Kiểm chứng gửi giao dịch lên các node còn lại trong lúc Node đích đang tắt/restore
+    # Đảm bảo các Validator còn lại (loại trừ Node đích và Snapshot Node) vẫn duy trì quorum 2f+1,
+    # tiếp tục commit block và tăng block height của chuỗi.
+    TOTAL_VAL=${#CANDIDATE_NODES[@]}
+    if [ "$TOTAL_VAL" -gt 2 ]; then
+        echo "⏳ Chờ 3s để các node còn lại ổn định round consensus sau khi Node ${TARGET_NODE} dừng..."
+        sleep 3
+        echo -e "\n⚡ [Node ${TARGET_NODE} ĐANG TẮT/RESTORE - Cụm Validator còn lại $((TOTAL_VAL - 1)) nodes online]"
+        echo "   👉 Gửi ${TX_COUNT} giao dịch phân bổ CHỈ qua các node đang online (loại trừ Node ${TARGET_NODE} và Snapshot Node)..."
+        go run main.go -count "${TX_COUNT}" -check-fork=true -require-all-alive=true -stopped-node="${TARGET_NODE}"
+        echo "   ✅ Các node còn lại xử lý giao dịch hoàn toàn bình thường khi Node ${TARGET_NODE} đang tắt!"
+    else
+        echo "ℹ️  Cụm có ${TOTAL_VAL} nodes Validator. Khi tắt Node ${TARGET_NODE} chỉ còn $((TOTAL_VAL - 1)) nodes (chưa đủ 2f+1 quorum), bỏ qua gửi giao dịch trong lúc dừng."
+    fi
+
+    # 3. Thực thi khôi phục snapshot cho Node đích bằng Ansible
+    echo -e "\n🚀 Thực thi ansible_deploy.sh với --restore-node ${TARGET_NODE}..."
     "${ANSIBLE_DIR}/ansible_deploy.sh" --only-node "${TARGET_NODE}" --restore-node "${TARGET_NODE}" --snapshot-url "${SNAPSHOT_URL}"
 
     # BƯỚC 3: CHỜ NODE ĐÍCH ONLINE VÀ ĐỒNG BỘ CATCH-UP
@@ -543,13 +639,21 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
     echo "📡 Kiểm tra đồng bộ catch-up của Node ${TARGET_NODE}..."
-    go run main.go -wait-sync-node "${TARGET_NODE}" -max-lag 5 -count 0
+    go run main.go -wait-sync-node "${TARGET_NODE}" -max-lag 1 -count 0
 
     wait_node_consensus_ready "${TARGET_NODE}"
+
+    # Xác nhận đồng bộ 100% chiều cao block giữa Node vừa khôi phục snapshot và các node còn lại
+    echo -e "\n🎯 [KIỂM CHỨNG ĐỒNG BỘ CHIỀU CAO & ZERO-FORK] Xác nhận Node ${TARGET_NODE} sau khi restore đã đồng bộ chiều cao 100% cùng toàn bộ các node..."
+    verify_equal_height_and_zero_fork "SAU KHI RESTORE SNAPSHOT (Node ${TARGET_NODE} đã catch-up đồng bộ chiều cao cùng cụm)" 240
 
     # KIỂM TRA TOÀN VẸN DỮ LIỆU XAPIAN TRÊN CHÍNH NODE VỪA KHÔI PHỤC
     echo -e "\n🔍 [KIỂM TRA XAPIAN RESTORE] Xác minh tính toàn vẹn dữ liệu Xapian DB trên Node ${TARGET_NODE} vừa khôi phục..."
     go run "${XAPIAN_TOOL}/main.go" --mode=verify-node --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
+
+    # KIỂM TRA TOÀN VẸN TRẠNG THÁI EVM TRÊN CHÍNH NODE VỪA KHÔI PHỤC
+    echo -e "\n🔍 [KIỂM TRA EVM RESTORE] Xác minh tính toàn vẹn trạng thái EVM trên Node ${TARGET_NODE} vừa khôi phục..."
+    go run "${EVM_TOOL}/main.go" --mode=verify-node --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}"
 
     # BƯỚC 4: BƠM GIAO DỊCH QUA CHÍNH NODE VỪA KHÔI PHỤC
     echo -e "\n=========================================================="
@@ -563,6 +667,12 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     echo "✍️  [BƠM GIAO DỊCH XAPIAN] Gửi giao dịch cập nhật Xapian trực tiếp qua Node ${TARGET_NODE}..."
     go run "${XAPIAN_TOOL}/main.go" --mode=write-doc --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
 
+    echo -e "\n📦 [DEPLOY EVM MỚI QUA NODE ${TARGET_NODE}] Deploy contract EVM mới trực tiếp qua Node ${TARGET_NODE} vừa khôi phục..."
+    go run "${EVM_TOOL}/main.go" --mode=setup --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}" --round="${round_idx}" --force-deploy
+
+    echo "✍️  [BƠM GIAO DỊCH EVM] Gửi giao dịch cập nhật State EVM trực tiếp qua Node ${TARGET_NODE}..."
+    go run "${EVM_TOOL}/main.go" --mode=write-state --target-node="${TARGET_NODE}" --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}"
+
     # BƯỚC 5: KIỂM CHỨNG TOÀN DIỆN TOÀN CỤM & 100% ZERO-FORK
     echo -e "\n=========================================================="
     echo "🏆 [BƯỚC 5/5] KIỂM TRA SỨC KHỎE CẢ CỤM & XÁC NHẬN 100% ZERO-FORK"
@@ -571,6 +681,9 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
 
     echo "🌐 [XAPIAN CLUSTER VERIFY] Đối chiếu tính toàn vẹn và đồng nhất dữ liệu Xapian trên toàn bộ các node..."
     go run "${XAPIAN_TOOL}/main.go" --mode=verify-cluster --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
+
+    echo "🌐 [EVM CLUSTER VERIFY] Đối chiếu tính toàn vẹn và đồng nhất trạng thái EVM trên toàn bộ các node..."
+    go run "${EVM_TOOL}/main.go" --mode=verify-cluster --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}"
 
     # KIỂM CHỨNG CUỐI ROUND: Đảm bảo toàn bộ node (bao gồm node vừa khôi phục) đã hội tụ bằng nhau & Zero-Fork
     verify_equal_height_and_zero_fork "CUỐI VÒNG ${round_idx}/${LOOP_COUNT} (Sau khi khôi phục Node ${TARGET_NODE})" 240
