@@ -432,10 +432,10 @@ func convertToType(t abi.Type, val interface{}) (interface{}, error) {
 func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId int64, fromAddress common.Address, bytecode []byte, timeout time.Duration) (*common.Address, error) {
 	fmt.Println("▶️  Chạy eth_sendRawTransaction (DEPLOY CONTRACT)...")
 
-	// nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("Lỗi lấy nonce: %v", err)
-	// }
+	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		return nil, fmt.Errorf("Lỗi lấy nonce: %v", err)
+	}
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("Lỗi lấy gas price: %v", err)
@@ -454,7 +454,7 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 		gasLimit += 500000
 	}
 
-	tx := types.NewContractCreation(23, big.NewInt(0), gasLimit, gasPrice, bytecode)
+	tx := types.NewContractCreation(nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
 	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainId)), privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("Lỗi ký transaction: %v", err)
