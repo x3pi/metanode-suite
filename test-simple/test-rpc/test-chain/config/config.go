@@ -19,14 +19,18 @@ type ContractData struct {
 type PrivateChainConfig struct {
 	ChainID     int64             `json:"chain_id"`
 	RPCUrl      string            `json:"rpc_url"`
+	WSUrl       string            `json:"ws_url,omitempty"`
 	PrivateKeys []string          `json:"private_keys"`
 	RPCNodes    map[string]string `json:"rpc_nodes"`
+	WSNodes     map[string]string `json:"ws_nodes,omitempty"`
 	TCPNodes    map[string]string `json:"tcp_nodes,omitempty"`
 }
 
 type Config struct {
 	RPCUrl                  string                        `json:"rpc_url"`
+	WSUrl                   string                        `json:"ws_url,omitempty"`
 	RPCNodes                map[string]string             `json:"rpc_nodes"`
+	WSNodes                 map[string]string             `json:"ws_nodes,omitempty"`
 	StateHistoryNodes       map[string]string             `json:"state_history_nodes,omitempty"`
 	TCPNode                 string                        `json:"tcp_node,omitempty"`
 	TCPNodes                map[string]string             `json:"tcp_nodes,omitempty"`
@@ -138,16 +142,47 @@ func LoadConfig(configPath string) (*Config, error) {
 			if realChainID, err := client.ChainID(context.Background()); err == nil && realChainID != nil {
 				cfg.ChainID = realChainID.Int64()
 			}
-			client.Close()
+		}
+	}
+	// 4. Tự động suy luận WSUrl / WSNodes nếu chưa có
+	if cfg.WSUrl == "" && cfg.RPCUrl != "" {
+		cfg.WSUrl = DeriveWSUrl(cfg.RPCUrl)
+	}
+	if len(cfg.WSNodes) == 0 && len(cfg.RPCNodes) > 0 {
+		cfg.WSNodes = make(map[string]string, len(cfg.RPCNodes))
+		for k, v := range cfg.RPCNodes {
+			cfg.WSNodes[k] = DeriveWSUrl(v)
 		}
 	}
 
 	return &cfg, nil
 }
 
+// DeriveWSUrl converts an HTTP/HTTPS RPC URL to a WS/WSS URL with /ws path.
+func DeriveWSUrl(httpURL string) string {
+	httpURL = strings.TrimSpace(httpURL)
+	if httpURL == "" {
+		return ""
+	}
+	if strings.HasPrefix(httpURL, "ws://") || strings.HasPrefix(httpURL, "wss://") {
+		return httpURL
+	}
+	ws := strings.Replace(httpURL, "http://", "ws://", 1)
+	ws = strings.Replace(ws, "https://", "wss://", 1)
+	if !strings.HasSuffix(ws, "/ws") {
+		ws = strings.TrimRight(ws, "/") + "/ws"
+	}
+	return ws
+}
+
 func applyPrivateChain(cfg *Config, name string, pChain PrivateChainConfig) {
 	if pChain.RPCUrl != "" {
 		cfg.RPCUrl = pChain.RPCUrl
+	}
+	if pChain.WSUrl != "" {
+		cfg.WSUrl = pChain.WSUrl
+	} else if pChain.RPCUrl != "" {
+		cfg.WSUrl = DeriveWSUrl(pChain.RPCUrl)
 	}
 	if pChain.ChainID != 0 {
 		cfg.ChainID = pChain.ChainID
@@ -165,6 +200,14 @@ func applyPrivateChain(cfg *Config, name string, pChain PrivateChainConfig) {
 	} else {
 		cfg.RPCNodes = map[string]string{
 			name: cfg.RPCUrl,
+		}
+	}
+	if len(pChain.WSNodes) > 0 {
+		cfg.WSNodes = pChain.WSNodes
+	} else if len(cfg.RPCNodes) > 0 {
+		cfg.WSNodes = make(map[string]string, len(cfg.RPCNodes))
+		for k, v := range cfg.RPCNodes {
+			cfg.WSNodes[k] = DeriveWSUrl(v)
 		}
 	}
 	if len(pChain.TCPNodes) > 0 {

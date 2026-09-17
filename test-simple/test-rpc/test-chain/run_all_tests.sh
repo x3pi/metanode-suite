@@ -38,6 +38,7 @@ TESTS=(
     "31-mixed-all-types-block"
     "32-xapian-parallel-stress"
     "33-state-history"
+    "34-ws-contract-call"
 )
 
 # Xử lý tham số truyền vào: --chain=<tên_chain> hoặc --gotest

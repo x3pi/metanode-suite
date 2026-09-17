@@ -86,15 +86,19 @@ try:
         out_simple['tcp_nodes'][cid_str] = f'{ip}:{4200 + p_offset}'
 
         c_rpc_nodes = {}
+        c_ws_nodes = {}
         c_tcp_nodes = {}
         for v in range(num_vals):
             c_rpc_nodes[f'm{v}'] = f'http://{ip}:{rpc_port + v}'
+            c_ws_nodes[f'm{v}'] = f'ws://{ip}:{rpc_port + v}/ws'
             c_tcp_nodes[f'm{v}'] = f'{ip}:{4200 + p_offset + v}'
 
         out_simple['chain_nodes'][cid_str] = {
             'validators': num_vals,
             'rpc_url': f'http://{ip}:{rpc_port}',
+            'ws_url': f'ws://{ip}:{rpc_port}/ws',
             'rpc_nodes': c_rpc_nodes,
+            'ws_nodes': c_ws_nodes,
             'tcp_nodes': c_tcp_nodes
         }
 
@@ -278,7 +282,9 @@ tcp_nodes_map = c_info.get('tcp_nodes', {'m0': '$P_M0_TCP'})
 cfg['target_chain'] = '$TARGET_NAME'
 cfg['chain_id'] = int(cid_str)
 cfg['rpc_url'] = '$P_M0_RPC'
+cfg['ws_url'] = c_info.get('ws_url', '$P_M0_RPC'.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws')
 cfg['rpc_nodes'] = rpc_nodes_map
+cfg['ws_nodes'] = c_info.get('ws_nodes', {k: v.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws' for k, v in rpc_nodes_map.items()})
 cfg['tcp_nodes'] = tcp_nodes_map
 cfg['tcp_node'] = '$P_M0_TCP'
 cfg.pop('tcp_url', None)
@@ -304,18 +310,24 @@ for cid, rpc_url in nodes.items():
     c_name = name_map.get(str(cid), f'chain_{cid}')
     cur_info = chain_nodes.get(str(cid), {})
     cur_rpc_map = cur_info.get('rpc_nodes', {'m0': rpc_url})
+    cur_ws_url = cur_info.get('ws_url', rpc_url.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws')
+    cur_ws_map = cur_info.get('ws_nodes', {k: v.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws' for k, v in cur_rpc_map.items()})
     cur_tcp_map = cur_info.get('tcp_nodes', {'m0': p_data.get('tcp_nodes', {}).get(str(cid), '')})
 
     if c_name in cfg['private_chains']:
         cfg['private_chains'][c_name]['chain_id'] = int(cid)
         cfg['private_chains'][c_name]['rpc_url'] = rpc_url
+        cfg['private_chains'][c_name]['ws_url'] = cur_ws_url
         cfg['private_chains'][c_name]['rpc_nodes'] = cur_rpc_map
+        cfg['private_chains'][c_name]['ws_nodes'] = cur_ws_map
         cfg['private_chains'][c_name]['tcp_nodes'] = cur_tcp_map
     else:
         cfg['private_chains'][c_name] = {
             'chain_id': int(cid),
             'rpc_url': rpc_url,
+            'ws_url': cur_ws_url,
             'rpc_nodes': cur_rpc_map,
+            'ws_nodes': cur_ws_map,
             'tcp_nodes': cur_tcp_map,
             'private_keys': []
         }
@@ -436,6 +448,7 @@ else
         echo "Updating $FILE6 using RPC & TCP Nodes (Unified Single Source of Truth)..."
         
         new_rpc_url=$(jq -r '((.nodes.m0 // (.nodes | to_entries[0].value // "")) // "")' "$RPC_NODES_FILE")
+        new_ws_url=$(jq -r '((.ws_nodes.m0 // (.ws_nodes | to_entries[0].value // "")) // "")' "$RPC_NODES_FILE")
         new_parent=$(jq -r '((.tcp_nodes.m0 // (.tcp_nodes | to_entries[0].value // "")) // "")' "$RPC_NODES_FILE")
         new_rpc_0=$(jq -r '((.nodes.m0 // (.nodes | to_entries[0].value // "")) // "") | sub("^https?://"; "")' "$RPC_NODES_FILE")
 
@@ -465,12 +478,13 @@ else
         fi
 
         jq --arg r "$new_rpc_url" \
+           --arg ws "$new_ws_url" \
            --arg p "$new_parent" --arg r0 "$new_rpc_0" \
            --arg c1 "$new_conn_1" --arg r1 "$new_rpc_1" \
            --arg c2 "$new_conn_2" --arg r2 "$new_rpc_2" \
            --arg c3 "$new_conn_3" --arg r3 "$new_rpc_3" \
            --slurpfile rpc "$RPC_NODES_FILE" \
-           'del(.all_nodes, .roles, .tcp_url) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .state_history_nodes = ($rpc[0].state_history_nodes // ($rpc[0].rpc_nodes // {})) | .rpc_nodes = (if ($rpc[0].rpc_nodes != null and ($rpc[0].rpc_nodes | length > 0)) then $rpc[0].rpc_nodes else ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) end) | .tcp_nodes = ($rpc[0].tcp_nodes // {}) | .tcp_node = (if $p != "" then $p else (.tcp_nodes.m0 // (.tcp_nodes | to_entries[0].value // .tcp_node // "")) end) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly"))) | .parent_connection_address = $p | .rpc_0 = $r0 | (if $c1 != "" then .connection_node_1 = $c1 else del(.connection_node_1) end) | (if $r1 != "" then .rpc_1 = $r1 else del(.rpc_1) end) | (if $c2 != "" then .connection_node_2 = $c2 else del(.connection_node_2) end) | (if $r2 != "" then .rpc_2 = $r2 else del(.rpc_2) end) | (if $c3 != "" then .connection_node_3 = $c3 else del(.connection_node_3) end) | (if $r3 != "" then .rpc_3 = $r3 else del(.rpc_3) end) | .parent_address = (.parent_address // "0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041") | .parent_connection_type = "client" | .version = "0.0.1.0" | .private_key = (if .private_key != "" and .private_key != null then .private_key else "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b" end)' \
+           'del(.all_nodes, .roles, .tcp_url) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .ws_url = (if $ws != "" then $ws else (.rpc_url | sub("^http://"; "ws://") | sub("^https://"; "wss://") + "/ws") end) | .state_history_nodes = ($rpc[0].state_history_nodes // ($rpc[0].rpc_nodes // {})) | .rpc_nodes = (if ($rpc[0].rpc_nodes != null and ($rpc[0].rpc_nodes | length > 0)) then $rpc[0].rpc_nodes else ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) end) | .ws_nodes = (if ($rpc[0].ws_nodes != null and ($rpc[0].ws_nodes | length > 0)) then $rpc[0].ws_nodes else (.rpc_nodes | with_entries(.value |= (sub("^http://"; "ws://") | sub("^https://"; "wss://") + "/ws"))) end) | .tcp_nodes = ($rpc[0].tcp_nodes // {}) | .tcp_node = (if $p != "" then $p else (.tcp_nodes.m0 // (.tcp_nodes | to_entries[0].value // .tcp_node // "")) end) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly"))) | .parent_connection_address = $p | .rpc_0 = $r0 | (if $c1 != "" then .connection_node_1 = $c1 else del(.connection_node_1) end) | (if $r1 != "" then .rpc_1 = $r1 else del(.rpc_1) end) | (if $c2 != "" then .connection_node_2 = $c2 else del(.connection_node_2) end) | (if $r2 != "" then .rpc_2 = $r2 else del(.rpc_2) end) | (if $c3 != "" then .connection_node_3 = $c3 else del(.connection_node_3) end) | (if $r3 != "" then .rpc_3 = $r3 else del(.rpc_3) end) | .parent_address = (.parent_address // "0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041") | .parent_connection_type = "client" | .version = "0.0.1.0" | .private_key = (if .private_key != "" and .private_key != null then .private_key else "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b" end)' \
            "$FILE6" > "${FILE6}.tmp" && mv "${FILE6}.tmp" "$FILE6"
 
         if [ -f "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json" ] && [ ! -L "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json" ]; then
@@ -498,17 +512,23 @@ for cid, rpc_url in nodes.items():
     c_info = chain_nodes.get(str(cid), {})
     rpc_nodes_map = c_info.get('rpc_nodes', {'m0': rpc_url})
     tcp_nodes_map = c_info.get('tcp_nodes', {})
+    ws_url = c_info.get('ws_url', rpc_url.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws')
+    ws_nodes_map = c_info.get('ws_nodes', {k: v.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws' for k, v in rpc_nodes_map.items()})
 
     if c_name in cfg['private_chains']:
         cfg['private_chains'][c_name]['chain_id'] = int(cid)
         cfg['private_chains'][c_name]['rpc_url'] = rpc_url
+        cfg['private_chains'][c_name]['ws_url'] = ws_url
         cfg['private_chains'][c_name]['rpc_nodes'] = rpc_nodes_map
+        cfg['private_chains'][c_name]['ws_nodes'] = ws_nodes_map
         cfg['private_chains'][c_name]['tcp_nodes'] = tcp_nodes_map
     else:
         cfg['private_chains'][c_name] = {
             'chain_id': int(cid),
             'rpc_url': rpc_url,
+            'ws_url': ws_url,
             'rpc_nodes': rpc_nodes_map,
+            'ws_nodes': ws_nodes_map,
             'tcp_nodes': tcp_nodes_map,
             'private_keys': []
         }
