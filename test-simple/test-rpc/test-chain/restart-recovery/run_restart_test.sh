@@ -358,6 +358,23 @@ start_time = time.time()
 equal_height = False
 final_heights = {}
 
+# STABILITY REQUIREMENT (2026-09-17): a node still fast-forwarding through a large
+# replay/catch-up backlog (e.g. a SyncOnly node right after restart, draining its own
+# SNAPSHOT-RESUME queue) can momentarily report the SAME eth_blockNumber as the rest of
+# the cluster for exactly one 3s sampling window, purely by coincidence of timing, while
+# still actively climbing and NOT actually settled/caught-up -- the old code treated that
+# single lucky sample as proof of convergence and moved on immediately. Reproduced live:
+# a newly-added SyncOnly node (m4) matched cluster height for one poll while its own
+# backend (NOMT/AccountBatch application) was still visibly behind moments later, and a
+# contract-deploy transaction sent right after through that node then sat unconfirmed for
+# a full 2-minute timeout. Fix: require the SAME set of heights to hold for
+# STABLE_ROUNDS_REQUIRED consecutive polls (each 3s apart) before declaring convergence --
+# a node still actively catching up will not coincidentally match 3 times in a row, while
+# a genuinely idle/converged cluster (the common case) pays only a few extra seconds.
+STABLE_ROUNDS_REQUIRED = 3
+stable_rounds = 0
+last_stable_vals = None
+
 while time.time() - start_time < timeout_sec:
     elapsed = int(time.time() - start_time)
     heights = {}
@@ -380,13 +397,27 @@ while time.time() - start_time < timeout_sec:
 
     final_heights = heights
     status_parts = [f"{k}: #{v if v is not None else 'DEAD'}" for k, v in heights.items()]
-    print(f"   [{elapsed}s/{timeout_sec}s] Chiều cao hiện tại: {' | '.join(status_parts)}")
 
     if all_ok and len(heights) == len(all_nodes):
         vals = list(heights.values())
-        if len(set(vals)) == 1:
-            equal_height = True
-            break
+        if len(set(vals)) == 1 and vals[0] == last_stable_vals:
+            stable_rounds += 1
+        elif len(set(vals)) == 1:
+            stable_rounds = 1
+            last_stable_vals = vals[0]
+        else:
+            stable_rounds = 0
+            last_stable_vals = None
+    else:
+        stable_rounds = 0
+        last_stable_vals = None
+
+    print(f"   [{elapsed}s/{timeout_sec}s] Chiều cao hiện tại: {' | '.join(status_parts)}"
+          + (f"  (ổn định {stable_rounds}/{STABLE_ROUNDS_REQUIRED})" if stable_rounds > 0 else ""))
+
+    if stable_rounds >= STABLE_ROUNDS_REQUIRED:
+        equal_height = True
+        break
 
     time.sleep(3)
 
