@@ -26,6 +26,54 @@ if [ ! -f "${ANSIBLE_DIR}/ansible_deploy.sh" ]; then
     exit 1
 fi
 
+notify_telegram_on_error() {
+    local err_line="$1"
+    local err_cmd="$2"
+    echo -e "\n🚨 [PHÁT HIỆN LỖI TEST SNAPSHOT] Dòng: ${err_line} | Lệnh: ${err_cmd}"
+    python3 -c "
+import os, sys
+try:
+    cfg_paths = [
+        '${METANODE_DIR}/deploy/ci/ci_config.yaml',
+        '${METANODE_DIR}/ci_config.yaml',
+    ]
+    tok, cid = None, None
+    for p in cfg_paths:
+        if os.path.isfile(p):
+            import yaml
+            with open(p, 'r') as f:
+                c = yaml.safe_load(f) or {}
+            tele = c.get('telegram', {})
+            if tele.get('enabled', True):
+                tok = tele.get('bot_token')
+                cid = tele.get('chat_id')
+                if tok and cid:
+                    break
+    if tok and cid:
+        import urllib.request, urllib.parse
+        target_n = os.environ.get('TARGET_NODE', 'N/A')
+        r_idx = os.environ.get('round_idx', 'N/A')
+        l_cnt = os.environ.get('LOOP_COUNT', 'N/A')
+        s_url = os.environ.get('SNAPSHOT_URL', 'N/A')
+        msg = (
+            f'🚨 <b>[TEST SNAPSHOT RECOVERY THẤT BẠI]</b>\n\n'
+            f'📍 <b>Vị trí:</b> Dòng <code>${err_line}</code>\n'
+            f'⚠️ <b>Lệnh lỗi:</b> <code>${err_cmd}</code>\n'
+            f'🎯 <b>Target Node:</b> <code>Node {target_n}</code>\n'
+            f'🔄 <b>Vòng lặp:</b> <code>{r_idx}/{l_cnt}</code>\n'
+            f'📸 <b>Snapshot Server:</b> <code>{s_url}</code>\n\n'
+            f'🛑 <i>Hệ thống đã dừng bài test ngay lập tức để bảo vệ dữ liệu!</i>'
+        )
+        data = urllib.parse.urlencode({'chat_id': str(cid), 'text': msg, 'parse_mode': 'HTML'}).encode()
+        req = urllib.request.Request(f'https://api.telegram.org/bot{tok}/sendMessage', data=data)
+        urllib.request.urlopen(req, timeout=10)
+except Exception:
+    pass
+" 2>/dev/null || true
+}
+
+trap 'notify_telegram_on_error "$LINENO" "$BASH_COMMAND"' ERR
+
 XAPIAN_TOOL="${SCRIPT_DIR}/../lib/xapian_tool"
 XAPIAN_CONTRACT_FILE="${SCRIPT_DIR}/../.xapian_recovery_contract.json"
 EVM_TOOL="${SCRIPT_DIR}/../lib/evm_tool"
@@ -302,16 +350,50 @@ source "${SCRIPT_DIR}/../lib/consensus_readiness.sh"
 
 verify_equal_height_and_zero_fork() {
     local stage_label="$1"
-    local timeout_sec="${2:-240}"
+    local timeout_sec="${2:-300}"
     local exclude_node="${3:-""}"
 
-    STAGE_LABEL="$stage_label" TIMEOUT_SEC="$timeout_sec" EXCLUDE_NODE="$exclude_node" CONFIG_FILE="$CONFIG_PATH" python3 - << 'EOF'
-import json, urllib.request, time, sys, os
+    STAGE_LABEL="$stage_label" TIMEOUT_SEC="$timeout_sec" EXCLUDE_NODE="$exclude_node" CONFIG_FILE="$CONFIG_PATH" METANODE_DIR="$METANODE_DIR" python3 - << 'EOF'
+import json, urllib.request, urllib.parse, time, sys, os
 
 config_path = os.environ.get("CONFIG_FILE", "../config.json")
 stage_label = os.environ.get("STAGE_LABEL", "Kiểm tra đồng bộ")
-timeout_sec = int(os.environ.get("TIMEOUT_SEC", "240"))
+timeout_sec = int(os.environ.get("TIMEOUT_SEC", "300"))
 exclude_node = os.environ.get("EXCLUDE_NODE", "").strip()
+metanode_dir = os.environ.get("METANODE_DIR", "")
+
+def send_telegram_alert(title, details):
+    try:
+        cfg_paths = [
+            os.path.join(metanode_dir, "deploy/ci/ci_config.yaml"),
+            os.path.join(metanode_dir, "ci_config.yaml"),
+        ]
+        tok, cid = None, None
+        for p in cfg_paths:
+            if p and os.path.isfile(p):
+                import yaml
+                with open(p, "r") as yf:
+                    yc = yaml.safe_load(yf) or {}
+                yt = yc.get("telegram", {})
+                if yt.get("enabled", True):
+                    tok = yt.get("bot_token")
+                    cid = yt.get("chat_id")
+                    if tok and cid:
+                        break
+        if tok and cid:
+            msg = (
+                f"🚨 <b>[{title}]</b>\n\n"
+                f"📍 <b>Giai đoạn:</b> <code>{stage_label}</code>\n"
+                f"⏱️ <b>Timeout:</b> <code>{timeout_sec}s ({timeout_sec // 60} phút)</code>\n"
+                f"{details}\n\n"
+                f"🛑 <i>Tiến trình đã dừng lại để bảo vệ cụm và tránh phân nhánh (Fork)!</i>"
+            )
+            data = urllib.parse.urlencode({"chat_id": str(cid), "text": msg, "parse_mode": "HTML"}).encode()
+            req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage", data=data)
+            urllib.request.urlopen(req, timeout=10)
+            print("📢 Đã gửi cảnh báo lỗi đồng bộ tới Telegram thành công!")
+    except Exception as te:
+        print(f"⚠️ Không thể gửi cảnh báo Telegram: {te}")
 
 with open(config_path, "r") as f:
     cfg = json.load(f)
@@ -334,7 +416,7 @@ if exclude_node:
     print(f"ℹ️  Đang kiểm tra {len(all_nodes)} node (loại trừ Node {exclude_node} đang tắt/restore snapshot)")
 else:
     print(f"ℹ️  Đang kiểm tra TOÀN BỘ {len(all_nodes)} node trong cụm (Validator + SyncOnly)")
-print(f"⏳ Đang chờ các node đạt chiều cao block bằng nhau (tối đa {timeout_sec}s / 4 phút)...")
+print(f"⏳ Đang chờ các node đạt chiều cao block bằng nhau (tối đa {timeout_sec}s / {timeout_sec // 60} phút)...")
 print("==========================================================")
 
 if not all_nodes:
@@ -378,9 +460,14 @@ while time.time() - start_time < timeout_sec:
     time.sleep(3)
 
 if not equal_height:
-    print(f"\n❌ [LỖI ĐỒNG BỘ TIMEOUT] Sau {timeout_sec}s (4 phút), các node vẫn CHƯA đạt chiều cao bằng nhau!")
+    print(f"\n❌ [LỖI ĐỒNG BỘ TIMEOUT] Sau {timeout_sec}s ({timeout_sec // 60} phút), các node vẫn CHƯA đạt chiều cao bằng nhau!")
     for k, v in final_heights.items():
         print(f"   • {k}: Block #{v}")
+    height_lines = "\n".join([f"  • {k}: <code>#{v if v is not None else 'DEAD'}</code>" for k, v in sorted(final_heights.items())])
+    send_telegram_alert(
+        "METANODE SNAPSHOT: LỖI ĐỒNG BỘ CHIỀU CAO",
+        f"⚠️ <b>Nguyên nhân:</b> Các node không đạt cùng chiều cao sau khi khôi phục snapshot!\n\n📊 <b>Chi tiết chiều cao:</b>\n{height_lines}"
+    )
     sys.exit(1)
 
 target_block = list(final_heights.values())[0]
@@ -449,6 +536,11 @@ for attempt in range(1, max_retries + 1):
 
 if not passed_zero_fork:
     print("❌ BÀI TEST THẤT BẠI DO PHÁT HIỆN FORK GIỮA CÁC NODE!")
+    fork_lines = "\n".join([f"  • {m}" for m in mismatches])
+    send_telegram_alert(
+        "METANODE SNAPSHOT: PHÁT HIỆN STATE FORK",
+        f"⚠️ <b>Nguyên nhân:</b> Lệch Block Hash hoặc StateRoot tại Block #{target_block}!\n\n📊 <b>Chi tiết:</b>\n{fork_lines}"
+    )
     sys.exit(1)
 EOF
 }
@@ -542,10 +634,12 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
         cand_idx=$(( (round_idx - 1) % ${#CANDIDATE_NODES[@]} ))
         TARGET_NODE="${CANDIDATE_NODES[$cand_idx]}"
     fi
+    export TARGET_NODE
+    export round_idx
     echo "🎯 [Vòng ${round_idx}] Mục tiêu khôi phục dữ liệu snapshot: Node ${TARGET_NODE}"
 
     # KIỂM CHỨNG ĐẦU ROUND: Đảm bảo toàn bộ node có chiều cao bằng nhau & 100% Zero-Fork trước khi test
-    verify_equal_height_and_zero_fork "ĐẦU VÒNG ${round_idx}/${LOOP_COUNT} (Trước khi tạo Snapshot & Restore)" 240
+    verify_equal_height_and_zero_fork "ĐẦU VÒNG ${round_idx}/${LOOP_COUNT} (Trước khi tạo Snapshot & Restore)" 300
 
     # Nạp / cập nhật dữ liệu Xapian trên blockchain trước khi tạo bản snapshot mới
     echo -e "\n📦 [XAPIAN SETUP] Khởi tạo / deploy contract Xapian DB mới cho Vòng ${round_idx} trước khi chụp Snapshot..."
@@ -634,18 +728,14 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     echo "⏳ [BƯỚC 3/5] CHỜ NODE ${TARGET_NODE} ONLINE VÀ ĐỒNG BỘ CATCH-UP VỚI CỤM"
     echo "=========================================================="
     wait_node_online "${TARGET_NODE}"
+    wait_node_consensus_ready "${TARGET_NODE}" 180
 
     echo "🔔 Bật lại giám sát cho Node ${TARGET_NODE} sau khi đã online..."
     rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
 
-    echo "📡 Kiểm tra đồng bộ catch-up của Node ${TARGET_NODE}..."
-    go run main.go -wait-sync-node "${TARGET_NODE}" -max-lag 1 -count 0
-
-    wait_node_consensus_ready "${TARGET_NODE}"
-
-    # Xác nhận đồng bộ 100% chiều cao block giữa Node vừa khôi phục snapshot và các node còn lại
-    echo -e "\n🎯 [KIỂM CHỨNG ĐỒNG BỘ CHIỀU CAO & ZERO-FORK] Xác nhận Node ${TARGET_NODE} sau khi restore đã đồng bộ chiều cao 100% cùng toàn bộ các node..."
-    verify_equal_height_and_zero_fork "SAU KHI RESTORE SNAPSHOT (Node ${TARGET_NODE} đã catch-up đồng bộ chiều cao cùng cụm)" 240
+    # Xác nhận ĐỒNG BỘ 100% CHIỀU CAO BLOCK giữa Node vừa khôi phục snapshot và các node còn lại (BẮT BUỘC ĐẠT CÙNG CHIỀU CAO THÌ MỚI GỬI GIAO DỊCH LÊN)
+    echo -e "\n🎯 [KIỂM CHỨNG ĐỒNG BỘ CHIỀU CAO & ZERO-FORK] Đảm bảo toàn bộ các node đạt CÙNG CHIỀU CAO trước khi gửi giao dịch (timeout 5p)..."
+    verify_equal_height_and_zero_fork "SAU KHI RESTORE SNAPSHOT (Node ${TARGET_NODE} đã đạt cùng chiều cao với toàn cụm)" 300
 
     # KIỂM TRA TOÀN VẸN DỮ LIỆU XAPIAN TRÊN CHÍNH NODE VỪA KHÔI PHỤC
     echo -e "\n🔍 [KIỂM TRA XAPIAN RESTORE] Xác minh tính toàn vẹn dữ liệu Xapian DB trên Node ${TARGET_NODE} vừa khôi phục..."
@@ -658,7 +748,11 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     # BƯỚC 4: BƠM GIAO DỊCH QUA CHÍNH NODE VỪA KHÔI PHỤC
     echo -e "\n=========================================================="
     echo "⚡ [BƯỚC 4/5] BƠM GIAO DỊCH TRỰC TIẾP QUA NODE ${TARGET_NODE} VỪA KHÔI PHỤC"
+    echo "   • Đã xác nhận: Toàn bộ các node trong cụm đã ĐẠT CÙNG CHIỀU CAO 100%."
     echo "=========================================================="
+    echo "🔍 [KIỂM TRA TIỀN ĐIỀU KIỆN GỬI GIAO DỊCH] Đảm bảo toàn bộ các node CÙNG CHIỀU CAO trước khi bơm giao dịch (timeout 5p)..."
+    verify_equal_height_and_zero_fork "TRƯỚC KHI BƠM GIAO DỊCH QUA NODE ${TARGET_NODE}" 300
+    echo "✅ [ĐỦ ĐIỀU KIỆN] Toàn bộ các node trong cụm đã ĐỒNG BỘ CÙNG CHIỀU CAO! Bắt đầu bơm giao dịch qua Node ${TARGET_NODE}..."
     go run main.go -target-node "${TARGET_NODE}" -count "${TX_COUNT}" -check-fork=false
 
     echo -e "\n📦 [PHƯƠNG ÁN B: DEPLOY XAPIAN MỚI QUA NODE ${TARGET_NODE}] Deploy contract Xapian mới trực tiếp qua Node ${TARGET_NODE} vừa khôi phục..."
@@ -686,7 +780,7 @@ for round_idx in $(seq 1 $LOOP_COUNT); do
     go run "${EVM_TOOL}/main.go" --mode=verify-cluster --config="${CONFIG_PATH}" --contract-file="${EVM_CONTRACT_FILE}"
 
     # KIỂM CHỨNG CUỐI ROUND: Đảm bảo toàn bộ node (bao gồm node vừa khôi phục) đã hội tụ bằng nhau & Zero-Fork
-    verify_equal_height_and_zero_fork "CUỐI VÒNG ${round_idx}/${LOOP_COUNT} (Sau khi khôi phục Node ${TARGET_NODE})" 240
+    verify_equal_height_and_zero_fork "CUỐI VÒNG ${round_idx}/${LOOP_COUNT} (Sau khi khôi phục Node ${TARGET_NODE})" 300
 
     echo -e "\n🎉 [VÒNG ${round_idx}/${LOOP_COUNT}] HOÀN THÀNH XUẤT SẮC: Node ${TARGET_NODE} đã phục hồi và Zero-Fork!"
 

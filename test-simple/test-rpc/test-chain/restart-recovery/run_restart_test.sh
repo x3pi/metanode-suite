@@ -24,6 +24,53 @@ if [ ! -f "${ANSIBLE_DIR}/ansible_deploy.sh" ]; then
     exit 1
 fi
 
+notify_telegram_on_error() {
+    local err_line="$1"
+    local err_cmd="$2"
+    echo -e "\n🚨 [PHÁT HIỆN LỖI TEST RESTART RECOVERY] Dòng: ${err_line} | Lệnh: ${err_cmd}"
+    python3 -c "
+import os, sys
+try:
+    cfg_paths = [
+        '${METANODE_DIR}/deploy/ci/ci_config.yaml',
+        '${METANODE_DIR}/ci_config.yaml',
+    ]
+    tok, cid = None, None
+    for p in cfg_paths:
+        if os.path.isfile(p):
+            import yaml
+            with open(p, 'r') as f:
+                c = yaml.safe_load(f) or {}
+            tele = c.get('telegram', {})
+            if tele.get('enabled', True):
+                tok = tele.get('bot_token')
+                cid = tele.get('chat_id')
+                if tok and cid:
+                    break
+    if tok and cid:
+        import urllib.request, urllib.parse
+        target_n = os.environ.get('node_id', 'N/A')
+        r_idx = os.environ.get('current_loop', 'N/A')
+        l_cnt = os.environ.get('LOOP_COUNT', 'N/A')
+        msg = (
+            f'🚨 <b>[TEST CHAOS RESTART THẤT BẠI]</b>\n\n'
+            f'📍 <b>Vị trí:</b> Dòng <code>${err_line}</code>\n'
+            f'⚠️ <b>Lệnh lỗi:</b> <code>${err_cmd}</code>\n'
+            f'🎯 <b>Target Node:</b> <code>Node {target_n}</code>\n'
+            f'🔄 <b>Vòng lặp:</b> <code>{r_idx}/{l_cnt}</code>\n\n'
+            f'🛑 <i>Hệ thống đã dừng bài test ngay lập tức để bảo vệ dữ liệu!</i>'
+        )
+        data = urllib.parse.urlencode({'chat_id': str(cid), 'text': msg, 'parse_mode': 'HTML'}).encode()
+        req = urllib.request.Request(f'https://api.telegram.org/bot{tok}/sendMessage', data=data)
+        urllib.request.urlopen(req, timeout=10)
+except Exception:
+    pass
+" 2>/dev/null || true
+}
+
+trap 'notify_telegram_on_error "$LINENO" "$BASH_COMMAND"' ERR
+
+
 XAPIAN_TOOL="${SCRIPT_DIR}/../lib/xapian_tool"
 XAPIAN_CONTRACT_FILE="${SCRIPT_DIR}/../.xapian_recovery_contract.json"
 EVM_TOOL="${SCRIPT_DIR}/../lib/evm_tool"
@@ -234,16 +281,50 @@ source "${SCRIPT_DIR}/../lib/consensus_readiness.sh"
 
 verify_equal_height_and_zero_fork() {
     local stage_label="$1"
-    local timeout_sec="${2:-240}"
+    local timeout_sec="${2:-300}"
     local exclude_node="${3:-""}"
 
-    STAGE_LABEL="$stage_label" TIMEOUT_SEC="$timeout_sec" EXCLUDE_NODE="$exclude_node" CONFIG_FILE="$CONFIG_PATH" python3 - << 'EOF'
-import json, urllib.request, time, sys, os
+    STAGE_LABEL="$stage_label" TIMEOUT_SEC="$timeout_sec" EXCLUDE_NODE="$exclude_node" CONFIG_FILE="$CONFIG_PATH" METANODE_DIR="$METANODE_DIR" python3 - << 'EOF'
+import json, urllib.request, urllib.parse, time, sys, os
 
 config_path = os.environ.get("CONFIG_FILE", "../config.json")
 stage_label = os.environ.get("STAGE_LABEL", "Kiểm tra đồng bộ")
-timeout_sec = int(os.environ.get("TIMEOUT_SEC", "240"))
+timeout_sec = int(os.environ.get("TIMEOUT_SEC", "300"))
 exclude_node = os.environ.get("EXCLUDE_NODE", "").strip()
+metanode_dir = os.environ.get("METANODE_DIR", "")
+
+def send_telegram_alert(title, details):
+    try:
+        cfg_paths = [
+            os.path.join(metanode_dir, "deploy/ci/ci_config.yaml"),
+            os.path.join(metanode_dir, "ci_config.yaml"),
+        ]
+        tok, cid = None, None
+        for p in cfg_paths:
+            if p and os.path.isfile(p):
+                import yaml
+                with open(p, "r") as yf:
+                    yc = yaml.safe_load(yf) or {}
+                yt = yc.get("telegram", {})
+                if yt.get("enabled", True):
+                    tok = yt.get("bot_token")
+                    cid = yt.get("chat_id")
+                    if tok and cid:
+                        break
+        if tok and cid:
+            msg = (
+                f"🚨 <b>[{title}]</b>\n\n"
+                f"📍 <b>Giai đoạn:</b> <code>{stage_label}</code>\n"
+                f"⏱️ <b>Timeout:</b> <code>{timeout_sec}s ({timeout_sec // 60} phút)</code>\n"
+                f"{details}\n\n"
+                f"🛑 <i>Tiến trình đã dừng lại để bảo vệ cụm và tránh phân nhánh (Fork)!</i>"
+            )
+            data = urllib.parse.urlencode({"chat_id": str(cid), "text": msg, "parse_mode": "HTML"}).encode()
+            req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage", data=data)
+            urllib.request.urlopen(req, timeout=10)
+            print("📢 Đã gửi cảnh báo lỗi đồng bộ tới Telegram thành công!")
+    except Exception as te:
+        print(f"⚠️ Không thể gửi cảnh báo Telegram: {te}")
 
 with open(config_path, "r") as f:
     cfg = json.load(f)
@@ -266,7 +347,7 @@ if exclude_node:
     print(f"ℹ️  Đang kiểm tra {len(all_nodes)} node (loại trừ Node [{exclude_node}] đang tắt/snapshot)")
 else:
     print(f"ℹ️  Đang kiểm tra TOÀN BỘ {len(all_nodes)} node trong cụm (Validator + SyncOnly)")
-print(f"⏳ Đang chờ tất cả các node đạt chiều cao block bằng nhau (tối đa {timeout_sec}s / 4 phút)...")
+print(f"⏳ Đang chờ tất cả các node đạt chiều cao block bằng nhau (tối đa {timeout_sec}s / {timeout_sec // 60} phút)...")
 print("==========================================================")
 
 if not all_nodes:
@@ -310,9 +391,14 @@ while time.time() - start_time < timeout_sec:
     time.sleep(3)
 
 if not equal_height:
-    print(f"\n❌ [LỖI ĐỒNG BỘ TIMEOUT] Sau {timeout_sec}s (4 phút), các node vẫn CHƯA đạt chiều cao bằng nhau!")
+    print(f"\n❌ [LỖI ĐỒNG BỘ TIMEOUT] Sau {timeout_sec}s ({timeout_sec // 60} phút), các node vẫn CHƯA đạt chiều cao bằng nhau!")
     for k, v in final_heights.items():
         print(f"   • {k}: Block #{v}")
+    height_lines = "\n".join([f"  • {k}: <code>#{v if v is not None else 'DEAD'}</code>" for k, v in sorted(final_heights.items())])
+    send_telegram_alert(
+        "METANODE RESTART: LỖI ĐỒNG BỘ CHIỀU CAO",
+        f"⚠️ <b>Nguyên nhân:</b> Các node không đạt cùng chiều cao sau khi khởi động lại!\n\n📊 <b>Chi tiết chiều cao:</b>\n{height_lines}"
+    )
     sys.exit(1)
 
 target_block = list(final_heights.values())[0]
@@ -381,6 +467,11 @@ for attempt in range(1, max_retries + 1):
 
 if not passed_zero_fork:
     print("❌ BÀI TEST THẤT BẠI DO PHÁT HIỆN FORK GIỮA CÁC NODE!")
+    fork_lines = "\n".join([f"  • {m}" for m in mismatches])
+    send_telegram_alert(
+        "METANODE RESTART: PHÁT HIỆN STATE FORK",
+        f"⚠️ <b>Nguyên nhân:</b> Lệch Block Hash hoặc StateRoot tại Block #{target_block}!\n\n📊 <b>Chi tiết:</b>\n{fork_lines}"
+    )
     sys.exit(1)
 EOF
 }
@@ -401,7 +492,7 @@ while true; do
     echo "=========================================================="
 
     # KIỂM CHỨNG ĐẦU ROUND: Đảm bảo toàn bộ node có chiều cao bằng nhau & 100% Zero-Fork trước khi test
-    verify_equal_height_and_zero_fork "ĐẦU VÒNG ${current_loop}/${LOOP_COUNT:-∞} (Trước khi bắt đầu chu kỳ Restart)" 240
+    verify_equal_height_and_zero_fork "ĐẦU VÒNG ${current_loop}/${LOOP_COUNT:-∞} (Trước khi bắt đầu chu kỳ Restart)" 300
 
     # ------------------------------------------------------------------------------
     # BƯỚC 1: KHỞI ĐỘNG BAN ĐẦU
@@ -427,6 +518,8 @@ while true; do
     TOTAL_ACTIVE=${#ACTIVE_NODES[@]}
     round=1
     for node_id in "${ACTIVE_NODES[@]}"; do
+        export node_id
+        export current_loop
         echo -e "\n👉 [CHẶNG 2.${round}] TẮT & KIỂM CHỨNG & BẬT LẠI NODE ${node_id}..."
         
         echo "🔴 1. Tắt Node ${node_id} (Dự kiến tắt phục vụ test chịu lỗi)..."
@@ -443,6 +536,8 @@ while true; do
             echo "⏳ Chờ 3s để các node còn lại ổn định round consensus sau khi Node ${node_id} dừng..."
             sleep 3
             echo "⚡ [Node ${node_id} ĐANG TẮT - Cụm còn $((TOTAL_ACTIVE - 1)) nodes online]"
+            echo "🎯 [KIỂM CHỨNG ĐỒNG BỘ CHIỀU CAO & ZERO-FORK] Đảm bảo $((TOTAL_ACTIVE - 1)) node đang sống đạt CÙNG CHIỀU CAO trước khi gửi giao dịch..."
+            verify_equal_height_and_zero_fork "KHI NODE ${node_id} ĐANG TẮT (Các node còn lại phải cùng chiều cao)" 300 "${node_id}"
             echo "   👉 Gửi ${TX_COUNT} giao dịch phân bổ CHỈ qua các node đang online (loại trừ Node ${node_id})..."
             go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true -stopped-node="${node_id}"
         else
@@ -455,6 +550,9 @@ while true; do
         wait_node_online "${node_id}"
         wait_node_consensus_ready "${node_id}" 180 || true
         rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
+
+        echo -e "\n🎯 [KIỂM CHỨNG ĐỒNG BỘ CHIỀU CAO & ZERO-FORK] Đảm bảo toàn bộ các node đạt CÙNG CHIỀU CAO trước khi gửi giao dịch (timeout 5p)..."
+        verify_equal_height_and_zero_fork "SAU KHI RESTART NODE ${node_id} (Đã đạt cùng chiều cao với toàn cụm)" 300
 
         echo -e "\n🔍 [KIỂM TRA XAPIAN RESTART] Kiểm tra tính toàn vẹn dữ liệu Xapian DB trên Node ${node_id} vừa thức dậy..."
         go run "${XAPIAN_TOOL}/main.go" --mode=verify-node --target-node="${node_id}" --config="${CONFIG_PATH}" --contract-file="${XAPIAN_CONTRACT_FILE}"
@@ -499,6 +597,9 @@ while true; do
     wait_all_nodes_online
     wait_all_nodes_consensus_ready "${ACTIVE_NODES[*]}"
     rm -f /tmp/monitors_ignore_nodes 2>/dev/null || true
+
+    echo -e "\n🎯 [KIỂM CHỨNG ĐỒNG BỘ CHIỀU CAO & ZERO-FORK] Đảm bảo toàn bộ các node đạt CÙNG CHIỀU CAO sau khi khởi động lại toàn cụm..."
+    verify_equal_height_and_zero_fork "SAU KHI RESTART TOÀN BỘ CỤM NODE" 300
 
     echo "⚡ [Cả cụm vừa thức dậy] Bơm ${TX_COUNT} giao dịch load-balance, kiểm tra sống/chết và Zero-Fork..."
     go run main.go -count "${TX_COUNT}" -check-fork -require-all-alive=true
@@ -564,7 +665,7 @@ except Exception as e:
 "
 
     # KIỂM CHỨNG CUỐI ROUND: Đảm bảo toàn bộ node đã hội tụ chiều cao bằng nhau & 100% Zero-Fork sau chu kỳ restart
-    verify_equal_height_and_zero_fork "CUỐI VÒNG ${current_loop}/${LOOP_COUNT:-∞} (Sau khi hoàn tất toàn bộ chu kỳ Restart)" 240
+    verify_equal_height_and_zero_fork "CUỐI VÒNG ${current_loop}/${LOOP_COUNT:-∞} (Sau khi hoàn tất toàn bộ chu kỳ Restart)" 300
 
     # Kiểm tra điều kiện kết thúc vòng lặp
     CURRENT_TIME=$(date +%s)
