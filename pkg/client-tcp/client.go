@@ -1094,7 +1094,7 @@ func (client *Client) RegisterBlsForAccountAsync(privateKey string, publickey st
 		return common.Hash{}, err
 	}
 	// User had temporarily added waitReceipt here to debug. We remove it to keep it async.
-	return ethTx.Hash(), nil
+	return transaction.Hash(), nil
 }
 
 func (client *Client) AddAccountForClient(privateKey string, chainId string) (types.Receipt, error) {
@@ -1761,4 +1761,3 @@ func (s *Client) GetBlockDataChan() chan []byte {
 	}
 	return nil
 }
-

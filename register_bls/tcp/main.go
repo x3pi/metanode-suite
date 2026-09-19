@@ -245,7 +245,7 @@ func main() {
 			fmt.Printf("📡 Đang kết nối RPC %s để kiểm tra %d giao dịch...\n", rpcHost, len(expectedTxHashes))
 			lastBlockNum := startBlockNum
 			totalConfirmed := 0
-			maxWait := 5 * time.Second
+			maxWait := 30 * time.Second
 			startTime := time.Now()
 
 			var firstTxBlockTime time.Time
@@ -282,8 +282,8 @@ func main() {
 					continue
 				}
 
-				newConfirms := 0
 				for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
+					newConfirms := 0
 					blk, err := rpcClient.GetBlockByNumber(bn)
 					if err == nil && blk != nil {
 						blockHasOurTx := false
@@ -304,13 +304,13 @@ func main() {
 							lastConfirmedBlockNum = bn
 						}
 					}
-				}
 
-				if newConfirms > 0 {
-					totalConfirmed += newConfirms
-					fmt.Printf("\r   📡 Block %d: Đã confirm %d/%d giao dịch BLS...   \n", currentBlockNum, totalConfirmed, successCount)
-				} else {
-					fmt.Printf("\r   📡 Block %d: Đã check (chưa thấy tx BLS nào)...   ", currentBlockNum)
+					if newConfirms > 0 {
+						totalConfirmed += newConfirms
+						fmt.Printf("   📡 Block %d: Đã confirm %d/%d giao dịch BLS...\n", bn, totalConfirmed, successCount)
+					} else {
+						fmt.Printf("   📡 Block %d: Đã check (chưa thấy tx BLS nào)...\n", bn)
+					}
 				}
 				lastBlockNum = currentBlockNum
 			}
@@ -525,7 +525,7 @@ func main() {
 	if totalFundTxsSent > 0 {
 		fmt.Printf("📡 Đang chờ block mới để kiểm tra số dư %d ví funding...\n", len(fundingWallets))
 		lastBlockNum := fundStartBlockNum
-		maxWait := 5 * time.Second
+		maxWait := 30 * time.Second
 		startTime := time.Now()
 
 		totalConfirmed := 0
@@ -561,8 +561,8 @@ func main() {
 			}
 
 			if currentBlockNum > lastBlockNum {
-				newConfirms := 0
 				for bn := lastBlockNum + 1; bn <= currentBlockNum; bn++ {
+					newConfirms := 0
 					blk, err := rpcClient.GetBlockByNumber(bn)
 					if err == nil && blk != nil {
 						blockHasOurTx := false
@@ -585,19 +585,21 @@ func main() {
 							lastConfirmedBlockNum = bn
 						}
 					}
-				}
 
+					statsMu.Lock()
+					remaining := len(expectedFundTxHashes)
+					statsMu.Unlock()
+
+					if newConfirms > 0 {
+						totalConfirmed += newConfirms
+						fmt.Printf("   📡 Block %d: Confirm thêm %d tx chuyển tiền (Tổng: %d/%d)... Đang chờ %d tx còn lại\n", bn, newConfirms, totalConfirmed, totalFundTxsSent, remaining)
+					} else {
+						fmt.Printf("   📡 Block %d: Đã check (chưa thấy tx chuyển tiền nào)...\n", bn)
+					}
+				}
 				statsMu.Lock()
 				remaining := len(expectedFundTxHashes)
 				statsMu.Unlock()
-
-				if newConfirms > 0 {
-					totalConfirmed += newConfirms
-					fmt.Printf("\r   📡 Block %d: Confirm thêm %d tx chuyển tiền (Tổng: %d/%d)... Đang chờ %d tx còn lại   \n", currentBlockNum, newConfirms, totalConfirmed, totalFundTxsSent, remaining)
-				} else {
-					fmt.Printf("\r   📡 Block %d: Đã check (chưa thấy tx chuyển tiền nào)...   ", currentBlockNum)
-				}
-
 				if remaining == 0 {
 					// Khi đã confirm hết tất cả TX, kiểm tra số dư
 					fmt.Printf("\n   ✅ Đã confirm toàn bộ %d tx trong block! Bắt đầu kiểm tra số dư các ví...\n", totalConfirmed)
