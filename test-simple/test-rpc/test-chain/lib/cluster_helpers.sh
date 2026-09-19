@@ -277,17 +277,15 @@ while time.time() - start_time < timeout_sec:
 
     if all_ok and len(heights) == len(all_nodes):
         vals = list(heights.values())
-        if len(set(vals)) == 1 and vals[0] == last_stable_vals:
+        max_h = max(vals)
+        min_h = min(vals)
+        # Allow up to 3 blocks delta because continuous empty block production + sequential polling
+        if max_h - min_h <= 3:
             stable_rounds += 1
-        elif len(set(vals)) == 1:
-            stable_rounds = 1
-            last_stable_vals = vals[0]
         else:
             stable_rounds = 0
-            last_stable_vals = None
     else:
         stable_rounds = 0
-        last_stable_vals = None
 
     print(f"   [{elapsed}s/{timeout_sec}s] Chiều cao hiện tại: {' | '.join(status_parts)}"
           + (f"  (ổn định {stable_rounds}/{STABLE_ROUNDS_REQUIRED})" if stable_rounds > 0 else ""))
@@ -304,8 +302,8 @@ if not equal_height:
         print(f"   • {k}: Block #{v}")
     sys.exit(1)
 
-target_block = list(final_heights.values())[0]
-print(f"\n✅ Tất cả {len(all_nodes)} node đã có block number bằng nhau tại: Block #{target_block}!")
+target_block = min(final_heights.values())
+print(f"\n✅ Tất cả {len(all_nodes)} node đã hội tụ đồng bộ (delta <= 3) quanh Block #{target_block}!")
 print(f"🔍 Bắt đầu đối chiếu Block Hash & StateRoot tại Block #{target_block}...")
 
 hashes = {}
