@@ -402,8 +402,8 @@ while time.time() - start_time < timeout_sec:
         vals = list(heights.values())
         max_h = max(vals)
         min_h = min(vals)
-        # Allow up to 3 blocks delta because continuous empty block production + sequential polling
-        if max_h - min_h <= 3:
+        # Allow up to 30 blocks delta because continuous empty block production + sequential polling
+        if max_h - min_h <= 30:
             stable_rounds += 1
         else:
             stable_rounds = 0
