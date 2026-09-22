@@ -176,9 +176,9 @@ export async function uploadFile(
     console.log(`Gọi Smart Contract xong trong: ${((Date.now() - tContract) / 1000).toFixed(2)}s`);
 
     // 5. Create Signature (once for all chunks)
-    const fileKeyStr = fileKey.replace("0x", "");
-    // Rust hash the string: "0x00" + fileKeyWithout0x + merkleRootHex (with 0x)
-    const messageToSign = "0x00" + fileKeyStr + merkleRootHex;
+    const fileKeyStr = fileKey.replace(/^0x/, "");
+    // Rust hash the string: "0x00" + fileKeyWithout0x
+    const messageToSign = "0x00" + fileKeyStr;
     const messageHash = keccak256(stringToHex(messageToSign));
 
     // Ký trực tiếp hash (không kèm prefix Ethereum Signed Message) giống như Rust

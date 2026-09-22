@@ -597,7 +597,7 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 	// --- Tạo chữ ký (Signature) ---
 	fileKeyStr := hex.EncodeToString(fileKey[:])
 	merkleRootStr := hex.EncodeToString(merkleRoot32[:])
-	messageToSign := fileKeyStr + merkleRootStr
+	messageToSign := fileKeyStr
 	hash := crypto.Keccak256Hash([]byte(fmt.Sprintf("0x00")), []byte(messageToSign))
 	signatureBytes, err := crypto.Sign(hash.Bytes(), privateKey)
 	if err != nil {

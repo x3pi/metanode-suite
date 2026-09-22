@@ -20,7 +20,9 @@ go run main.go -config=config-local.json -data=data.json -loop -url=http://127.0
 
 
 go run main.go -config=./config-local-1.json -data=./test_read_wire_xapian/data-xapian-v2.json
+go run main.go -config=config-local.json -data=data-test.json
 go run main.go -config=config-local-1.json -data=data-test.json
+
 ```
 
 # Xapiant read write (server)
