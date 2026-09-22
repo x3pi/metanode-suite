@@ -371,7 +371,7 @@ type mismatch struct {
 
 func main() {
 	nodesFlag := flag.String("nodes", "", `Danh sách node, format: "name=url,name2=url2"`)
-	configFlag := flag.String("config", "config.json", "Đường dẫn file cấu hình JSON")
+	configFlag := flag.String("config", "../../configs/config.json", "Đường dẫn file cấu hình JSON")
 	fromBlock := flag.Uint64("from", 1, "Block bắt đầu kiểm tra")
 	toBlock := flag.Uint64("to", 0, "Block kết thúc (0 = lấy block mới nhất)")
 	batchSize := flag.Int("batch", 10, "Số block kiểm tra song song mỗi lần")
@@ -389,7 +389,7 @@ func main() {
 		configData, err := os.ReadFile(*configFlag)
 		if err == nil {
 			var config struct {
-				NodesRaw json.RawMessage `json:"nodes"`
+				NodesRaw json.RawMessage `json:"rpc_nodes"`
 			}
 			if err := json.Unmarshal(configData, &config); err == nil && len(config.NodesRaw) > 0 {
 				var nodesStr string

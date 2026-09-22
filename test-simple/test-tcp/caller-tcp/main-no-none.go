@@ -236,8 +236,8 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, from
 		fromAddress,
 		bytecode,
 		&tx_models.TxOptions{
-			MaxGas:      10000000000, // Cố tình set > 9999999999999999999 để vi phạm MAX_GROUP_GAS
-			MaxGasPrice: 2000000000,
+			MaxGas:      100000, // Cố tình set > 9999999999999999999 để vi phạm MAX_GROUP_GAS
+			MaxGasPrice: 100000,
 		},
 	)
 	if err != nil {
@@ -345,8 +345,8 @@ func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 
 	// Cố tình set MaxGas cực lớn để vi phạm MAX_GROUP_GAS
 	options := &tx_models.TxOptions{
-		MaxGas:      10000000000,
-		MaxGasPrice: 2000000000,
+		MaxGas:      100000,
+		MaxGasPrice: 100000,
 	}
 	if amount != nil {
 		options.Amount = amount

@@ -228,14 +228,7 @@ print(json.dumps(res))
            "$FILE2" > "${FILE2}.tmp" && mv "${FILE2}.tmp" "$FILE2"
     fi
 
-    # 3. Update block_hash_checker
-    FILE3="$SUITE_DIR/block/block_hash_checker/config-m-nodes.json"
-    if [ -f "$FILE3" ]; then
-        echo "Updating $FILE3 using Private Chain $TARGET_CID..."
-        jq --arg m0 "$P_M0_RPC" --arg m1 "$P_M1_RPC" --arg m2 "$P_M2_RPC" --arg m3 "$P_M3_RPC" --arg m4 "$P_M4_RPC" \
-           '.nodes = {m4: $m4, m3: $m3, m2: $m2, m1: $m1, m0: $m0} | .nodes |= with_entries(select(.value != ""))' \
-           "$FILE3" > "${FILE3}.tmp" && mv "${FILE3}.tmp" "$FILE3"
-    fi
+
 
     # 4. Update spam_xapian
     FILE4="$SUITE_DIR/test-simple/test-rpc/spam_xapian/config-m-node.json"
@@ -248,15 +241,6 @@ print(json.dumps(res))
            "$FILE4" > "${FILE4}.tmp" && mv "${FILE4}.tmp" "$FILE4"
     fi
 
-    # 5. Update register_bls
-    FILE5="$SUITE_DIR/register_bls/tcp/config.json"
-    if [ -f "$FILE5" ]; then
-        echo "Updating $FILE5 using Private Chain $TARGET_CID..."
-        jq --arg p0 "$P_M0_TCP" --arg p1 "$P_M1_TCP" --arg p2 "$P_M2_TCP" --arg p3 "$P_M3_TCP" --arg p4 "$P_M4_TCP" \
-           --arg r0 "$P_M0_RPC" --arg r1 "$P_M1_RPC" --arg r2 "$P_M2_RPC" --arg r3 "$P_M3_RPC" --arg r4 "$P_M4_RPC" \
-           '.parent_connection_address = [$p0, $p1, $p2, $p3, $p4] | .parent_connection_address |= map(select(. != "")) | .rpc_endpoints = [$r0, $r1, $r2, $r3, $r4] | .rpc_endpoints |= map(select(. != ""))' \
-           "$FILE5" > "${FILE5}.tmp" && mv "${FILE5}.tmp" "$FILE5"
-    fi
 
     # 6. Update configs/config.json (Unified Single Source of Truth for RPC & TPS)
     FILE6="$SUITE_DIR/configs/config.json"
@@ -375,27 +359,6 @@ else
         echo "Warning: $FILE2 not found." >&2
     fi
 
-    # 3. Update $SUITE_DIR/block/block_hash_checker/config-m-nodes.json
-    FILE3="$SUITE_DIR/block/block_hash_checker/config-m-nodes.json"
-    if [ -f "$FILE3" ]; then
-        echo "Updating $FILE3 using Nodes (including sync nodes)..."
-        
-        new_m0=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_m1=$(jq -r '((.nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-        new_m2=$(jq -r '((.nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-        new_m3=$(jq -r '((.nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-        new_m4=$(jq -r '((.nodes.m4 // "") // "")' "$RPC_NODES_FILE")
-
-        jq --arg m0 "$new_m0" \
-           --arg m1 "$new_m1" \
-           --arg m2 "$new_m2" \
-           --arg m3 "$new_m3" \
-           --arg m4 "$new_m4" \
-           '.nodes = {m4: $m4, m3: $m3, m2: $m2, m1: $m1, m0: $m0} | .nodes |= with_entries(select(.value != ""))' \
-           "$FILE3" > "${FILE3}.tmp" && mv "${FILE3}.tmp" "$FILE3"
-    else
-        echo "Warning: $FILE3 not found." >&2
-    fi
 
     echo "Done updating configs to use Node endpoints."
 
@@ -414,30 +377,6 @@ else
         echo "Warning: $FILE4 not found." >&2
     fi
 
-    # 5. Update $SUITE_DIR/register_bls/tcp/config.json
-    FILE5="$SUITE_DIR/register_bls/tcp/config.json"
-    if [ -f "$FILE5" ]; then
-        echo "Updating $FILE5 using TCP nodes and RPC Endpoints..."
-
-        new_parent_0=$(jq -r '((.tcp_nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_parent_1=$(jq -r '((.tcp_nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-        new_parent_2=$(jq -r '((.tcp_nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-        new_parent_3=$(jq -r '((.tcp_nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-        new_parent_4=$(jq -r '((.tcp_nodes.m4 // "") // "")' "$RPC_NODES_FILE")
-
-        new_rpc_0=$(jq -r '((.nodes.m0 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_1=$(jq -r '((.nodes.m1 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_2=$(jq -r '((.nodes.m2 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_3=$(jq -r '((.nodes.m3 // "") // "")' "$RPC_NODES_FILE")
-        new_rpc_4=$(jq -r '((.nodes.m4 // "") // "")' "$RPC_NODES_FILE")
-
-        jq --arg p0 "$new_parent_0" --arg p1 "$new_parent_1" --arg p2 "$new_parent_2" --arg p3 "$new_parent_3" --arg p4 "$new_parent_4" \
-           --arg r0 "$new_rpc_0" --arg r1 "$new_rpc_1" --arg r2 "$new_rpc_2" --arg r3 "$new_rpc_3" --arg r4 "$new_rpc_4" \
-           '.parent_connection_address = [$p0, $p1, $p2, $p3, $p4] | .parent_connection_address |= map(select(. != "")) | .rpc_endpoints = [$r0, $r1, $r2, $r3, $r4] | .rpc_endpoints |= map(select(. != ""))' \
-           "$FILE5" > "${FILE5}.tmp" && mv "${FILE5}.tmp" "$FILE5"
-    else
-        echo "Warning: $FILE5 not found." >&2
-    fi
 
     # 6. Update configs/config.json - Unified Single Source of Truth
     FILE6="$SUITE_DIR/configs/config.json"

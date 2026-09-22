@@ -1,6 +1,6 @@
 ### 2. Giám sát liên tục theo thời gian thực (Watch mode)
 
-Cú pháp cho mạng 5 Nodes (cấu hình trong `config.json`):
+Cú pháp cho mạng 5 Nodes (mặc định cấu hình lấy từ `../../configs/config.json`):
 
 ```bash
 # single machine
@@ -14,5 +14,5 @@ go run main.go --watch --interval 5s
 go run main.go --watch --interval 5s --nodes "m0=http://192.168.1.234:8757,m1=http://192.168.1.233:10747,m2=http://192.168.1.231:10749"
 
 # multiple machine (sử dụng file config riêng biệt)
-go run main.go --watch --interval 5s --config config-m-nodes.json --no-stop-flag
+go run main.go --watch --interval 5s --no-stop-flag
 ```

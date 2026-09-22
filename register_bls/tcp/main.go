@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,10 +10,12 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"tool-test/pkg/bls"
 	client_tcp "tool-test/pkg/client-tcp"
 	com_pkg "tool-test/pkg/client-tcp/common"
 	tcp_config "tool-test/pkg/client-tcp/config"
@@ -25,28 +28,30 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-type AppConfig struct {
-	PublicKeyBLS            string   `json:"public_key_bls"`
-	TransferAmount          string   `json:"transfer_amount"`
-	ChainId                 string   `json:"chainId"`
-	WalletPool              []string `json:"wallet_pool"`
-	ParentConnectionAddress []string `json:"parent_connection_address"`
-	RpcEndpoints            []string `json:"rpc_endpoints"`
+type GlobalConfig struct {
+	BlsPrivateKey string            `json:"bls_private_key"`
+	PrivateKeys   []string          `json:"private_keys"`
+	ChainId       interface{}       `json:"chain_id"`
+	TcpNodes      map[string]string `json:"tcp_nodes"`
+	RpcNodes      map[string]string `json:"rpc_nodes"`
 }
 
 type GeneratedKey struct {
-	Index      int    `json:"index"`
-	PrivateKey string `json:"private_key"`
-	Address    string `json:"address"`
+	Index        int    `json:"index"`
+	PrivateKey   string `json:"private_key"`
+	Address      string `json:"address"`
+	BlsPublicKey string `json:"bls_public_key"`
 }
 
 func main() {
+	bls.Init()
 	countFlag := flag.Int("count", 1, "Số lượng ví cần tạo")
 	skipFundFlag := flag.Bool("skip_fund", false, "Bỏ qua bước chuyển native coin vào ví mới")
 	singleNodeFlag := flag.Bool("single", false, "Chỉ gửi đến node đầu tiên (m0) thay vì tất cả các node")
 	traceFlag := flag.Bool("trace", false, "Hiển thị chi tiết trace performance của block")
 	nativeOnlyFlag := flag.Bool("native_only", false, "Chỉ test chuyển native, bỏ qua việc đăng ký BLS")
-	configFlag := flag.String("config", "config.json", "Đường dẫn file config")
+	configFlag := flag.String("config", "../../configs/config.json", "Đường dẫn file config")
+	useConfigBlsFlag := flag.Bool("use_config_bls", false, "Sử dụng public key BLS từ file config thay vì key sinh ngẫu nhiên")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{
@@ -67,29 +72,65 @@ func main() {
 	}
 	cfg := cfgRaw.(*tcp_config.ClientConfig)
 
-	// Parse Custom Config
+	// Parse Custom Config (Global Config)
 	appCfgBytes, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Fatalf("❌ Lỗi đọc file config cho AppConfig: %v", err)
+		log.Fatalf("❌ Lỗi đọc file config cho GlobalConfig: %v", err)
 	}
-	var appCfg AppConfig
-	if err := json.Unmarshal(appCfgBytes, &appCfg); err != nil {
-		log.Fatalf("❌ Lỗi parse AppConfig: %v", err)
+	var globalCfg GlobalConfig
+	if err := json.Unmarshal(appCfgBytes, &globalCfg); err != nil {
+		log.Fatalf("❌ Lỗi parse GlobalConfig: %v", err)
+	}
+
+	// Chuyển đổi dữ liệu từ GlobalConfig sang định dạng App dùng
+	var parentConnections []string
+	for _, addr := range globalCfg.TcpNodes {
+		parentConnections = append(parentConnections, addr)
+	}
+	sort.Strings(parentConnections)
+
+	var rpcEndpoints []string
+	for _, addr := range globalCfg.RpcNodes {
+		rpcEndpoints = append(rpcEndpoints, addr)
+	}
+	sort.Strings(rpcEndpoints)
+
+	var walletPool []string
+	for _, pkStr := range globalCfg.PrivateKeys {
+		pk, err := crypto.HexToECDSA(strings.TrimPrefix(pkStr, "0x"))
+		if err == nil {
+			walletPool = append(walletPool, crypto.PubkeyToAddress(pk.PublicKey).Hex())
+		}
+	}
+
+	var publicKeyBLS string
+	if globalCfg.BlsPrivateKey != "" {
+		blsPrivKeyHex := strings.TrimPrefix(globalCfg.BlsPrivateKey, "0x")
+		_, pk, _ := bls.GenerateKeyPairFromSecretKey(blsPrivKeyHex)
+		publicKeyBLS = hex.EncodeToString(pk.Bytes())
+	}
+
+	chainIdStr := ""
+	switch v := globalCfg.ChainId.(type) {
+	case string:
+		chainIdStr = v
+	case float64:
+		chainIdStr = fmt.Sprintf("%.0f", v)
 	}
 
 	if *singleNodeFlag {
-		if len(appCfg.ParentConnectionAddress) > 0 {
-			appCfg.ParentConnectionAddress = appCfg.ParentConnectionAddress[:1]
+		if len(parentConnections) > 0 {
+			parentConnections = parentConnections[:1]
 		}
-		if len(appCfg.RpcEndpoints) > 0 {
-			appCfg.RpcEndpoints = appCfg.RpcEndpoints[:1]
+		if len(rpcEndpoints) > 0 {
+			rpcEndpoints = rpcEndpoints[:1]
 		}
-		fmt.Println("⚠️ Chế độ SINGLE NODE: Chỉ kết nối đến node đầu tiên (m0).")
+		fmt.Println("⚠️ Chế độ SINGLE NODE: Chỉ kết nối đến node đầu tiên.")
 	}
 
-	// Cập nhật cfg.ChainId từ AppConfig (config.json dùng "chainId" dạng string)
-	if appCfg.ChainId != "" {
-		if chainIdUint, ok := new(big.Int).SetString(appCfg.ChainId, 10); ok {
+	// Cập nhật cfg.ChainId
+	if chainIdStr != "" {
+		if chainIdUint, ok := new(big.Int).SetString(chainIdStr, 10); ok {
 			cfg.ChainId = chainIdUint.Uint64()
 		}
 	}
@@ -103,17 +144,14 @@ func main() {
 		log.Fatalf("❌ Số lượng ví (-count) phải lớn hơn 0")
 	}
 
-	transferAmtStr := appCfg.TransferAmount
-	if transferAmtStr == "" {
-		transferAmtStr = "1000000000000000000" // Mặc định 1 token
-	}
+	transferAmtStr := "1000000000000000000" // Mặc định 1 token
 	transferAmount, ok := new(big.Int).SetString(transferAmtStr, 10)
 	if !ok {
 		log.Fatalf("❌ transfer_amount không hợp lệ: %s", transferAmtStr)
 	}
 
 	// 2. Kết nối tới Chain qua TCP
-	fmt.Printf("🔌 Connecting to TCP pool (Load balancing across %d nodes)\n", len(appCfg.ParentConnectionAddress))
+	fmt.Printf("🔌 Connecting to TCP pool (Load balancing across %d nodes)\n", len(parentConnections))
 	poolSize := 20
 	var clientPool []*client_tcp.Client
 	for i := 0; i < poolSize; i++ {
@@ -126,8 +164,8 @@ func main() {
 		}
 		cfgClone.ParentAddress = common.BytesToAddress(randomAddrBytes[:]).Hex()
 
-		if len(appCfg.ParentConnectionAddress) > 0 {
-			cfgClone.ParentConnectionAddress = appCfg.ParentConnectionAddress[i%len(appCfg.ParentConnectionAddress)]
+		if len(parentConnections) > 0 {
+			cfgClone.ParentConnectionAddress = parentConnections[i%len(parentConnections)]
 		}
 		tcpClient, err := client_tcp.NewClient(&cfgClone)
 		if err != nil {
@@ -151,10 +189,15 @@ func main() {
 		privKeyHex := hexutil.Encode(crypto.FromECDSA(privKey))
 		addressHex := crypto.PubkeyToAddress(privKey.PublicKey).Hex()
 
+		hexKey := strings.TrimPrefix(privKeyHex, "0x")
+		_, blsPub, _ := bls.GenerateKeyPairFromSecretKey(hexKey)
+		blsPubHex := hex.EncodeToString(blsPub.Bytes())
+
 		generatedKeys = append(generatedKeys, GeneratedKey{
-			Index:      i,
-			PrivateKey: strings.TrimPrefix(privKeyHex, "0x"),
-			Address:    addressHex,
+			Index:        i,
+			PrivateKey:   hexKey,
+			Address:      addressHex,
+			BlsPublicKey: blsPubHex,
 		})
 	}
 
@@ -173,14 +216,14 @@ func main() {
 	// Chuẩn bị payload setBlsPublicKey được xử lý bên trong RegisterBlsForAccount
 
 	var rpcHost string
-	if len(appCfg.RpcEndpoints) > 0 && appCfg.RpcEndpoints[0] != "" {
-		rpcHost = appCfg.RpcEndpoints[0]
+	if len(rpcEndpoints) > 0 && rpcEndpoints[0] != "" {
+		rpcHost = rpcEndpoints[0]
 		rpcHost = strings.ReplaceAll(rpcHost, " ", "") // remove accidental spaces
 		if !strings.HasPrefix(rpcHost, "http://") && !strings.HasPrefix(rpcHost, "https://") {
 			rpcHost = "http://" + rpcHost
 		}
 	} else {
-		tcpHost := appCfg.ParentConnectionAddress[0]
+		tcpHost := parentConnections[0]
 		rpcHost = "http://" + strings.Split(tcpHost, ":")[0] + ":8757"
 	}
 	rpcClient := rpc.NewRPCClient(rpcHost)
@@ -192,6 +235,14 @@ func main() {
 	} else {
 		fmt.Printf("📌 Block hiện tại trước khi gửi: %d\n", startBlockNum)
 	}
+
+	// Chuẩn bị ABI setBlsPublicKey
+	// abiJSON := `[{"inputs":[{"internalType":"bytes","name":"publicKey","type":"bytes"}],"name":"setBlsPublicKey","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"}]`
+	// parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
+	// if err != nil {
+	// 	log.Fatalf("❌ Lỗi khi parse ABI: %v", err)
+	// }
+	// contractAddr := common.HexToAddress("0x00000000000000000000000000000000D844bb55")
 
 	// =====================================================================
 	// BƯỚC 2: GỌI ĐĂNG KÝ BLS CHO TẤT CẢ VÍ TRƯỚC (Concurrently)
@@ -218,10 +269,15 @@ func main() {
 				defer wg.Done()
 				defer func() { <-sem }()
 				client := clientPool[idx%len(clientPool)]
-				// Sử dụng hàm RegisterBlsForAccountAsync để gửi tx đi không chờ receipt
-				chainIdStr := appCfg.ChainId
 
-				txHash, err := client.RegisterBlsForAccountAsync(k.PrivateKey, appCfg.PublicKeyBLS, chainIdStr)
+				// blsKeyToUse quyết định sẽ lấy public key BLS từ cấu hình hay từ random
+				blsKeyToUse := k.BlsPublicKey
+				if *useConfigBlsFlag {
+					blsKeyToUse = publicKeyBLS
+				}
+
+				// Gửi bằng giao dịch chuẩn (Ký bằng ECDSA, vượt qua mọi mạng)
+				txHash, err := client.RegisterBlsForAccountAsync(k.PrivateKey, blsKeyToUse, chainIdStr)
 				if err != nil {
 					fmt.Printf("❌ Ví %d: Lỗi gửi tx setBlsPublicKey: %v\n", k.Index, err)
 				} else {
@@ -411,8 +467,8 @@ func main() {
 	close(jobs)
 
 	fundingWallets := []string{cfg.Address().Hex()}
-	if len(appCfg.WalletPool) > 0 {
-		fundingWallets = appCfg.WalletPool
+	if len(walletPool) > 0 {
+		fundingWallets = walletPool
 	}
 
 	type FundingStat struct {
