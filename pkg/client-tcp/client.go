@@ -1063,7 +1063,7 @@ func (client *Client) RegisterBlsForAccountAsync(privateKey string, publickey st
 		logger.Info("Chuyển đổi thất bại cho chuỗi: %s\n", chainId)
 		return common.Hash{}, fmt.Errorf("chuyển đổi thất bại cho chuỗi: %s", chainId)
 	}
-	ethTx, err := CreateSignedSetBLSPublicKeyTx(privateKey, publickey, bigIntChainId)
+	ethTx, err := CreateSignedSetBLSPublicKeyTx(privateKey, publickey, big.NewInt(0))
 	if err != nil {
 		return common.Hash{}, err
 	}

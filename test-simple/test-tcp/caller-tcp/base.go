@@ -60,7 +60,7 @@ func main() {
 	}
 
 	fmt.Printf("Running TCP type: %s\n", runType)
-	
+
 	var finalResults []string
 
 	for _, connAddr := range toolCfg.ConnectionAddresses {

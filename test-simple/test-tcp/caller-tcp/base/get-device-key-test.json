@@ -1,0 +1,12 @@
+{
+  "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
+  "version": "0.0.1.0",
+  "connection_addresses": [
+    "192.168.1.231:6200",
+    "192.168.1.231:6201"
+  ],
+  "type": "get_devicekey",
+  "params": {
+    "hash": "0x69e250926bd6e306d35be1da14f4dc3b34f0396c1fe3ffa0bf59347cae64de9d"
+  }
+}

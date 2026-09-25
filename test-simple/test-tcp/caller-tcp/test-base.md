@@ -24,6 +24,8 @@ Hoac chi dinh file config:
 go run -tags tool base.go -config=./base/config-get-logs.json
 go run -tags tool base.go -config=./base/get-devicekey.json
 go run -tags tool base.go -config=./base/get-account-state.json
+go run -tags tool base.go -config=./base/get-chain-id.json
+
 
 ```
 

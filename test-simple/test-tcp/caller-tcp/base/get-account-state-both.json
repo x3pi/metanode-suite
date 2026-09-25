@@ -1,0 +1,12 @@
+{
+  "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
+  "version": "0.0.1.0",
+  "connection_addresses": [
+    "192.168.1.231:6200",
+    "192.168.1.231:6201"
+  ],
+  "type": "account_state",
+  "params": {
+    "address": "0x824fef8A3cE4b93C546209CC254D97E5Fee804e0"
+  }
+}
