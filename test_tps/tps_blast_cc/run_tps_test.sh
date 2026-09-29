@@ -127,6 +127,25 @@ cd ../../../metanode-suite/test_tps/tps_blast_cc
 
 rm -f /tmp/MTN_CHAIN_ERROR_STOP
 
+# Đo dung lượng ổ cứng trước khi bắn test
+echo ""
+echo "=========================================================="
+echo "📊 [DEBUG Ổ CỨNG] DUNG LƯỢNG TRƯỚC KHI TEST:"
+if [ -d "/opt/metanode/node-0" ]; then
+  BEFORE_NODE0_ALLOC=$(du -sh /opt/metanode/node-0 2>/dev/null | cut -f1)
+  BEFORE_NODE0_DATA=$(du -sh --apparent-size /opt/metanode/node-0 2>/dev/null | cut -f1)
+  BEFORE_NODE0_KB=$(du -sk /opt/metanode/node-0 2>/dev/null | cut -f1)
+  BEFORE_NODE0_DATA_KB=$(du -sk --apparent-size /opt/metanode/node-0 2>/dev/null | cut -f1)
+  TOTAL_OPT_BEFORE=$(du -sh /opt/metanode 2>/dev/null | cut -f1)
+  echo "   • node-0 chiếm ổ đĩa (Allocated): $BEFORE_NODE0_ALLOC"
+  echo "   • node-0 dữ liệu thật (Apparent) : $BEFORE_NODE0_DATA"
+  echo "   • Tổng toàn bộ /opt/metanode     : $TOTAL_OPT_BEFORE"
+else
+  echo "   (Chưa tìm thấy /opt/metanode/node-0)"
+fi
+echo "=========================================================="
+echo ""
+
 CMD_ARGS=(
   --count "$COUNT"
   --rounds "$ROUNDS"
@@ -142,6 +161,25 @@ fi
 GOMAXPROCS=16 go run main.go \
   "${CMD_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"
+
+echo ""
+echo "=========================================================="
+echo "📊 [DEBUG Ổ CỨNG] DUNG LƯỢNG SAU KHI TEST XONG:"
+if [ -d "/opt/metanode/node-0" ]; then
+  AFTER_NODE0_ALLOC=$(du -sh /opt/metanode/node-0 2>/dev/null | cut -f1)
+  AFTER_NODE0_DATA=$(du -sh --apparent-size /opt/metanode/node-0 2>/dev/null | cut -f1)
+  AFTER_NODE0_KB=$(du -sk /opt/metanode/node-0 2>/dev/null | cut -f1)
+  AFTER_NODE0_DATA_KB=$(du -sk --apparent-size /opt/metanode/node-0 2>/dev/null | cut -f1)
+  TOTAL_OPT_AFTER=$(du -sh /opt/metanode 2>/dev/null | cut -f1)
+
+  DIFF_ALLOC_MB=$(( (AFTER_NODE0_KB - BEFORE_NODE0_KB) / 1024 ))
+  DIFF_DATA_MB=$(( (AFTER_NODE0_DATA_KB - BEFORE_NODE0_DATA_KB) / 1024 ))
+
+  echo "   • node-0 chiếm ổ đĩa (Allocated): $AFTER_NODE0_ALLOC (Tăng: +${DIFF_ALLOC_MB} MB)"
+  echo "   • node-0 dữ liệu thật (Apparent) : $AFTER_NODE0_DATA (Tăng: +${DIFF_DATA_MB} MB)"
+  echo "   • Tổng toàn bộ /opt/metanode     : $TOTAL_OPT_AFTER"
+fi
+echo "=========================================================="
 
 echo "=========================================================="
 echo "✅ HOÀN THÀNH QUY TRÌNH TEST!"

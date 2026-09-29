@@ -26,6 +26,7 @@ TESTS=(
     "20-xapian-read-after-write-same-block"
     "21-sequential-nonce-same-wallet"
     "22-block-timestamp"
+    "22.1-block-timestamp-rpc-simulation"
     "23-contract-creator-info"
     "24-contract-factory-info"
     "25-eip4844-blob-tx"
@@ -241,4 +242,3 @@ if [ $FAILED -gt 0 ]; then
 else
     exit 0
 fi
-

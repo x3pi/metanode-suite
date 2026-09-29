@@ -99,6 +99,9 @@ func LoadConfig(configPath string) (*Config, error) {
 	if cfg.PrivateKey == "" && len(cfg.PrivateKeys) > 0 {
 		cfg.PrivateKey = cfg.PrivateKeys[0]
 	}
+	if len(cfg.PrivateKeys) == 0 && cfg.PrivateKey != "" {
+		cfg.PrivateKeys = []string{cfg.PrivateKey}
+	}
 
 	// 1. Kiểm tra target chain selector từ env TARGET_CHAIN hoặc field target_chain trong config.json
 	target := strings.TrimSpace(os.Getenv("TARGET_CHAIN"))

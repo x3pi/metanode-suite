@@ -24,7 +24,6 @@ import (
 	"tool-test/test_tps/tps_blast_cc/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -182,16 +181,26 @@ func main() {
 	var generatedKeys []GeneratedKey
 
 	for i := 0; i < numWallets; i++ {
-		privKey, err := crypto.GenerateKey()
-		if err != nil {
-			log.Fatalf("❌ Lỗi tạo ví mới ở index %d: %v", i, err)
+		var hexKey string
+		var addressHex string
+		var blsPubHex string
+		for {
+			privKey, err := crypto.GenerateKey()
+			if err != nil {
+				log.Fatalf("❌ Lỗi tạo ví mới ở index %d: %v", i, err)
+			}
+			hexKey = hex.EncodeToString(crypto.FromECDSA(privKey))
+			secBytes, _ := hex.DecodeString(hexKey)
+			if bls.ValidateBlsPrivateKey(secBytes) {
+				_, blsPub, _ := bls.GenerateKeyPairFromSecretKey(hexKey)
+				pubBytes := blsPub.Bytes()
+				if len(pubBytes) > 0 && hex.EncodeToString(pubBytes) != strings.Repeat("0", len(pubBytes)*2) {
+					addressHex = crypto.PubkeyToAddress(privKey.PublicKey).Hex()
+					blsPubHex = hex.EncodeToString(pubBytes)
+					break
+				}
+			}
 		}
-		privKeyHex := hexutil.Encode(crypto.FromECDSA(privKey))
-		addressHex := crypto.PubkeyToAddress(privKey.PublicKey).Hex()
-
-		hexKey := strings.TrimPrefix(privKeyHex, "0x")
-		_, blsPub, _ := bls.GenerateKeyPairFromSecretKey(hexKey)
-		blsPubHex := hex.EncodeToString(blsPub.Bytes())
 
 		generatedKeys = append(generatedKeys, GeneratedKey{
 			Index:        i,

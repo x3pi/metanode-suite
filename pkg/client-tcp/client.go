@@ -1063,7 +1063,7 @@ func (client *Client) RegisterBlsForAccountAsync(privateKey string, publickey st
 		logger.Info("Chuyển đổi thất bại cho chuỗi: %s\n", chainId)
 		return common.Hash{}, fmt.Errorf("chuyển đổi thất bại cho chuỗi: %s", chainId)
 	}
-	ethTx, err := CreateSignedSetBLSPublicKeyTx(privateKey, publickey, big.NewInt(0))
+	ethTx, err := CreateSignedSetBLSPublicKeyTx(privateKey, publickey, bigIntChainId)
 	if err != nil {
 		return common.Hash{}, err
 	}
@@ -1142,7 +1142,12 @@ func CreateSignedSetBLSPublicKeyTx(
 	// publicKeyECDSA := privateKey.Public().(*ecdsa.PublicKey)
 	// fromAddr := crypto.PubkeyToAddress(*publicKeyECDSA)
 
-	signer := e_types.LatestSignerForChainID(chainID)
+	var signer e_types.Signer
+	if chainID != nil && chainID.Sign() > 0 {
+		signer = e_types.NewEIP155Signer(chainID)
+	} else {
+		signer = e_types.HomesteadSigner{}
+	}
 	signedTx, err := e_types.SignTx(tx, signer, privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("lỗi khi ký giao dịch: %v", err)
