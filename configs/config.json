@@ -1,6 +1,6 @@
 {
   "bls_private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
-  "target_chain": "",
+  "target_chain": "chain_a",
   "rpc_url": "http://192.168.1.234:10746",
   "rpc_nodes": {
     "m0": "http://192.168.1.234:10746",
@@ -12,8 +12,24 @@
   "tcp_node": "192.168.1.234:6200",
   "private_chains": {
     "chain_a": {
-      "chain_id": 101,
-      "rpc_url": "http://192.168.1.234:8546",
+      "chain_id": 991,
+      "rpc_url": "http://127.0.0.1:8646",
+      "ws_url": "ws://127.0.0.1:8646/ws",
+      "rpc_nodes": {
+        "m0": "http://127.0.0.1:8646",
+        "m1": "http://127.0.0.1:8648",
+        "m2": "http://127.0.0.1:8649"
+      },
+      "ws_nodes": {
+        "m0": "ws://127.0.0.1:8646/ws",
+        "m1": "ws://127.0.0.1:8648/ws",
+        "m2": "ws://127.0.0.1:8649/ws"
+      },
+      "tcp_nodes": {
+        "m0": "127.0.0.1:4200",
+        "m1": "127.0.0.1:4201",
+        "m2": "127.0.0.1:4203"
+      },
       "private_keys": [
         "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106",
         "edb63ea1c26ce5c5d29df010ddedf2c57b3a4af38d776290f9a789205366acea",
@@ -21,21 +37,21 @@
         "37f2b66e37b3511e7510177457e959623da3f6e0e219d1905314d2da1cc06f63",
         "fdf24aade8d4ad95c03a0528dda1a973467503410dde8d90e58d42f26147e60e",
         "d2ba003dc705b5b802fa529e292ae83b91774f1c4c73c2a5ee822840179ab656"
-      ],
-      "rpc_nodes": {
-        "m0": "http://192.168.1.234:8546"
-      },
-      "tcp_nodes": {
-        "m0": "192.168.1.234:4210"
-      },
-      "ws_url": "ws://192.168.1.234:8546/ws",
-      "ws_nodes": {
-        "m0": "ws://192.168.1.234:8546/ws"
-      }
+      ]
     },
     "chain_b": {
-      "chain_id": 102,
-      "rpc_url": "http://192.168.1.234:8566",
+      "chain_id": 991,
+      "rpc_url": "http://127.0.0.1:8647",
+      "ws_url": "ws://127.0.0.1:8647/ws",
+      "rpc_nodes": {
+        "m0": "http://127.0.0.1:8647"
+      },
+      "ws_nodes": {
+        "m0": "ws://127.0.0.1:8647/ws"
+      },
+      "tcp_nodes": {
+        "m0": "127.0.0.1:4202"
+      },
       "private_keys": [
         "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",
         "e9cd1c4831e3999edb9faf41a099e767754dcab285446b6d318f7e816788f506",
@@ -43,17 +59,7 @@
         "c72db8b139044753754f3cc98306053d069a0d0fd6b4ce8a1b9e69e4b11b703e",
         "cc8b620a56e75c1694e3c11f1d94fd706ea3984bd4dd73010f5c70f59767f8bc",
         "f3d4eb300bae3654b268156af2a8b2f62db146d368249cd30a860956128310ec"
-      ],
-      "rpc_nodes": {
-        "m0": "http://192.168.1.234:8566"
-      },
-      "tcp_nodes": {
-        "m0": "192.168.1.234:4220"
-      },
-      "ws_url": "ws://192.168.1.234:8566/ws",
-      "ws_nodes": {
-        "m0": "ws://192.168.1.234:8566/ws"
-      }
+      ]
     },
     "chain_c": {
       "chain_id": 103,
@@ -82,6 +88,56 @@
         "3ff5c64087fa0da25dc1262787163eb724a5d0b67159a139f2a7a06d2b56f7c2",
         "1488ea8768703e808a203d3c80491f6bcb38bd7b77f8a687ddc7440ba8473c3f",
         "8d24db1d311c44db6d20b14a89b62eb2b4a26cf167085e94fa29b704b03014fc"
+      ]
+    },
+    "exec1": {
+      "chain_id": 991,
+      "rpc_url": "http://127.0.0.1:8646",
+      "ws_url": "ws://127.0.0.1:8646/ws",
+      "rpc_nodes": {
+        "m0": "http://127.0.0.1:8646",
+        "m1": "http://127.0.0.1:8648",
+        "m2": "http://127.0.0.1:8649"
+      },
+      "ws_nodes": {
+        "m0": "ws://127.0.0.1:8646/ws",
+        "m1": "ws://127.0.0.1:8648/ws",
+        "m2": "ws://127.0.0.1:8649/ws"
+      },
+      "tcp_nodes": {
+        "m0": "127.0.0.1:4200",
+        "m1": "127.0.0.1:4201",
+        "m2": "127.0.0.1:4203"
+      },
+      "private_keys": [
+        "f0c569debd26c9e08924ead34931482ae9267b6cb8e6666bf7fc8023ca6a4106",
+        "edb63ea1c26ce5c5d29df010ddedf2c57b3a4af38d776290f9a789205366acea",
+        "7e6b1b687e6ac70d42ae2d4ab007bc3d9d78c24fb0af5affc601bc4abb25549b",
+        "37f2b66e37b3511e7510177457e959623da3f6e0e219d1905314d2da1cc06f63",
+        "fdf24aade8d4ad95c03a0528dda1a973467503410dde8d90e58d42f26147e60e",
+        "d2ba003dc705b5b802fa529e292ae83b91774f1c4c73c2a5ee822840179ab656"
+      ]
+    },
+    "exec2": {
+      "chain_id": 991,
+      "rpc_url": "http://127.0.0.1:8647",
+      "ws_url": "ws://127.0.0.1:8647/ws",
+      "rpc_nodes": {
+        "m0": "http://127.0.0.1:8647"
+      },
+      "ws_nodes": {
+        "m0": "ws://127.0.0.1:8647/ws"
+      },
+      "tcp_nodes": {
+        "m0": "127.0.0.1:4202"
+      },
+      "private_keys": [
+        "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",
+        "e9cd1c4831e3999edb9faf41a099e767754dcab285446b6d318f7e816788f506",
+        "973870d60e7ece6b391077fbeebcbd76d2486e1aaa0c3defe9bf5336574bffe2",
+        "c72db8b139044753754f3cc98306053d069a0d0fd6b4ce8a1b9e69e4b11b703e",
+        "cc8b620a56e75c1694e3c11f1d94fd706ea3984bd4dd73010f5c70f59767f8bc",
+        "f3d4eb300bae3654b268156af2a8b2f62db146d368249cd30a860956128310ec"
       ]
     }
   },

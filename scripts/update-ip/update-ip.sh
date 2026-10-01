@@ -41,73 +41,31 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ------------------------------------------------------------------------------
-# 1. TỰ ĐỘNG ĐỒNG BỘ /tmp/private_chains.json TỪ inventory.yml CỦA ANSIBLE PRIVATE CHAINS
+# 1. TỰ ĐỘNG ĐỒNG BỘ /tmp/private_chains.json TỪ inventory.yml CỦA ANSIBLE CLUSTERS
 # ------------------------------------------------------------------------------
-PRIV_INVENTORY=""
-for p in "$METANODE_DIR/deploy/ansible_private_chains/inventory.yml" \
-         "$SUITE_DIR/../metanode/deploy/ansible_private_chains/inventory.yml" \
-         "/opt/metanode/deploy/ansible_private_chains/inventory.yml"; do
+CLUSTER_INVENTORY=""
+PARSE_INV_SCRIPT=""
+for p in "$METANODE_DIR/deploy/ansible_clusters/inventory.yml" \
+         "$SUITE_DIR/../metanode/deploy/ansible_clusters/inventory.yml" \
+         "/opt/metanode/deploy/ansible_clusters/inventory.yml"; do
     if [ -f "$p" ]; then
-        PRIV_INVENTORY="$p"
+        CLUSTER_INVENTORY="$p"
         break
     fi
 done
 
-if [ -n "$PRIV_INVENTORY" ]; then
-    python3 -c "
-import os, json, yaml
+for s in "$METANODE_DIR/deploy/ansible_clusters/scripts/parse_inventory.py" \
+         "$SUITE_DIR/../metanode/deploy/ansible_clusters/scripts/parse_inventory.py" \
+         "/opt/metanode/deploy/ansible_clusters/scripts/parse_inventory.py"; do
+    if [ -f "$s" ]; then
+        PARSE_INV_SCRIPT="$s"
+        break
+    fi
+done
 
-inv_path = '$PRIV_INVENTORY'
-try:
-    with open(inv_path) as f:
-        data = yaml.safe_load(f)
-    global_vars = data.get('all', {}).get('vars', {}) or {}
-    root_rpc = global_vars.get('root_anchor_rpc', 'http://127.0.0.1:10746')
-    hosts = data.get('all', {}).get('children', {}).get('private_chains', {}).get('hosts', {}) or {}
-
-    out_simple = {
-        'root_anchor': root_rpc,
-        'nodes': {},
-        'tcp_nodes': {},
-        'chain_nodes': {}
-    }
-
-    for host_key, h in sorted(hosts.items()):
-        if not isinstance(h, dict) or 'chain_id' not in h:
-            continue
-        cid = int(h['chain_id'])
-        cid_str = str(cid)
-        ip = h.get('ansible_host', '127.0.0.1')
-        rpc_port = int(h.get('rpc_port', 8546))
-        p_offset = int(h.get('port_offset', 10))
-        num_vals = int(h.get('validators', 1))
-
-        out_simple['nodes'][cid_str] = f'http://{ip}:{rpc_port}'
-        out_simple['tcp_nodes'][cid_str] = f'{ip}:{4200 + p_offset}'
-
-        c_rpc_nodes = {}
-        c_ws_nodes = {}
-        c_tcp_nodes = {}
-        for v in range(num_vals):
-            c_rpc_nodes[f'm{v}'] = f'http://{ip}:{rpc_port + v}'
-            c_ws_nodes[f'm{v}'] = f'ws://{ip}:{rpc_port + v}/ws'
-            c_tcp_nodes[f'm{v}'] = f'{ip}:{4200 + p_offset + v}'
-
-        out_simple['chain_nodes'][cid_str] = {
-            'validators': num_vals,
-            'rpc_url': f'http://{ip}:{rpc_port}',
-            'ws_url': f'ws://{ip}:{rpc_port}/ws',
-            'rpc_nodes': c_rpc_nodes,
-            'ws_nodes': c_ws_nodes,
-            'tcp_nodes': c_tcp_nodes
-        }
-
-    with open('$PRIV_CHAINS_FILE', 'w') as f:
-        json.dump(out_simple, f, indent=2)
-    print('✅ Đã đồng bộ $PRIV_CHAINS_FILE từ inventory.yml')
-except Exception as e:
-    print('⚠️ Cảnh báo khi đồng bộ inventory.yml:', e)
-"
+if [ -n "$CLUSTER_INVENTORY" ] && [ -n "$PARSE_INV_SCRIPT" ]; then
+    python3 "$PARSE_INV_SCRIPT" "$CLUSTER_INVENTORY" export >/dev/null 2>&1 || true
+    echo "✅ Đã đồng bộ $PRIV_CHAINS_FILE từ ansible_clusters/inventory.yml"
 fi
 
 # ------------------------------------------------------------------------------
@@ -117,7 +75,7 @@ USE_PRIVATE_CHAIN=false
 TARGET_CHAIN_ID=""
 TARGET_CHAIN_NAME=""
 
-if [ -n "$TARGET_CHAIN_ARG" ] && [ "$TARGET_CHAIN_ARG" != "public" ] && [ "$TARGET_CHAIN_ARG" != "root" ] && [ "$TARGET_CHAIN_ARG" != "991" ] && [ "$TARGET_CHAIN_ARG" != "default" ]; then
+if [ -n "$TARGET_CHAIN_ARG" ] && [ "$TARGET_CHAIN_ARG" != "public" ] && [ "$TARGET_CHAIN_ARG" != "root" ] && [ "$TARGET_CHAIN_ARG" != "parent" ] && [ "$TARGET_CHAIN_ARG" != "default" ]; then
     USE_PRIVATE_CHAIN=true
 elif [ ! -f "$RPC_NODES_FILE" ] && [ -f "$PRIV_CHAINS_FILE" ]; then
     # Không có Public chain, tự động chọn Private chain đầu tiên
@@ -125,9 +83,9 @@ elif [ ! -f "$RPC_NODES_FILE" ] && [ -f "$PRIV_CHAINS_FILE" ]; then
 import json
 with open('$PRIV_CHAINS_FILE') as f:
     d = json.load(f)
-nodes = d.get('nodes', {})
-if nodes:
-    print(list(nodes.keys())[0])
+chains = d.get('private_chains') or d.get('chain_nodes') or d.get('nodes', {})
+if chains:
+    print(list(chains.keys())[0])
 " 2>/dev/null || true)
     if [ -n "$FIRST_CID" ]; then
         USE_PRIVATE_CHAIN=true
@@ -153,32 +111,30 @@ import json, sys
 with open('$PRIV_CHAINS_FILE') as f:
     p_data = json.load(f)
 
-nodes = p_data.get('nodes', {})
-chain_nodes = p_data.get('chain_nodes', {})
+p_chains = p_data.get('private_chains') or p_data.get('chain_nodes', {})
 target = '$TARGET_CHAIN_ARG'.strip().lower()
 
-name_map = {'101': 'chain_a', '102': 'chain_b', '103': 'chain_c', '104': 'chain_d'}
+cluster_map = {
+    '1': 'chain_a', 'cluster_1': 'chain_a', 'exec1': 'chain_a', '101': 'chain_a', '991': 'chain_a', 'chain_a': 'chain_a',
+    '2': 'chain_b', 'cluster_2': 'chain_b', 'exec2': 'chain_b', '102': 'chain_b', 'chain_b': 'chain_b'
+}
 
-matched_cid = None
-for cid_str in nodes.keys():
-    c_name = name_map.get(cid_str, f'chain_{cid_str}')
-    if target == cid_str or target == c_name or target == f'chain_{cid_str}':
-        matched_cid = cid_str
-        break
+canonical = cluster_map.get(target, target)
+c_info = p_chains.get(canonical) or p_chains.get(target, {})
 
-if not matched_cid:
+if not c_info:
     print(f'Error: Không tìm thấy private chain \"$TARGET_CHAIN_ARG\" trong $PRIV_CHAINS_FILE', file=sys.stderr)
-    print(f'Các chain khả dụng: {list(nodes.keys())}', file=sys.stderr)
+    print(f'Các chain khả dụng: {list(p_chains.keys())}', file=sys.stderr)
     sys.exit(1)
 
-c_info = chain_nodes.get(matched_cid, {})
+c_name = canonical
 rpc_map = c_info.get('rpc_nodes', {})
 tcp_map = c_info.get('tcp_nodes', {})
-c_name = name_map.get(matched_cid, f'chain_{matched_cid}')
-base_rpc = nodes.get(matched_cid, '')
+base_rpc = c_info.get('rpc_url', '')
+chain_id_val = int(c_info.get('chain_id', 991))
 
 res = {
-    'cid': int(matched_cid),
+    'cid': chain_id_val,
     'name': c_name,
     'rpc_url': base_rpc,
     'rpc_nodes': rpc_map,
@@ -249,77 +205,87 @@ print(json.dumps(res))
     fi
     if [ -f "$FILE6" ]; then
         echo "Updating $FILE6 using Private Chain $TARGET_CID (Unified RPC & TCP)..."
-        python3 -c "
-import json
-with open('$FILE6') as f:
+        python3 - "$FILE6" "$PRIV_CHAINS_FILE" "$TARGET_CID" "$TARGET_NAME" "$P_M0_RPC" "$P_M0_TCP" "$P_M1_TCP" "$P_M1_RPC_CLEAN" "$P_M2_TCP" "$P_M2_RPC_CLEAN" "$P_M3_TCP" "$P_M3_RPC_CLEAN" << 'EOF'
+import sys, json
+
+file6 = sys.argv[1]
+priv_file = sys.argv[2]
+target_cid = sys.argv[3]
+target_name = sys.argv[4]
+p_m0_rpc = sys.argv[5]
+p_m0_tcp = sys.argv[6]
+p_m1_tcp = sys.argv[7]
+p_m1_rpc_clean = sys.argv[8]
+p_m2_tcp = sys.argv[9]
+p_m2_rpc_clean = sys.argv[10]
+p_m3_tcp = sys.argv[11]
+p_m3_rpc_clean = sys.argv[12]
+
+with open(file6) as f:
     cfg = json.load(f)
-with open('$PRIV_CHAINS_FILE') as f:
+with open(priv_file) as f:
     p_data = json.load(f)
 
-cid_str = '$TARGET_CID'
 chain_nodes = p_data.get('chain_nodes', {})
-nodes = p_data.get('nodes', {})
-c_info = chain_nodes.get(cid_str, {})
-rpc_nodes_map = c_info.get('rpc_nodes', {'m0': '$P_M0_RPC'})
-tcp_nodes_map = c_info.get('tcp_nodes', {'m0': '$P_M0_TCP'})
+c_info = chain_nodes.get(target_cid, {})
+rpc_nodes_map = c_info.get('rpc_nodes', {'m0': p_m0_rpc})
+tcp_nodes_map = c_info.get('tcp_nodes', {'m0': p_m0_tcp})
 
-cfg['target_chain'] = '$TARGET_NAME'
-cfg['chain_id'] = int(cid_str)
-cfg['rpc_url'] = '$P_M0_RPC'
-cfg['ws_url'] = c_info.get('ws_url', '$P_M0_RPC'.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws')
-cfg['rpc_nodes'] = rpc_nodes_map
-cfg['ws_nodes'] = c_info.get('ws_nodes', {k: v.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws' for k, v in rpc_nodes_map.items()})
-cfg['tcp_nodes'] = tcp_nodes_map
-cfg['tcp_node'] = '$P_M0_TCP'
-cfg.pop('tcp_url', None)
-cfg['parent_connection_address'] = '$P_M0_TCP'
-for idx, (conn, rpc_val) in enumerate([('$P_M1_TCP', '$P_M1_RPC_CLEAN'), ('$P_M2_TCP', '$P_M2_RPC_CLEAN'), ('$P_M3_TCP', '$P_M3_RPC_CLEAN')], start=1):
-    c_key = f'connection_node_{idx}'
-    r_key = f'rpc_{idx}'
-    if conn: cfg[c_key] = conn
-    else: cfg.pop(c_key, None)
-    if rpc_val: cfg[r_key] = rpc_val
-    else: cfg.pop(r_key, None)
-cfg['parent_address'] = cfg.get('parent_address', '0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041')
-cfg['parent_connection_type'] = 'client'
-cfg['version'] = '0.0.1.0'
-if not cfg.get('private_key'):
-    cfg['private_key'] = '2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b'
+# Khi cấu hình Private Chain: chỉ cập nhật target_chain và private_chains, TUYỆT ĐỐI không đè cấu hình root của Parent Chain
+cfg['target_chain'] = target_name
 
-name_map = {'101': 'chain_a', '102': 'chain_b', '103': 'chain_c', '104': 'chain_d'}
+
+p_clusters = p_data.get('private_chains') or p_data.get('clusters') or chain_nodes or {}
+
 if 'private_chains' not in cfg:
     cfg['private_chains'] = {}
 
-for cid, rpc_url in nodes.items():
-    c_name = name_map.get(str(cid), f'chain_{cid}')
-    cur_info = chain_nodes.get(str(cid), {})
-    cur_rpc_map = cur_info.get('rpc_nodes', {'m0': rpc_url})
-    cur_ws_url = cur_info.get('ws_url', rpc_url.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws')
-    cur_ws_map = cur_info.get('ws_nodes', {k: v.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws' for k, v in cur_rpc_map.items()})
-    cur_tcp_map = cur_info.get('tcp_nodes', {'m0': p_data.get('tcp_nodes', {}).get(str(cid), '')})
-
-    if c_name in cfg['private_chains']:
-        cfg['private_chains'][c_name]['chain_id'] = int(cid)
-        cfg['private_chains'][c_name]['rpc_url'] = rpc_url
-        cfg['private_chains'][c_name]['ws_url'] = cur_ws_url
-        cfg['private_chains'][c_name]['rpc_nodes'] = cur_rpc_map
-        cfg['private_chains'][c_name]['ws_nodes'] = cur_ws_map
-        cfg['private_chains'][c_name]['tcp_nodes'] = cur_tcp_map
+for cid_k, c_val in p_clusters.items():
+    c_cid = int(c_val.get('chain_id', 991))
+    c_rpc = c_val.get('primary_rpc', c_val.get('rpc_url', ''))
+    c_ws = c_val.get('ws_url', c_rpc.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws')
+    c_replicas = c_val.get('replicas', {})
+    if c_replicas:
+        c_rpc_map = {f"m{r.get('index', idx)}": r.get('rpc_url', '') for idx, r in enumerate(c_replicas.values())}
+        c_ws_map = {f"m{r.get('index', idx)}": r.get('ws_url', '') for idx, r in enumerate(c_replicas.values())}
+        c_tcp_map = {f"m{r.get('index', idx)}": f"{r.get('ip', '127.0.0.1')}:{r.get('p2p_port', 4200)}" for idx, r in enumerate(c_replicas.values())}
     else:
-        cfg['private_chains'][c_name] = {
-            'chain_id': int(cid),
-            'rpc_url': rpc_url,
-            'ws_url': cur_ws_url,
-            'rpc_nodes': cur_rpc_map,
-            'ws_nodes': cur_ws_map,
-            'tcp_nodes': cur_tcp_map,
-            'private_keys': []
+        c_rpc_map = c_val.get('rpc_nodes', {'m0': c_rpc})
+        c_ws_map = c_val.get('ws_nodes', {'m0': c_ws})
+        c_tcp_map = c_val.get('tcp_nodes', {'m0': '127.0.0.1:4200'})
+
+    aliases = []
+    if str(cid_k) in ['1', 'chain_a', 'exec1']:
+        aliases = ['chain_a', 'exec1']
+    elif str(cid_k) in ['2', 'chain_b', 'exec2']:
+        aliases = ['chain_b', 'exec2']
+    else:
+        aliases = [c_val.get('cluster_name', f'exec{cid_k}')]
+
+    for a_name in aliases:
+        prev_keys = cfg.get('private_chains', {}).get(a_name, {}).get('private_keys', [])
+        if not prev_keys and a_name == 'exec1':
+            prev_keys = cfg.get('private_chains', {}).get('chain_a', {}).get('private_keys', [])
+        elif not prev_keys and a_name == 'exec2':
+            prev_keys = cfg.get('private_chains', {}).get('chain_b', {}).get('private_keys', [])
+
+        cfg['private_chains'][a_name] = {
+            'chain_id': c_cid,
+            'rpc_url': c_rpc,
+            'ws_url': c_ws,
+            'rpc_nodes': c_rpc_map,
+            'ws_nodes': c_ws_map,
+            'tcp_nodes': c_tcp_map,
+            'private_keys': prev_keys
         }
 
-with open('$FILE6', 'w') as f:
+for bad in ['chain_chain_a', 'chain_chain_b', 'chain_991', 'chain_cluster_1', 'chain_cluster_2', 'chain_1', 'chain_2', 'chain_101', 'chain_102']:
+    cfg.get('private_chains', {}).pop(bad, None)
+
+with open(file6, 'w') as f:
     json.dump(cfg, f, indent=2)
-print('✅ Updated private_chains and target_chain in $FILE6')
-"
+print(f'✅ Updated private_chains and target_chain in {file6}')
+EOF
     fi
 
 else
@@ -430,52 +396,70 @@ else
             cp -f "$FILE6" "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json"
         fi
 
-        # Cập nhật thông tin Private Chains từ /tmp/private_chains.json (nếu có)
+        # Cập nhật thông tin Private Chains từ /tmp/rpc_nodes.json (nếu có)
         if [ -f "$PRIV_CHAINS_FILE" ]; then
             echo "Updating Private Chains RPC & TCP in $FILE6 from $PRIV_CHAINS_FILE..."
-            python3 -c "
-import json
-with open('$FILE6') as f:
+            python3 - "$FILE6" "$PRIV_CHAINS_FILE" << 'EOF'
+import sys, json
+
+file6 = sys.argv[1]
+priv_file = sys.argv[2]
+
+with open(file6) as f:
     cfg = json.load(f)
-with open('$PRIV_CHAINS_FILE') as f:
+with open(priv_file) as f:
     p_data = json.load(f)
 
-nodes = p_data.get('nodes', {})
-chain_nodes = p_data.get('chain_nodes', {})
+p_clusters = p_data.get('clusters', {})
 if 'private_chains' not in cfg:
     cfg['private_chains'] = {}
 
-name_map = {'101': 'chain_a', '102': 'chain_b', '103': 'chain_c', '104': 'chain_d'}
-for cid, rpc_url in nodes.items():
-    c_name = name_map.get(str(cid), f'chain_{cid}')
-    c_info = chain_nodes.get(str(cid), {})
-    rpc_nodes_map = c_info.get('rpc_nodes', {'m0': rpc_url})
-    tcp_nodes_map = c_info.get('tcp_nodes', {})
-    ws_url = c_info.get('ws_url', rpc_url.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws')
-    ws_nodes_map = c_info.get('ws_nodes', {k: v.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws' for k, v in rpc_nodes_map.items()})
-
-    if c_name in cfg['private_chains']:
-        cfg['private_chains'][c_name]['chain_id'] = int(cid)
-        cfg['private_chains'][c_name]['rpc_url'] = rpc_url
-        cfg['private_chains'][c_name]['ws_url'] = ws_url
-        cfg['private_chains'][c_name]['rpc_nodes'] = rpc_nodes_map
-        cfg['private_chains'][c_name]['ws_nodes'] = ws_nodes_map
-        cfg['private_chains'][c_name]['tcp_nodes'] = tcp_nodes_map
+for cid_k, c_val in p_clusters.items():
+    c_cid = int(c_val.get('chain_id', 991))
+    c_rpc = c_val.get('primary_rpc', c_val.get('rpc_url', ''))
+    c_ws = c_val.get('ws_url', c_rpc.replace('http://', 'ws://') + '/ws')
+    c_replicas = c_val.get('replicas', {})
+    if c_replicas:
+        c_rpc_map = {f"m{r.get('index', idx)}": r.get('rpc_url', '') for idx, r in enumerate(c_replicas.values())}
+        c_ws_map = {f"m{r.get('index', idx)}": r.get('ws_url', '') for idx, r in enumerate(c_replicas.values())}
+        c_tcp_map = {f"m{r.get('index', idx)}": f"{r.get('ip', '127.0.0.1')}:{r.get('p2p_port', 4200)}" for idx, r in enumerate(c_replicas.values())}
     else:
-        cfg['private_chains'][c_name] = {
-            'chain_id': int(cid),
-            'rpc_url': rpc_url,
-            'ws_url': ws_url,
-            'rpc_nodes': rpc_nodes_map,
-            'ws_nodes': ws_nodes_map,
-            'tcp_nodes': tcp_nodes_map,
-            'private_keys': []
+        c_rpc_map = c_val.get('rpc_nodes', {'m0': c_rpc})
+        c_ws_map = c_val.get('ws_nodes', {'m0': c_ws})
+        c_tcp_map = c_val.get('tcp_nodes', {'m0': '127.0.0.1:4200'})
+
+    aliases = []
+    if str(cid_k) == '1':
+        aliases = ['chain_a', 'exec1']
+    elif str(cid_k) == '2':
+        aliases = ['chain_b', 'exec2']
+    else:
+        aliases = [c_val.get('cluster_name', f'exec{cid_k}')]
+
+    for a_name in aliases:
+        prev_keys = cfg.get('private_chains', {}).get(a_name, {}).get('private_keys', [])
+        if not prev_keys and a_name == 'exec1':
+            prev_keys = cfg.get('private_chains', {}).get('chain_a', {}).get('private_keys', [])
+        elif not prev_keys and a_name == 'exec2':
+            prev_keys = cfg.get('private_chains', {}).get('chain_b', {}).get('private_keys', [])
+
+        cfg['private_chains'][a_name] = {
+            'chain_id': c_cid,
+            'rpc_url': c_rpc,
+            'ws_url': c_ws,
+            'rpc_nodes': c_rpc_map,
+            'ws_nodes': c_ws_map,
+            'tcp_nodes': c_tcp_map,
+            'private_keys': prev_keys
         }
 
-with open('$FILE6', 'w') as f:
+for bad in ['chain_chain_a', 'chain_chain_b', 'chain_991', 'chain_cluster_1', 'chain_cluster_2', 'chain_1', 'chain_2', 'chain_101', 'chain_102']:
+    cfg.get('private_chains', {}).pop(bad, None)
+
+with open(file6, 'w') as f:
     json.dump(cfg, f, indent=2)
-print('✅ Updated private_chains in $FILE6')
-"
+print(f'✅ Updated private_chains in {file6}')
+EOF
         fi
     else
         echo "Warning: $FILE6 not found." >&2

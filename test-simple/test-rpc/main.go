@@ -14,6 +14,9 @@ import (
 
 	"reflect"
 
+	"crypto/tls"
+	"net/http"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -21,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 type Config struct {
@@ -83,10 +87,25 @@ func main() {
 
 	dataList := loadData(*dataFlag)
 
-	// 2. Kết nối tới Chain
-	client, err := ethclient.Dial(cfg.RPCUrl)
-	if err != nil {
-		log.Fatalf("❌ Lỗi kết nối RPC %s: %v", cfg.RPCUrl, err)
+	// 2. Kết nối tới Chain (bỏ qua kiểm tra chứng chỉ TLS cho HTTPS nếu expired/self-signed)
+	var client *ethclient.Client
+	if strings.HasPrefix(cfg.RPCUrl, "http://") || strings.HasPrefix(cfg.RPCUrl, "https://") {
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+		rpcClient, err := rpc.DialHTTPWithClient(cfg.RPCUrl, httpClient)
+		if err != nil {
+			log.Fatalf("❌ Lỗi kết nối RPC %s: %v", cfg.RPCUrl, err)
+		}
+		client = ethclient.NewClient(rpcClient)
+	} else {
+		var err error
+		client, err = ethclient.Dial(cfg.RPCUrl)
+		if err != nil {
+			log.Fatalf("❌ Lỗi kết nối RPC %s: %v", cfg.RPCUrl, err)
+		}
 	}
 
 	// 3. Chuẩn bị Private Key & Address
