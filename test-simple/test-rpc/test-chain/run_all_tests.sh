@@ -120,11 +120,28 @@ for test_dir in "${TESTS[@]}"; do
             grep -v -E "^\s*•\s*m[0-9]" "$log_file" | grep -E -i "error|fatal|panic|timeout|failed|❌|Chưa đồng bộ|^\s*[-•]" | tail -n 10 | sed 's/^/      /'
             echo "   📊 BLOCK HIỆN TẠI CỦA CÁC NODES:"
             python3 -c "
-import urllib.request, json
+import urllib.request, json, os
 try:
     with open('config.json') as f:
         cfg = json.load(f)
-    for name, url in cfg.get('rpc_nodes', {}).items():
+    target = os.environ.get('TARGET_CHAIN', cfg.get('target_chain', '')).strip().lower()
+    nodes = {}
+    if target and target not in ['public', 'root', 'default']:
+        pchains = cfg.get('private_chains', {})
+        pchain = pchains.get(target)
+        if not pchain:
+            for k, v in pchains.items():
+                if k.lower() == target or k.lower() == 'chain_' + target or str(v.get('chain_id')) == target:
+                    pchain = v
+                    break
+        if pchain and 'rpc_nodes' in pchain:
+            nodes = pchain['rpc_nodes']
+        elif pchain and 'rpc_url' in pchain:
+            nodes = {target: pchain['rpc_url']}
+    if not nodes:
+        nodes = cfg.get('rpc_nodes', {})
+
+    for name, url in nodes.items():
         try:
             req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
             with urllib.request.urlopen(req, timeout=1.5) as resp:
