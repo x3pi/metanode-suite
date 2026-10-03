@@ -1,6 +1,6 @@
 {
   "bls_private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
-  "target_chain": "chain_a",
+  "target_chain": "",
   "rpc_url": "http://192.168.1.234:10746",
   "rpc_nodes": {
     "m0": "http://192.168.1.234:10746",

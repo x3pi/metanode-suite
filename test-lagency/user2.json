@@ -1,0 +1,13 @@
+{
+  "chain_id": 991,
+  "eth_pk": "edb63ea1c26ce5c5d29df010ddedf2c57b3a4af38d776290f9a789205366acea",
+  "http_rpc": "http://127.0.0.1:8646",
+  "nation_id": 1,
+  "parent_address": "0xE3784d5212FB306198d1f84231428B5ab2878f04",
+  "parent_connection_address": "127.0.0.1:4200",
+  "parent_connection_type": "client",
+  "private_key": "0f326c0b9bb86353ac317dd8f9b045fd1877473674ba24500139fed777b26a0c",
+  "target_address": "0xF6266Bbc0c65235E6A9eBA3f9e710862e2179E33",
+  "version": "0.0.1.0",
+  "websocket_rpc": "ws://127.0.0.1:8646/ws"
+}
