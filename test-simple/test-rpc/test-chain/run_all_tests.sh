@@ -87,6 +87,7 @@ for test_dir in "${TESTS[@]}"; do
         continue
     fi
 
+
     for run_idx in {1..3}; do
         echo -n "▶️ Đang chạy $test_dir (Lần $run_idx/3) ... "
         

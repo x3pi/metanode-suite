@@ -13,6 +13,9 @@
   "private_chains": {
     "chain_a": {
       "chain_id": 991,
+      "bls_private_key": "0f326c0b9bb86353ac317dd8f9b045fd1877473674ba24500139fed777b26a0c",
+      "address": "0x1F0ECA432E1B18b140814beF0ce1Ba2b09DE44c5",
+      "bls_pubkey": "0x944488b425d29336c7913a3b45946adee6b9bfbd0838c6c8f422f4b4277066f26b3da0530c9f9865e6e534a05ae6c128",
       "rpc_url": "http://127.0.0.1:8646",
       "ws_url": "ws://127.0.0.1:8646/ws",
       "rpc_nodes": {
@@ -41,6 +44,9 @@
     },
     "chain_b": {
       "chain_id": 991,
+      "bls_private_key": "2a61eac9235fab64ae377b2b7e39f8fa9648c5737094d28c7ee68a14b5086d39",
+      "address": "0x0d4CC97b62a149a8fe8DE81262270426A80B0935",
+      "bls_pubkey": "0x83221629eeff1a69aa96ac6aadea402a7b62a74647633c0743cd517b71dcd5cd39fec42841b953fc481dac039bceb465",
       "rpc_url": "http://127.0.0.1:8647",
       "ws_url": "ws://127.0.0.1:8647/ws",
       "rpc_nodes": {
@@ -92,6 +98,9 @@
     },
     "exec1": {
       "chain_id": 991,
+      "bls_private_key": "0f326c0b9bb86353ac317dd8f9b045fd1877473674ba24500139fed777b26a0c",
+      "address": "0x1F0ECA432E1B18b140814beF0ce1Ba2b09DE44c5",
+      "bls_pubkey": "0x944488b425d29336c7913a3b45946adee6b9bfbd0838c6c8f422f4b4277066f26b3da0530c9f9865e6e534a05ae6c128",
       "rpc_url": "http://127.0.0.1:8646",
       "ws_url": "ws://127.0.0.1:8646/ws",
       "rpc_nodes": {
@@ -120,6 +129,9 @@
     },
     "exec2": {
       "chain_id": 991,
+      "bls_private_key": "2a61eac9235fab64ae377b2b7e39f8fa9648c5737094d28c7ee68a14b5086d39",
+      "address": "0x0d4CC97b62a149a8fe8DE81262270426A80B0935",
+      "bls_pubkey": "0x83221629eeff1a69aa96ac6aadea402a7b62a74647633c0743cd517b71dcd5cd39fec42841b953fc481dac039bceb465",
       "rpc_url": "http://127.0.0.1:8647",
       "ws_url": "ws://127.0.0.1:8647/ws",
       "rpc_nodes": {

@@ -219,6 +219,7 @@ func main() {
 			}
 
 			// 6. Thực thi
+			taskStart := time.Now()
 			var taskErr error
 			if action == "deploy" {
 				if len(payloadData) == 0 {
@@ -251,12 +252,13 @@ func main() {
 				hasError = true
 				break
 			} else {
+				taskElapsed := time.Since(taskStart)
 				if len(d.ExpectedEvents) > 0 {
-					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (Pass %d verify event)", taskTitle, len(d.ExpectedEvents)))
+					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (%v, Pass %d verify event)", taskTitle, taskElapsed, len(d.ExpectedEvents)))
 				} else if len(d.ExpectedOutput) > 0 {
-					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (Pass verify output)", taskTitle))
+					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (%v, Pass verify output)", taskTitle, taskElapsed))
 				} else {
-					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG", taskTitle))
+					summary = append(summary, fmt.Sprintf("✅ %s -> THÀNH CÔNG (%v)", taskTitle, taskElapsed))
 				}
 			}
 		}
@@ -505,7 +507,8 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 		if err == nil {
 			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status == 1 {
-					fmt.Printf("\n   ✅ DEPLOY THÀNH CÔNG! (Gas used: %d)\n", receipt.GasUsed)
+					duration := time.Since(pollStart)
+					fmt.Printf("\n   ✅ DEPLOY THÀNH CÔNG! (Thời gian mining receipt: %v | Gas used: %d)\n", duration, receipt.GasUsed)
 					fmt.Printf("   📌 CONTRACT ADDRESS MỚI TẠO: %s\n", receipt.ContractAddress.Hex())
 					return &receipt.ContractAddress, nil
 				} else {
@@ -517,7 +520,7 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 			return nil, fmt.Errorf("Lỗi hệ thống khi check receipt: %v", err)
 		}
 		fmt.Print(".")
-		time.Sleep(1 * time.Second)
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -629,6 +632,8 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 
 	// 5. Polling đợi mạng lưới
 	pollStart := time.Now()
+	// Chờ tối thiểu 35ms để mạng đóng block, tránh việc node bị miss cache mà kích hoạt quét ngược 2000 block trên disk
+	time.Sleep(35 * time.Millisecond)
 	for {
 		if timeout > 0 && time.Since(pollStart) > timeout {
 			fmt.Println()
@@ -639,7 +644,8 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				fmt.Println()
 				if receipt.Status == 1 {
-					fmt.Printf("   ✅ Tx THÀNH CÔNG (Gas used: %d)\n", receipt.GasUsed)
+					duration := time.Since(pollStart)
+					fmt.Printf("   ✅ Tx THÀNH CÔNG (Thời gian mining receipt: %v | Gas used: %d)\n", duration, receipt.GasUsed)
 					if hasAbi && len(receipt.Logs) > 0 {
 						fmt.Printf("   📝 SỰ KIỆN (EVENTS):\n")
 						verifiedEvents := make(map[int]bool)
@@ -729,7 +735,7 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 			return fmt.Errorf("Lỗi hệ thống khi check receipt: %v", err)
 		}
 		fmt.Print(".")
-		time.Sleep(1 * time.Second)
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

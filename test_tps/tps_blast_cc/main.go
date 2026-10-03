@@ -340,6 +340,7 @@ func main() {
 		targetNode  int
 		trace       bool
 		tpsTarget   int
+		targetChain string
 	)
 
 	flag.StringVar(&configPath, "config", "./config.json", "Client config")
@@ -360,6 +361,7 @@ func main() {
 	flag.IntVar(&targetNode, "target-node", 0, "Target node index (0 to 3) to send transactions to")
 	flag.BoolVar(&trace, "trace", false, "Enable fetching block traces at the end of the round")
 	flag.IntVar(&tpsTarget, "tps-target", 0, "Target TPS for paced injection (0 = disable pacing)")
+	flag.StringVar(&targetChain, "chain", "", "Target chain name or ID (e.g. chain_a, exec1, chain_b) or 'public'/'parent' for Parent Chain")
 	flag.Parse()
 
 	// Fallback to shared configs/config.json if default ./config.json is missing
@@ -376,6 +378,7 @@ func main() {
 		}
 	}
 
+
 	logger.SetConfig(&logger.LoggerConfig{Flag: 0})
 
 	fmt.Println("═══════════════════════════════════════════════════")
@@ -389,24 +392,41 @@ func main() {
 	}
 	config := configIface.(*c_config.ClientConfig)
 
-	// Override config based on target-node if specified
+	var rawCfg map[string]interface{}
 	if raw, err := os.ReadFile(configPath); err == nil {
-		var rawCfg map[string]interface{}
-		if json.Unmarshal(raw, &rawCfg) == nil {
-			tcpKey := "parent_connection_address"
-			if targetNode > 0 {
-				tcpKey = fmt.Sprintf("connection_node_%d", targetNode)
-			}
-			if v, ok := rawCfg[tcpKey].(string); ok && v != "" {
-				config.ParentConnectionAddress = v
-				fmt.Printf("🎯 [CONFIG OVERRIDE] Target Node: %d (TCP: %s)\n", targetNode, v)
-			}
-			if !loadBalance {
-				rpcKey := fmt.Sprintf("rpc_%d", targetNode)
-				if v, ok := rawCfg[rpcKey].(string); ok && v != "" {
-					rpcAddr = v
-					fmt.Printf("🎯 [CONFIG OVERRIDE] Target RPC: %s\n", v)
-				}
+		_ = json.Unmarshal(raw, &rawCfg)
+	}
+
+	if targetChain == "" && rawCfg != nil {
+		if tc, ok := rawCfg["target_chain"].(string); ok && tc != "" && tc != "public" && tc != "parent" && tc != "root" {
+			targetChain = tc
+		}
+	}
+
+	isPrivateChain := false
+	var privChainCfg map[string]interface{}
+	var privTcpList []string
+	var privRpcList []string
+
+	if targetChain != "" && targetChain != "public" && targetChain != "parent" && targetChain != "root" && rawCfg != nil {
+		clusterAliases := map[string]string{
+			"1": "chain_a", "cluster_1": "chain_a", "exec1": "chain_a", "101": "chain_a", "chain_a": "chain_a",
+			"2": "chain_b", "cluster_2": "chain_b", "exec2": "chain_b", "102": "chain_b", "chain_b": "chain_b",
+			"3": "chain_c", "cluster_3": "chain_c", "exec3": "chain_c", "103": "chain_c", "chain_c": "chain_c",
+			"4": "chain_d", "cluster_4": "chain_d", "exec4": "chain_d", "104": "chain_d", "chain_d": "chain_d",
+		}
+		canonical := strings.ToLower(targetChain)
+		if mapped, ok := clusterAliases[canonical]; ok {
+			canonical = mapped
+		}
+		if pChains, ok := rawCfg["private_chains"].(map[string]interface{}); ok {
+			if cCfg, ok := pChains[canonical].(map[string]interface{}); ok {
+				isPrivateChain = true
+				privChainCfg = cCfg
+				targetChain = canonical
+			} else if cCfg, ok := pChains[targetChain].(map[string]interface{}); ok {
+				isPrivateChain = true
+				privChainCfg = cCfg
 			}
 		}
 	}
@@ -416,16 +436,157 @@ func main() {
 
 	chainId := config.ChainId
 
+	if isPrivateChain && privChainCfg != nil {
+		if cid, ok := privChainCfg["chain_id"].(float64); ok && cid > 0 {
+			chainId = uint64(cid)
+		}
+		// Load chain-specific bls_private_key for BLS signing
+		pkFound := false
+		if pkStr, ok := privChainCfg["bls_private_key"].(string); ok && len(strings.TrimPrefix(pkStr, "0x")) == 64 {
+			if b, err := hex.DecodeString(strings.TrimPrefix(pkStr, "0x")); err == nil && len(b) == 32 {
+				copy(pKey[:], b)
+				pkFound = true
+				fmt.Printf("  🔑 [CHAIN: %s] Using chain bls_private_key for BLS signing: %s...\n", targetChain, strings.TrimPrefix(pkStr, "0x")[:10])
+			}
+		}
+		if !pkFound {
+			if pkStr, ok := privChainCfg["bls_privatekey"].(string); ok && len(strings.TrimPrefix(pkStr, "0x")) == 64 {
+				if b, err := hex.DecodeString(strings.TrimPrefix(pkStr, "0x")); err == nil && len(b) == 32 {
+					copy(pKey[:], b)
+					pkFound = true
+					fmt.Printf("  🔑 [CHAIN: %s] Using chain bls_privatekey for BLS signing: %s...\n", targetChain, strings.TrimPrefix(pkStr, "0x")[:10])
+				}
+			}
+		}
+		if !pkFound {
+			if pkStr, ok := privChainCfg["private_key"].(string); ok && len(strings.TrimPrefix(pkStr, "0x")) == 64 {
+				if b, err := hex.DecodeString(strings.TrimPrefix(pkStr, "0x")); err == nil && len(b) == 32 {
+					copy(pKey[:], b)
+					pkFound = true
+					fmt.Printf("  🔑 [CHAIN: %s] Using chain private_key for BLS signing: %s...\n", targetChain, strings.TrimPrefix(pkStr, "0x")[:10])
+				}
+			}
+		}
+		if !pkFound {
+			fmt.Printf("  ⚠️ [CHAIN: %s] No bls_private_key in private_chains, using default root bls_private_key\n", targetChain)
+		}
+
+		// Also override toAddrHex / config.ParentAddress if private chain defines "address"
+		if addrStr, ok := privChainCfg["address"].(string); ok && strings.TrimSpace(addrStr) != "" {
+			config.ParentAddress = strings.TrimSpace(addrStr)
+			fmt.Printf("  📍 [CHAIN: %s] Target node address: %s\n", targetChain, config.ParentAddress)
+		}
+		// Extract TCP nodes
+		if tcpNodes, ok := privChainCfg["tcp_nodes"].(map[string]interface{}); ok && len(tcpNodes) > 0 {
+			var keys []string
+			for k := range tcpNodes {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				if addr, ok := tcpNodes[k].(string); ok && strings.TrimSpace(addr) != "" {
+					privTcpList = append(privTcpList, strings.TrimSpace(addr))
+				}
+			}
+		}
+		// Extract RPC nodes
+		if rpcNodes, ok := privChainCfg["rpc_nodes"].(map[string]interface{}); ok && len(rpcNodes) > 0 {
+			var keys []string
+			for k := range rpcNodes {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				if u, ok := rpcNodes[k].(string); ok && strings.TrimSpace(u) != "" {
+					url := strings.TrimSpace(u)
+					if !strings.HasPrefix(url, "http") {
+						url = "http://" + url
+					}
+					privRpcList = append(privRpcList, url)
+				}
+			}
+		}
+		if len(privRpcList) == 0 {
+			if u, ok := privChainCfg["rpc_url"].(string); ok && strings.TrimSpace(u) != "" {
+				url := strings.TrimSpace(u)
+				if !strings.HasPrefix(url, "http") {
+					url = "http://" + url
+				}
+				privRpcList = append(privRpcList, url)
+			}
+		}
+
+		if len(privTcpList) > 0 {
+			selIdx := targetNode
+			if selIdx < 0 || selIdx >= len(privTcpList) {
+				selIdx = 0
+			}
+			config.ParentConnectionAddress = privTcpList[selIdx]
+		}
+
+		fmt.Printf("🎯 [TARGET: PRIVATE CHAIN '%s'] Chain ID: %d | TCP Nodes: %v | RPC Nodes: %v\n",
+			targetChain, chainId, privTcpList, privRpcList)
+	} else if rawCfg != nil {
+		// Override config based on target-node if specified (Parent Chain)
+		tcpKey := "parent_connection_address"
+		if targetNode > 0 {
+			tcpKey = fmt.Sprintf("connection_node_%d", targetNode)
+		}
+		if v, ok := rawCfg[tcpKey].(string); ok && v != "" {
+			config.ParentConnectionAddress = v
+			fmt.Printf("🎯 [CONFIG OVERRIDE] Target Node: %d (TCP: %s)\n", targetNode, v)
+		}
+		if !loadBalance {
+			rpcKey := fmt.Sprintf("rpc_%d", targetNode)
+			if v, ok := rawCfg[rpcKey].(string); ok && v != "" {
+				rpcAddr = v
+				fmt.Printf("🎯 [CONFIG OVERRIDE] Target RPC: %s\n", v)
+			}
+		}
+		fmt.Printf("🎯 [TARGET: PARENT CHAIN] Chain ID: %d | TCP: %s\n", chainId, config.ParentConnectionAddress)
+	}
+
 	// Load keys
-	keysData, err := os.ReadFile(keysFile)
-	if err != nil {
-		log.Fatalf("Cannot read keys file %s: %v", keysFile, err)
-	}
 	var accounts []AccountInfo
-	if err := json.Unmarshal(keysData, &accounts); err != nil {
-		log.Fatalf("Cannot parse keys file: %v", err)
+
+	// 1. Prioritize reading keysFile (e.g. generated_keys.json)
+	if keysFile != "" {
+		if _, err := os.Stat(keysFile); err == nil {
+			if keysData, err := os.ReadFile(keysFile); err == nil {
+				if err := json.Unmarshal(keysData, &accounts); err == nil && len(accounts) > 0 {
+					fmt.Printf("  📋 Loaded %d accounts from %s\n", len(accounts), keysFile)
+				}
+			}
+		}
 	}
-	fmt.Printf("  📋 Loaded %d accounts from %s\n", len(accounts), keysFile)
+
+	// 2. Fallback to private_chains[targetChain].private_keys if keysFile wasn't loaded
+	if len(accounts) == 0 && isPrivateChain && privChainCfg != nil {
+		if pKeys, ok := privChainCfg["private_keys"].([]interface{}); ok && len(pKeys) > 0 {
+			for idx, pkRaw := range pKeys {
+				if pkStr, ok := pkRaw.(string); ok && len(strings.TrimPrefix(pkStr, "0x")) == 64 {
+					pkClean := strings.TrimPrefix(pkStr, "0x")
+					if privBytes, err := hex.DecodeString(pkClean); err == nil && len(privBytes) == 32 {
+						if ecdsaKey, err := crypto.ToECDSA(privBytes); err == nil {
+							addr := crypto.PubkeyToAddress(ecdsaKey.PublicKey).Hex()
+							accounts = append(accounts, AccountInfo{
+								Index:      idx,
+								PrivateKey: pkClean,
+								Address:    addr,
+							})
+						}
+					}
+				}
+			}
+			if len(accounts) > 0 {
+				fmt.Printf("  📋 Loaded %d authorized accounts from private_chains[%s].private_keys in config.json\n", len(accounts), targetChain)
+			}
+		}
+	}
+
+	if len(accounts) == 0 {
+		log.Fatalf("No accounts found! Please ensure %s exists or private_keys are configured in %s", keysFile, configPath)
+	}
 
 	var toSend []AccountInfo
 	if count > len(accounts) {
@@ -442,32 +603,42 @@ func main() {
 	fmt.Printf("  🆔 DestinationId: %d\n", destId)
 	fmt.Printf("  💰 Amount: %s wei\n", amountWei)
 
-	// ── Build RPC pool: rpc_1, rpc_2, rpc_3 từ config (load balance nonce fetch) ──
-	// Đọc raw config để lấy rpc_1/rpc_2/rpc_3
+	// ── Build RPC pool ──
 	var rpcPool []*rpc.RPCClient
-	if raw, err := os.ReadFile(configPath); err == nil {
-		var rawCfg map[string]interface{}
-		if json.Unmarshal(raw, &rawCfg) == nil {
-			// Thêm rpc_0, rpc_1, rpc_2, rpc_3, ... theo thứ tự
-			for i := 0; i <= 10; i++ {
-				// Nếu load_balance = false, chỉ sử dụng rpc_<targetNode>
-				if !loadBalance && i != targetNode {
-					continue
+	if isPrivateChain && len(privRpcList) > 0 {
+		if !loadBalance {
+			selIdx := targetNode
+			if selIdx < 0 || selIdx >= len(privRpcList) {
+				selIdx = 0
+			}
+			rpcPool = append(rpcPool, rpc.NewRPCClient(privRpcList[selIdx]))
+			rpcAddr = privRpcList[selIdx]
+			fmt.Printf("  🌐 Chế độ Single Node IP (RPC): %s\n", privRpcList[selIdx])
+		} else {
+			for idx, u := range privRpcList {
+				rpcPool = append(rpcPool, rpc.NewRPCClient(u))
+				fmt.Printf("  🌐 RPC pool [%d]: %s\n", idx, u)
+			}
+			rpcAddr = privRpcList[0]
+		}
+	} else if rawCfg != nil {
+		for i := 0; i <= 10; i++ {
+			if !loadBalance && i != targetNode {
+				continue
+			}
+
+			key := fmt.Sprintf("rpc_%d", i)
+			if v, ok := rawCfg[key].(string); ok && v != "" {
+				url := v
+				if !strings.HasPrefix(url, "http") {
+					url = "http://" + url
 				}
+				rpcPool = append(rpcPool, rpc.NewRPCClient(url))
 
-				key := fmt.Sprintf("rpc_%d", i)
-				if v, ok := rawCfg[key].(string); ok && v != "" {
-					url := v
-					if !strings.HasPrefix(url, "http") {
-						url = "http://" + url
-					}
-					rpcPool = append(rpcPool, rpc.NewRPCClient(url))
-
-					if !loadBalance {
-						fmt.Printf("  🌐 Chế độ Single Node IP (RPC): %s\n", url)
-					} else {
-						fmt.Printf("  🌐 RPC pool [%d]: %s\n", i, url)
-					}
+				if !loadBalance {
+					fmt.Printf("  🌐 Chế độ Single Node IP (RPC): %s\n", url)
+				} else {
+					fmt.Printf("  🌐 RPC pool [%d]: %s\n", i, url)
 				}
 			}
 		}
@@ -728,27 +899,36 @@ func main() {
 	// 	log.Fatalf("❌ DỪNG CHƯƠNG TRÌNH: Không có giao dịch nào được build thành công!")
 	// }
 
-	targetAddresses := []string{config.GetParentConnectionAddress()}
-	if !loadBalance {
-		fmt.Printf("\n  📡 Chế độ Single Node IP (TCP): %s\n", config.GetParentConnectionAddress())
-	}
-
+	var targetAddresses []string
 	if nodeAddr != "" {
 		targetAddresses = strings.Split(nodeAddr, ",")
-	} else if loadBalance {
-		// Read raw config for extra load-balancer nodes only if load_balance flag is true
-		if raw, err := os.ReadFile(configPath); err == nil {
-			var rawCfg map[string]interface{}
-			if err := json.Unmarshal(raw, &rawCfg); err == nil {
-				for k, v := range rawCfg {
-					if strings.HasPrefix(k, "connection_node_") {
-						if strV, ok := v.(string); ok && strings.TrimSpace(strV) != "" {
-							targetAddresses = append(targetAddresses, strings.TrimSpace(strV))
-						}
+	} else if isPrivateChain && len(privTcpList) > 0 {
+		if !loadBalance {
+			selIdx := targetNode
+			if selIdx < 0 || selIdx >= len(privTcpList) {
+				selIdx = 0
+			}
+			targetAddresses = []string{privTcpList[selIdx]}
+		} else {
+			targetAddresses = privTcpList
+		}
+	} else {
+		targetAddresses = []string{config.GetParentConnectionAddress()}
+		if loadBalance && rawCfg != nil {
+			for k, v := range rawCfg {
+				if strings.HasPrefix(k, "connection_node_") {
+					if strV, ok := v.(string); ok && strings.TrimSpace(strV) != "" {
+						targetAddresses = append(targetAddresses, strings.TrimSpace(strV))
 					}
 				}
 			}
 		}
+	}
+
+	if !loadBalance && len(targetAddresses) > 0 {
+		fmt.Printf("\n  📡 Chế độ Single Node IP (TCP): %s\n", targetAddresses[0])
+	} else if loadBalance {
+		fmt.Printf("\n  📡 Chế độ Load Balance (%d TCP Nodes): %v\n", len(targetAddresses), targetAddresses)
 	}
 
 	toAddrHex := config.ParentAddress

@@ -269,8 +269,32 @@ for cid_k, c_val in p_clusters.items():
         elif not prev_keys and a_name == 'exec2':
             prev_keys = cfg.get('private_chains', {}).get('chain_b', {}).get('private_keys', [])
 
+        prev_bls_pk = cfg.get('private_chains', {}).get(a_name, {}).get('bls_private_key', '')
+        if not prev_bls_pk and a_name == 'exec1':
+            prev_bls_pk = cfg.get('private_chains', {}).get('chain_a', {}).get('bls_private_key', '')
+        elif not prev_bls_pk and a_name == 'exec2':
+            prev_bls_pk = cfg.get('private_chains', {}).get('chain_b', {}).get('bls_private_key', '')
+        c_bls_pk = c_val.get('bls_private_key', prev_bls_pk or c_val.get('private_key', ''))
+
+        prev_addr = cfg.get('private_chains', {}).get(a_name, {}).get('address', '')
+        if not prev_addr and a_name == 'exec1':
+            prev_addr = cfg.get('private_chains', {}).get('chain_a', {}).get('address', '')
+        elif not prev_addr and a_name == 'exec2':
+            prev_addr = cfg.get('private_chains', {}).get('chain_b', {}).get('address', '')
+        c_addr = c_val.get('address', prev_addr)
+
+        prev_pub = cfg.get('private_chains', {}).get(a_name, {}).get('bls_pubkey', '')
+        if not prev_pub and a_name == 'exec1':
+            prev_pub = cfg.get('private_chains', {}).get('chain_a', {}).get('bls_pubkey', '')
+        elif not prev_pub and a_name == 'exec2':
+            prev_pub = cfg.get('private_chains', {}).get('chain_b', {}).get('bls_pubkey', '')
+        c_bls_pub = c_val.get('bls_pubkey', prev_pub)
+
         cfg['private_chains'][a_name] = {
             'chain_id': c_cid,
+            'bls_private_key': c_bls_pk,
+            'address': c_addr,
+            'bls_pubkey': c_bls_pub,
             'rpc_url': c_rpc,
             'ws_url': c_ws,
             'rpc_nodes': c_rpc_map,
@@ -281,6 +305,11 @@ for cid_k, c_val in p_clusters.items():
 
 for bad in ['chain_chain_a', 'chain_chain_b', 'chain_991', 'chain_cluster_1', 'chain_cluster_2', 'chain_1', 'chain_2', 'chain_101', 'chain_102']:
     cfg.get('private_chains', {}).pop(bad, None)
+
+# Sanitize root node maps: ensure parent_node_* and exec* never pollute root endpoints
+for map_key in ['rpc_nodes', 'tcp_nodes', 'ws_nodes', 'state_history_nodes', 'sync_nodes']:
+    if map_key in cfg and isinstance(cfg[map_key], dict):
+        cfg[map_key] = {k: v for k, v in cfg[map_key].items() if not k.startswith('parent_node_') and not k.startswith('exec')}
 
 with open(file6, 'w') as f:
     json.dump(cfg, f, indent=2)
@@ -389,7 +418,7 @@ else
            --arg c2 "$new_conn_2" --arg r2 "$new_rpc_2" \
            --arg c3 "$new_conn_3" --arg r3 "$new_rpc_3" \
            --slurpfile rpc "$RPC_NODES_FILE" \
-           'del(.all_nodes, .roles, .tcp_url) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .ws_url = (if $ws != "" then $ws else (.rpc_url | sub("^http://"; "ws://") | sub("^https://"; "wss://") + "/ws") end) | .state_history_nodes = ($rpc[0].state_history_nodes // ($rpc[0].rpc_nodes // {})) | .rpc_nodes = (if ($rpc[0].rpc_nodes != null and ($rpc[0].rpc_nodes | length > 0)) then $rpc[0].rpc_nodes else ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly"))) end) | .ws_nodes = (if ($rpc[0].ws_nodes != null and ($rpc[0].ws_nodes | length > 0)) then $rpc[0].ws_nodes else (.rpc_nodes | with_entries(.value |= (sub("^http://"; "ws://") | sub("^https://"; "wss://") + "/ws"))) end) | .tcp_nodes = ($rpc[0].tcp_nodes // {}) | .tcp_node = (if $p != "" then $p else (.tcp_nodes.m0 // (.tcp_nodes | to_entries[0].value // .tcp_node // "")) end) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly"))) | .parent_connection_address = $p | .rpc_0 = $r0 | (if $c1 != "" then .connection_node_1 = $c1 else del(.connection_node_1) end) | (if $r1 != "" then .rpc_1 = $r1 else del(.rpc_1) end) | (if $c2 != "" then .connection_node_2 = $c2 else del(.connection_node_2) end) | (if $r2 != "" then .rpc_2 = $r2 else del(.rpc_2) end) | (if $c3 != "" then .connection_node_3 = $c3 else del(.connection_node_3) end) | (if $r3 != "" then .rpc_3 = $r3 else del(.rpc_3) end) | .parent_address = (.parent_address // "0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041") | .parent_connection_type = "client" | .version = "0.0.1.0" | .private_key = (if .private_key != "" and .private_key != null then .private_key else "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b" end)' \
+           'del(.all_nodes, .roles, .tcp_url) | .target_chain = "" | .chain_id = 991 | .rpc_url = (if $r != "" then $r else .rpc_url end) | .ws_url = (if $ws != "" then $ws else (.rpc_url | sub("^http://"; "ws://") | sub("^https://"; "wss://") + "/ws") end) | .state_history_nodes = (($rpc[0].state_history_nodes // ($rpc[0].rpc_nodes // {})) | with_entries(select(.key | test("^m[0-9]+$")))) | .rpc_nodes = (if ($rpc[0].rpc_nodes != null and ($rpc[0].rpc_nodes | length > 0)) then ($rpc[0].rpc_nodes | with_entries(select(.key | test("^m[0-9]+$")))) else ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] != "synconly" and (.key | test("^m[0-9]+$"))))) end) | .ws_nodes = (if ($rpc[0].ws_nodes != null and ($rpc[0].ws_nodes | length > 0)) then ($rpc[0].ws_nodes | with_entries(select(.key | test("^m[0-9]+$")))) else (.rpc_nodes | with_entries(.value |= (sub("^http://"; "ws://") | sub("^https://"; "wss://") + "/ws"))) end) | .tcp_nodes = (($rpc[0].tcp_nodes // {}) | with_entries(select(.key | test("^m[0-9]+$")))) | .tcp_node = (if $p != "" then $p else (.tcp_nodes.m0 // (.tcp_nodes | to_entries[0].value // .tcp_node // "")) end) | .sync_nodes = ($rpc[0].nodes | with_entries(select($rpc[0].roles[.key] == "synconly" and (.key | test("^m[0-9]+$"))))) | .parent_connection_address = $p | .rpc_0 = $r0 | (if $c1 != "" then .connection_node_1 = $c1 else del(.connection_node_1) end) | (if $r1 != "" then .rpc_1 = $r1 else del(.rpc_1) end) | (if $c2 != "" then .connection_node_2 = $c2 else del(.connection_node_2) end) | (if $r2 != "" then .rpc_2 = $r2 else del(.rpc_2) end) | (if $c3 != "" then .connection_node_3 = $c3 else del(.connection_node_3) end) | (if $r3 != "" then .rpc_3 = $r3 else del(.rpc_3) end) | .parent_address = (.parent_address // "0xac1137f94f0a4cf8fdc0f4fb6f69a8be98032041") | .parent_connection_type = "client" | .version = "0.0.1.0" | .private_key = (if .private_key != "" and .private_key != null then .private_key else "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b" end)' \
            "$FILE6" > "${FILE6}.tmp" && mv "${FILE6}.tmp" "$FILE6"
 
         if [ -f "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json" ] && [ ! -L "$SUITE_DIR/test-simple/test-rpc/test-chain/config.json" ]; then
@@ -443,8 +472,32 @@ for cid_k, c_val in p_clusters.items():
         elif not prev_keys and a_name == 'exec2':
             prev_keys = cfg.get('private_chains', {}).get('chain_b', {}).get('private_keys', [])
 
+        prev_bls_pk = cfg.get('private_chains', {}).get(a_name, {}).get('bls_private_key', '')
+        if not prev_bls_pk and a_name == 'exec1':
+            prev_bls_pk = cfg.get('private_chains', {}).get('chain_a', {}).get('bls_private_key', '')
+        elif not prev_bls_pk and a_name == 'exec2':
+            prev_bls_pk = cfg.get('private_chains', {}).get('chain_b', {}).get('bls_private_key', '')
+        c_bls_pk = c_val.get('bls_private_key', prev_bls_pk or c_val.get('private_key', ''))
+
+        prev_addr = cfg.get('private_chains', {}).get(a_name, {}).get('address', '')
+        if not prev_addr and a_name == 'exec1':
+            prev_addr = cfg.get('private_chains', {}).get('chain_a', {}).get('address', '')
+        elif not prev_addr and a_name == 'exec2':
+            prev_addr = cfg.get('private_chains', {}).get('chain_b', {}).get('address', '')
+        c_addr = c_val.get('address', prev_addr)
+
+        prev_pub = cfg.get('private_chains', {}).get(a_name, {}).get('bls_pubkey', '')
+        if not prev_pub and a_name == 'exec1':
+            prev_pub = cfg.get('private_chains', {}).get('chain_a', {}).get('bls_pubkey', '')
+        elif not prev_pub and a_name == 'exec2':
+            prev_pub = cfg.get('private_chains', {}).get('chain_b', {}).get('bls_pubkey', '')
+        c_bls_pub = c_val.get('bls_pubkey', prev_pub)
+
         cfg['private_chains'][a_name] = {
             'chain_id': c_cid,
+            'bls_private_key': c_bls_pk,
+            'address': c_addr,
+            'bls_pubkey': c_bls_pub,
             'rpc_url': c_rpc,
             'ws_url': c_ws,
             'rpc_nodes': c_rpc_map,
@@ -455,6 +508,11 @@ for cid_k, c_val in p_clusters.items():
 
 for bad in ['chain_chain_a', 'chain_chain_b', 'chain_991', 'chain_cluster_1', 'chain_cluster_2', 'chain_1', 'chain_2', 'chain_101', 'chain_102']:
     cfg.get('private_chains', {}).pop(bad, None)
+
+# Sanitize root node maps: ensure parent_node_* and exec* never pollute root endpoints
+for map_key in ['rpc_nodes', 'tcp_nodes', 'ws_nodes', 'state_history_nodes', 'sync_nodes']:
+    if map_key in cfg and isinstance(cfg[map_key], dict):
+        cfg[map_key] = {k: v for k, v in cfg[map_key].items() if not k.startswith('parent_node_') and not k.startswith('exec')}
 
 with open(file6, 'w') as f:
     json.dump(cfg, f, indent=2)

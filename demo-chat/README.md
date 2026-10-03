@@ -1,54 +1,94 @@
-# Hướng dẫn chạy Demo Chat cho 2 User
+# Tool Đo Độ Trễ (Latency) & Demo Chat Giữa 2 User
 
-Để chạy luồng chat giữa 2 user, bạn cần mở 2 terminal riêng biệt trong thư mục `demo-chat`.
-
-## Terminal 1 (User 1 - Người tạo Contract)
-Chạy lệnh sau để User 1 khởi tạo và deploy smart contract:
-```bash
-go run main.go -config=user1.json -deploy
-```
-👉 Sau khi chạy thành công, terminal sẽ in ra địa chỉ của contract (ví dụ: `🎉 DEPLOY THÀNH CÔNG! Address: 0x...`). Hãy copy địa chỉ này.
-
-## Terminal 2 (User 2 - Người kết nối)
-Sử dụng địa chỉ contract vừa copy được ở trên, chạy lệnh sau cho User 2 (thay `<ADDRESS>` bằng địa chỉ contract thực tế):
-```bash
-go run main.go -config=user1.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x5Ff07Fb6140d05B5D66312aCdDAe2fF2434C437C -spam 100 -ping
-go run main.go -config=user2.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x0b86Be8a3147EDF160C4Eb33666df2e42edB0A43
-
-
-
-go run main_rpc.go -config=user1.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x5Ff07Fb6140d05B5D66312aCdDAe2fF2434C437C -spam 100 -ping
-go run main_rpc.go -config=user2.json -contract=0x625aD49B28c1c25e06F3e0Ab5428f016A1aBa1A8 -target=0x0b86Be8a3147EDF160C4Eb33666df2e42edB0A43
-
-
-
-
-
-
-
-go run main_rpc.go -config=user2.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x5e582475A504998c5631E12A5a2585D2B1911812
-
-go run main_rpc.go -config=user1.json -contract=0xad7ED1B49F7EED17703E15F9b2c7dA1C8761Dc88 -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6 -spam 200 -ping
-
-
-go run main.go -config=user2.json -contract=0x4E58562C5CDa4B80633dD7a3C759e7702213675d -target=0x5e582475A504998c5631E12A5a2585D2B1911812
-
-go run main.go -config=user1.json -contract=0x4E58562C5CDa4B80633dD7a3C759e7702213675d -target=0x2C71210D239D472e963a7Be8362eCBdeD5337fE6 -spam 200 -ping
-
-```
-
-## 3. Cách nhắn tin qua lại
-
-Sau khi cả 2 terminal kết nối thành công và hiện dòng chữ:
-`💬 CHAT ĐÃ SẴN SÀNG! Bạn có thể gõ nội dung và nhấn Enter.`
-
-Tại màn hình terminal sẽ xuất hiện dấu nhắc lệnh `>`. 
-- **Gửi tin nhắn:** Bạn gõ trực tiếp nội dung tin nhắn vào terminal (ví dụ: `Alo, nghe rõ trả lời!`) và ấn phím **Enter**.
-- **Nhận tin nhắn:** Cùng lúc đó, terminal của người kia sẽ tự động hiển thị:
-  `[📥 NHẬN từ 0x...] (block time: ...): Alo, nghe rõ trả lời!`
-
-Tương tự, người kia có thể gõ tin nhắn phản hồi trực tiếp vào terminal của họ và nhấn **Enter** để nhắn lại. Quá trình chat diễn ra theo thời gian thực (real-time) thông qua sự kiện (Event) của Smart Contract.
+Công cụ này đã được **gộp thống nhất vào 1 file duy nhất ([main.go](file:///home/abc/nhat/con-chain-v2/metanode-suite/demo-chat/main.go))**, hỗ trợ:
+- Tự động nạp cấu hình và các tài khoản có số dư từ `configs/config.json`.
+- Đo độ trễ khép kín 2 chu kỳ block (Ping-Pong RTT) qua cả **RPC (HTTP+WebSocket)** và **TCP (Native Socket)**.
+- Hỗ trợ cả **Parent Chain (Public Chain)** và **Child Chain (`chain_a`, `chain_b`, ...)**.
+- Chế độ **TỰ ĐỘNG (`--mode auto`)**: Tự deploy contract, tự chạy User 1 (receiver) và User 2 (sender), đo latency và in bảng so sánh mà không cần mở 2 terminal!
+- Chế độ **CHAT TAY (`--mode chat`)**: Mở console chat tương tác qua lại nếu muốn kiểm tra thủ công.
 
 ---
-**Lưu ý:**
-- Tool tự động nhận diện người nhận tin nhắn chéo cho nhau dựa trên file config (`user1.json` sẽ mặc định gửi cho `user2.json` và ngược lại).
+
+## 🚀 1. Chạy Benchmark Tự Động (Khuyến nghị)
+
+Bạn có thể chạy trực tiếp bằng `go run main.go` hoặc qua script `./run_latency_test.sh`:
+
+### A. Test trên Parent Chain (Public Chain):
+```bash
+# Test cả RPC và TCP để so sánh:
+./run_latency_test.sh --chain parent --proto all --rounds 10
+
+# Hoặc chỉ test RPC:
+./run_latency_test.sh --chain parent --proto rpc --rounds 10
+
+# Hoặc chỉ test TCP:
+./run_latency_test.sh --chain parent --proto tcp --rounds 10
+```
+
+### B. Test trên Child Chain (ví dụ `chain_a`):
+```bash
+# Test cả RPC và TCP trên child chain:
+./run_latency_test.sh --chain chain_a --proto all --rounds 10
+
+# Hoặc chỉ test RPC:
+./run_latency_test.sh --chain chain_a --proto rpc --rounds 10
+
+# Hoặc chỉ test TCP:
+./run_latency_test.sh --chain chain_a --proto tcp --rounds 10
+```
+
+### C. Chạy trực tiếp qua lệnh Go:
+```bash
+go run main.go --chain parent --proto all --rounds 10
+go run main.go --chain chain_a --proto all --rounds 10
+```
+
+---
+
+## 📊 Kết Quả Đầu Ra Mẫu
+Tool sẽ đo song song 2 chỉ số:
+1. **Độ trễ 1-chiều (Client ➡️ Server Mining 1 Block)**: Thời gian từ khi Client gửi Tx tới khi Server đào vào block và trả về receipt/event.
+2. **Độ trễ khép kín 2-chiều (Ping-Pong RTT 2 Blocks EVM)**: Thời gian từ khi User 2 gửi PING (Block 1) ➡️ Server đào ➡️ User 1 nhận và phản hồi PONG (Block 2) ➡️ Server đào ➡️ User 2 nhận kết quả.
+
+```text
+═════════════════════════════════════════════════════════════
+  ⚖️  BẢNG SO SÁNH ĐỘ TRỄ: RPC (HTTP+WS) vs TCP (NATIVE)
+═════════════════════════════════════════════════════════════
+  Chỉ số thống kê          | RPC (HTTP + WS)  | TCP (Native)    
+  ─────────────────────────┼──────────────────┼─────────────────
+  Thành công               | 10/10            | 10/10           
+  Server 1-Block (Avg)     | 38 ms            | 36 ms           
+  Ping-Pong RTT (Avg)      | 78 ms            | 75 ms           
+  RTT Nhanh nhất (Min)     | 76 ms            | 75 ms           
+  RTT Lâu nhất (Max)       | 81 ms            | 75 ms           
+  RTT Phân vị P50          | 81 ms            | 75 ms           
+  RTT Phân vị P95          | 81 ms            | 75 ms           
+═════════════════════════════════════════════════════════════
+```
+
+---
+
+## 💬 2. Chạy Chế Độ Chat Tay Thủ Công (Nếu Muốn)
+
+Nếu bạn muốn mở 2 terminal để gõ tin nhắn thủ công qua lại:
+
+### Terminal 1 (User 1 - Người nhận/lắng nghe):
+```bash
+go run main.go --chain parent --proto rpc --mode chat --user 1
+```
+
+### Terminal 2 (User 2 - Người gửi):
+```bash
+go run main.go --chain parent --proto rpc --mode chat --user 2
+```
+*(Nếu muốn chat qua TCP, chỉ cần đổi `--proto rpc` thành `--proto tcp`)*.
+
+---
+
+## ⚙️ Các Cờ Tùy Chọn (Flags)
+- `--chain`: Tên chain cần test (`parent`, `chain_a`, `chain_b`...). Mặc định: `parent`.
+- `--proto`: Giao thức (`all`, `rpc`, `tcp`). Mặc định: `all`.
+- `--rounds`: Số vòng ping-pong đo độ trễ. Mặc định: `10`.
+- `--contract`: Chỉ định địa chỉ contract thủ công (nếu không truyền, tool tự động deploy hoặc đọc từ cache `.contract_<chain>.txt`).
+- `--redeploy`: Bắt buộc deploy lại contract mới thay vì dùng cache.
+- `--config`: Đường dẫn tới file `config.json` (mặc định: `../configs/config.json`).

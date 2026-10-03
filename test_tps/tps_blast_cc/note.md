@@ -20,6 +20,7 @@
 | `--verify` | `false` | Xác minh số dư tài khoản nhận tiền sau khi hoàn thành mỗi vòng để đảm bảo giao dịch thực tế đã thành công. |
 | `--epoch-wait` | `600` | Thời gian tối đa (giây) chờ cho hệ thống chuyển dịch sang Epoch mới trước khi bắt đầu tính timeout giao dịch. Gán `0` để tắt chức năng này. |
 | `--target-node` | `0` | Chỉ định ID của node đích (từ `0` đến `3`) để gửi giao dịch. Công cụ tự động cấu hình TCP & RPC tương ứng từ `config.json`. |
+| `--chain` | `""` | Tên hoặc ID chain cần kiểm thử (ví dụ: `chain_a`, `exec1`, `chain_b` hoặc `public`/`parent`). Mặc định sẽ tự động lấy từ trường `target_chain` trong file cấu hình. |
 | `--trace` | `false` | Nếu bật `true`, công cụ sẽ tự động gọi RPC để lấy block traces (thông tin thời gian thực thi nội bộ) sau khi kết thúc mỗi vòng và in ra báo cáo. |
 
 ## ⚙️ Cơ chế định tuyến tự động & xử lý lỗi nghiêm ngặt (Strict Error Handling)
@@ -44,14 +45,13 @@ go run main.go --count 20000 --rounds 20 --load_balance=false --batch=300 --amou
 
 go run main.go --count 20000 --rounds 1 --load_balance=false --batch=300 --amount 1
 
-go run main.go --count 100000 --rounds 1 --load_balance=true --batch=20000 --amount 1 --config=config-multi.json
+# Chạy test TPS trên chain_a có Load Balance (qua m0, m1, m2 của chain_a):
+go run main.go --chain chain_a --count 100000 --rounds 1 --load_balance=true --batch=20000 --amount 1 
 
-go run main.go --count 350 --rounds 1 --load_balance=false --batch=100 --amount 1 --config=config-multi.json
+# Nếu config.json đã có "target_chain": "chain_a", có thể chạy ngắn gọn (tự động nhận diện):
+go run main.go --count 100000 --rounds 1 --load_balance=true --batch=20000 --amount 1 
 
-```
-
-```bash
-./run_tps_test.sh 50000 --rounds 3 --load_balance true --batch 20000 --tps-target 50000 --epoch-wait 0 --config config-multi.json
+go run main.go --count 350 --rounds 1 --load_balance=false --batch=100 --amount 1
 ```
 
 ### 2. Chạy tải song song với cơ chế Epoch Wait (Mặc định 10 phút / 600 giây):
@@ -81,22 +81,33 @@ go run main.go --count 5000 --target-node 2 > blast_restore.log 2>&1
 
 ## 🚀 Kịch bản tự động hóa toàn bộ quy trình (`run_tps_test.sh`)
 
-Công cụ hỗ trợ kịch bản tự động chạy toàn bộ quy trình sinh khóa chuẩn, cấu hình genesis, triển khai và khởi động lại cụm validator, sau đó kích hoạt bài test hiệu năng thông qua tệp [run_tps_test.sh](file:///home/abc/chain-n/metanode-suite/test_tps/tps_blast_cc/run_tps_test.sh).
+Công cụ hỗ trợ kịch bản tự động chạy toàn bộ quy trình cấu hình IP, triển khai/reset cụm validator, giám sát dung lượng ổ đĩa và kích hoạt benchmark thông qua tệp [run_tps_test.sh](file:///home/abc/nhat/con-chain-v2/metanode-suite/test_tps/tps_blast_cc/run_tps_test.sh).
 
-### Các tùy chọn nâng cao:
-- `--no-reset`: Bỏ qua quá trình sinh khóa mới và deploy reset lại cụm node (giữ nguyên cơ sở dữ liệu blockchain và ví hiện có, chỉ kích hoạt chạy benchmark).
-- Số lượng ví và các tùy chọn khác (`--rounds`, `--batch`, `--load_balance`, ...) có thể truyền trực tiếp từ dòng lệnh.
+### Các tính năng và tùy chọn:
+- **Mặc định mục tiêu `chain_a`**: Script đã được cấu hình mặc định nhắm vào `chain_a` (Execution Cluster 1: 3 replicas `m0`, `m1`, `m2`).
+- `--chain <chain_name>` (hoặc `-c`): Tùy chọn chain cần test (ví dụ: `chain_a`, `chain_b`, hoặc `public` để test Parent Chain). Mặc định là `chain_a`.
+- `--no-reset`: Bỏ qua bước reset cluster (giữ nguyên dữ liệu blockchain và tiến trình đang chạy, chỉ kích hoạt chạy benchmark). Nếu không truyền `--no-reset`, script sẽ tự động gọi `reset_clusters.sh` để làm sạch dữ liệu của `chain_a` trước khi test.
+- `--load_balance <true|false>`: Bật/tắt chế độ chia đều giao dịch xoay vòng qua các node của cụm (mặc định: `true`).
+- Giám sát dung lượng ổ đĩa trước và sau khi test trực tiếp tại thư mục dữ liệu của target chain (`/opt/metanode/exec1_r1` cho `chain_a`, hoặc `/opt/metanode/node-0` cho `public`).
 
 ### Ví dụ sử dụng:
 
-1. **Sinh mới khóa chuẩn và reset cụm node chạy lại từ đầu:**
+1. **Chạy benchmark chuẩn trên `chain_a` (Tự động reset cụm và load-balance qua 3 node):**
    ```bash
-   ./run_tps_test.sh 50000 --rounds 3 --batch 20000
+   ./run_tps_test.sh 50000 --rounds 3 --load_balance true --batch 5000 --tps-target 50000 --epoch-wait 0
    ```
 
-2. **Chỉ chạy test TPS (không dọn dẹp database, giữ nguyên ví cũ):**
+2. **Chạy test TPS trên `chain_a` mà không reset database (Giữ nguyên dữ liệu hiện tại):**
    ```bash
-   ./run_tps_test.sh --no-reset 20000 --rounds 5 --load_balance false
-   ./run_tps_test.sh --no-reset 50000 --rounds 3 --load_balance true --batch 20000 --tps-target 50000 --epoch-wait 0 --config config-multi.json
+   ./run_tps_test.sh --no-reset 100000 --rounds 1 --load_balance true --batch 20000 --epoch-wait 0
+   ```
 
+3. **Chạy test tải tập trung vào 1 node duy nhất của `chain_a` (không load balance):**
+   ```bash
+   ./run_tps_test.sh --no-reset 20000 --rounds 1 --load_balance false --target-node 0
+   ```
+
+4. **Chuyển sang chạy test trên Parent Chain (192.168.1.234):**
+   ```bash
+   ./run_tps_test.sh --chain public 50000 --rounds 1 --load_balance true --batch 5000
    ```

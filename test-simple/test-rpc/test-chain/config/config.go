@@ -17,13 +17,19 @@ type ContractData struct {
 }
 
 type PrivateChainConfig struct {
-	ChainID     int64             `json:"chain_id"`
-	RPCUrl      string            `json:"rpc_url"`
-	WSUrl       string            `json:"ws_url,omitempty"`
-	PrivateKeys []string          `json:"private_keys"`
-	RPCNodes    map[string]string `json:"rpc_nodes"`
-	WSNodes     map[string]string `json:"ws_nodes,omitempty"`
-	TCPNodes    map[string]string `json:"tcp_nodes,omitempty"`
+	ChainID           int64             `json:"chain_id"`
+	RPCUrl            string            `json:"rpc_url"`
+	WSUrl             string            `json:"ws_url,omitempty"`
+	PrivateKeys       []string          `json:"private_keys"`
+	RPCNodes          map[string]string `json:"rpc_nodes"`
+	WSNodes           map[string]string `json:"ws_nodes,omitempty"`
+	TCPNodes          map[string]string `json:"tcp_nodes,omitempty"`
+	StateHistoryNodes map[string]string `json:"state_history_nodes,omitempty"`
+	SyncNodes         map[string]string `json:"sync_nodes,omitempty"`
+	TCPNode           string            `json:"tcp_node,omitempty"`
+	BLSPrivateKey     string            `json:"bls_private_key,omitempty"`
+	Address           string            `json:"address,omitempty"`
+	BLSPubkey         string            `json:"bls_pubkey,omitempty"`
 }
 
 type Config struct {
@@ -36,6 +42,7 @@ type Config struct {
 	TCPNodes                map[string]string             `json:"tcp_nodes,omitempty"`
 	SyncNodes               map[string]string             `json:"sync_nodes"`
 	ChainID                 int64                         `json:"chain_id"`
+	BLSPrivateKey           string                        `json:"bls_private_key,omitempty"`
 	PrivateKey              string                        `json:"private_key"`
 	PrivateKeys             []string                      `json:"private_keys"`
 	PrivateChains           map[string]PrivateChainConfig `json:"private_chains"`
@@ -217,7 +224,36 @@ func applyPrivateChain(cfg *Config, name string, pChain PrivateChainConfig) {
 		cfg.TCPNodes = pChain.TCPNodes
 		if p0, ok := pChain.TCPNodes["m0"]; ok {
 			cfg.ParentConnectionAddress = p0
+			cfg.TCPNode = p0
 		}
+	} else if pChain.TCPNode != "" {
+		cfg.TCPNode = pChain.TCPNode
+		cfg.ParentConnectionAddress = pChain.TCPNode
+	}
+
+	if pChain.BLSPrivateKey != "" {
+		cfg.BLSPrivateKey = pChain.BLSPrivateKey
+	}
+	if pChain.Address != "" {
+		cfg.ParentAddress = pChain.Address
+	}
+
+	// Ghi đè StateHistoryNodes cho Private Chain
+	if len(pChain.StateHistoryNodes) > 0 {
+		cfg.StateHistoryNodes = pChain.StateHistoryNodes
+	} else if len(cfg.RPCNodes) > 0 {
+		cfg.StateHistoryNodes = cfg.RPCNodes
+	} else {
+		cfg.StateHistoryNodes = map[string]string{
+			name: cfg.RPCUrl,
+		}
+	}
+
+	// Ghi đè SyncNodes cho Private Chain
+	if len(pChain.SyncNodes) > 0 {
+		cfg.SyncNodes = pChain.SyncNodes
+	} else {
+		cfg.SyncNodes = make(map[string]string)
 	}
 	fmt.Printf("🔗 [TESTCONFIG] Đã chuyển sang Private Chain '%s' (ChainID: %d, RPC: %s, %d nodes, %d keys)\n",
 		name, cfg.ChainID, cfg.RPCUrl, len(cfg.RPCNodes), len(cfg.PrivateKeys))

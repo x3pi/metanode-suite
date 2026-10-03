@@ -1,12 +1,13 @@
 {
-    "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
-    "version": "0.0.1.0",
-    "parent_connection_address": "192.168.1.234:4200",
-    "chain_id": 991,
-    "nation_id": 1,
-    "parent_connection_type": "client",
-    "parent_address": "0x0b86Be8a3147EDF160C4Eb33666df2e42edB0A43",
-    "eth_pk": "104f9ee93d692f7f8fbbb96d7d0b0a82a3b7ebc8b8397b7d4f8467e671ec1ce8",
-    "http_rpc": "http://192.168.1.234:8545",
-    "websocket_rpc": "ws://192.168.1.234:8545/ws"
+  "chain_id": 991,
+  "eth_pk": "3f7a0514531a1485edc4270f06dbed62da4974c3b5bbd54a4534060514b8023d",
+  "http_rpc": "http://192.168.1.234:10746",
+  "nation_id": 1,
+  "parent_address": "0x4b51d69B903C136654D168d0d500dA58AFdc5b60",
+  "parent_connection_address": "192.168.1.234:6200",
+  "parent_connection_type": "client",
+  "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
+  "target_address": "0xd5D1c7e1c276288Fa0993bB7B1cF40C73f1226A4",
+  "version": "0.0.1.0",
+  "websocket_rpc": "ws://192.168.1.234:10746/ws"
 }
