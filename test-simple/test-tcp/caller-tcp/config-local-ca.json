@@ -1,0 +1,9 @@
+{
+  "private_key": "0f326c0b9bb86353ac317dd8f9b045fd1877473674ba24500139fed777b26a0c",
+  "version": "0.0.1.0",
+  "parent_connection_address": "192.168.1.234:4200",
+  "chain_id": 991,
+  "nation_id": 1,
+  "parent_connection_type": "client",
+  "parent_address": "0x8cF200967660DB21739CaC872e64Bb5cfFBA0049"
+}

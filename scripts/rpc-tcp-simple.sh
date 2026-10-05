@@ -43,9 +43,7 @@ resolve_node_endpoints() {
 import json, sys
 
 cfg_file = sys.argv[1]
-node = sys.argv[2]
-key = f"m{node}" if node.isdigit() else node
-num_str = node.replace("m", "")
+target = sys.argv[2].strip()
 
 try:
     with open(cfg_file, "r") as f:
@@ -53,33 +51,69 @@ try:
 except Exception:
     sys.exit(1)
 
+num_str = target.replace("m", "") if target.startswith("m") and target[1:].isdigit() else ("" if not target.isdigit() else target)
+candidates = [target]
+if num_str:
+    candidates.extend([f"m{num_str}", num_str, f"node_{num_str}", f"node-{num_str}"])
+
 rpc = ""
 tcp = ""
 
-# 1. Tra cứu trong rpc_nodes / tcp_nodes
-if "rpc_nodes" in data and isinstance(data["rpc_nodes"], dict):
-    rpc = data["rpc_nodes"].get(key, "") or data["rpc_nodes"].get(node, "")
+def search_dict(d, keys):
+    if not isinstance(d, dict):
+        return ""
+    for k in keys:
+        if k in d and d[k]:
+            return str(d[k])
+    return ""
 
-if "tcp_nodes" in data and isinstance(data["tcp_nodes"], dict):
-    tcp = data["tcp_nodes"].get(key, "") or data["tcp_nodes"].get(node, "")
+rpc_map = data.get("rpc_nodes") or {}
+tcp_map = data.get("tcp_nodes") or {}
+nodes_map = data.get("nodes") or {}
 
-# 2. Tra cứu trong nodes (nếu là format của /tmp/rpc_nodes.json)
-if not rpc and "nodes" in data and isinstance(data["nodes"], dict):
-    rpc = data["nodes"].get(key, "") or data["nodes"].get(node, "")
+rpc = search_dict(rpc_map, candidates) or search_dict(nodes_map, candidates)
+tcp = search_dict(tcp_map, candidates)
 
-# 3. Tra cứu fallback rpc_<num> / connection_node_<num>
-if not rpc and f"rpc_{num_str}" in data:
-    rpc = data[f"rpc_{num_str}"]
+# Tra cứu mờ (fuzzy match) cho cluster names (vd: target="1" khớp "exec1_replica1" hoặc "cluster_1")
+if not rpc or not tcp:
+    for k in (rpc_map.keys() if isinstance(rpc_map, dict) else []):
+        if target == k or target in k or (num_str and (f"replica{num_str}" in k or f"r{num_str}" in k)):
+            if not rpc:
+                rpc = str(rpc_map[k])
+            if not tcp and isinstance(tcp_map, dict) and k in tcp_map:
+                tcp = str(tcp_map[k])
+            break
 
-if not tcp and f"connection_node_{num_str}" in data:
-    tcp = data[f"connection_node_{num_str}"]
+# Fallback rpc_<num> / connection_node_<num>
+if num_str:
+    if not rpc and f"rpc_{num_str}" in data:
+        rpc = str(data[f"rpc_{num_str}"])
+    if not tcp and f"connection_node_{num_str}" in data:
+        tcp = str(data[f"connection_node_{num_str}"])
 
-# 4. Fallback đặc biệt cho Node 0
+# Fallback đặc biệt cho Node 0
 if num_str == "0":
     if not rpc and "rpc_url" in data:
-        rpc = data["rpc_url"]
+        rpc = str(data["rpc_url"])
     if not tcp and "parent_connection_address" in data:
-        tcp = data["parent_connection_address"]
+        tcp = str(data["parent_connection_address"])
+
+# Tra cứu trong private_chains nếu có cấu trúc multi-chain
+if (not rpc or not tcp) and "private_chains" in data and isinstance(data["private_chains"], dict):
+    for ch_name, ch_data in data["private_chains"].items():
+        if isinstance(ch_data, dict):
+            p_rpc = ch_data.get("rpc_nodes") or {}
+            p_tcp = ch_data.get("tcp_nodes") or {}
+            if not rpc:
+                rpc = search_dict(p_rpc, candidates)
+            if not tcp:
+                tcp = search_dict(p_tcp, candidates)
+            if not rpc and "rpc_url" in ch_data and (num_str == "0" or target == ch_name):
+                rpc = str(ch_data["rpc_url"])
+            if not tcp and "tcp_node" in ch_data and (num_str == "0" or target == ch_name):
+                tcp = str(ch_data["tcp_node"])
+            if rpc and tcp:
+                break
 
 # Chuẩn hóa RPC URL (thêm http:// nếu chưa có schema)
 if rpc and not rpc.startswith("http://") and not rpc.startswith("https://"):
@@ -109,20 +143,37 @@ try:
 except Exception:
     sys.exit(1)
 
-nodes = set()
-if "rpc_nodes" in data and isinstance(data["rpc_nodes"], dict):
-    nodes.update(data["rpc_nodes"].keys())
-if "tcp_nodes" in data and isinstance(data["tcp_nodes"], dict):
-    nodes.update(data["tcp_nodes"].keys())
-if "nodes" in data and isinstance(data["nodes"], dict):
-    nodes.update(data["nodes"].keys())
+candidates = []
+
+def add_keys(d):
+    if isinstance(d, dict):
+        for k in d.keys():
+            if k not in candidates:
+                candidates.append(k)
+
+add_keys(data.get("rpc_nodes"))
+add_keys(data.get("tcp_nodes"))
+add_keys(data.get("nodes"))
 
 for k in data.keys():
     if k.startswith("rpc_") and k[4:].isdigit():
-        nodes.add(f"m{k[4:]}")
+        node_name = f"m{k[4:]}"
+        if node_name not in candidates:
+            candidates.append(node_name)
 
-sorted_nodes = sorted(list(nodes), key=lambda x: int(x.replace("m", "")) if x.replace("m", "").isdigit() else x)
-print(" ".join(sorted_nodes))
+if "private_chains" in data and isinstance(data["private_chains"], dict):
+    for ch_name, ch_data in data["private_chains"].items():
+        if isinstance(ch_data, dict):
+            add_keys(ch_data.get("rpc_nodes"))
+
+def sort_key(x):
+    clean = x.replace("m", "")
+    if clean.isdigit():
+        return (0, int(clean))
+    return (1, x)
+
+candidates.sort(key=sort_key)
+print(" ".join(candidates))
 ' "$cfg" 2>/dev/null
 }
 
@@ -132,38 +183,127 @@ MULTI_MODE=false
 NODE_ID=""
 RPC_URL_OVERRIDE=""
 TCP_URL_OVERRIDE=""
-CONFIG_FILE="$DEFAULT_CONFIG_FILE"
+CONFIG_FILE="${RPC_NODES_FILE:-${CONFIG_FILE:-}}"
+EXPLICIT_CONFIG=false
+
+if [ -n "$CONFIG_FILE" ]; then
+    EXPLICIT_CONFIG=true
+fi
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --loop) LOOP_MODE=true; shift ;;
         --multi) MULTI_MODE=true; shift ;;
         --node) NODE_ID="$2"; shift 2 ;;
+        --node=*) NODE_ID="${1#*=}"; shift ;;
         --rpc-url) RPC_URL_OVERRIDE="$2"; shift 2 ;;
+        --rpc-url=*) RPC_URL_OVERRIDE="${1#*=}"; shift ;;
         --tcp-url) TCP_URL_OVERRIDE="$2"; shift 2 ;;
-        --config) CONFIG_FILE="$2"; shift 2 ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+        --tcp-url=*) TCP_URL_OVERRIDE="${1#*=}"; shift ;;
+        --config|-c|--json|-f|--file|--rpc-nodes-file) CONFIG_FILE="$2"; EXPLICIT_CONFIG=true; shift 2 ;;
+        --config=*|--json=*|--file=*|--rpc-nodes-file=*) CONFIG_FILE="${1#*=}"; EXPLICIT_CONFIG=true; shift ;;
+        -h|--help)
+            echo "Usage: ./rpc-tcp-simple.sh [JSON_FILE] [OPTIONS]"
+            echo ""
+            echo "⚡ Chỉ định file cấu hình JSON linh hoạt:"
+            echo "  [JSON_FILE]                 Đường dẫn file JSON (vd: /tmp/rpc_nodes.chain_2.json)"
+            echo "  --config, -c, --json FILE   Chỉ định file JSON chứa danh sách RPC/TCP nodes"
+            echo "  --rpc-nodes-file FILE       Tương đương --config (chuẩn của ansible_deploy/deploy_clusters)"
+            echo "  Biến môi trường:            RPC_NODES_FILE=/tmp/... ./rpc-tcp-simple.sh"
+            echo ""
+            echo "🎯 Tùy chọn thực thi:"
+            echo "  --node ID                   Chỉ test 1 node cụ thể (vd: 0, 5, exec1_replica1)."
+            echo "                              Nếu không truyền, tự động chọn node đầu tiên có trong file JSON."
+            echo "  --multi                     Chạy test lần lượt qua TẤT CẢ các node có trong file JSON."
+            echo "  --loop                      Chạy lặp vô hạn (stress test/polling)."
+            echo "  --rpc-url URL               Ghi đè thủ công RPC URL (vd: http://127.0.0.1:8545)."
+            echo "  --tcp-url HOST:PORT         Ghi đè thủ công TCP Host:Port (vd: 127.0.0.1:4200)."
+            exit 0
+            ;;
+        *.json)
+            CONFIG_FILE="$1"
+            EXPLICIT_CONFIG=true
+            shift
+            ;;
+        *)
+            if [ -f "$1" ]; then
+                CONFIG_FILE="$1"
+                EXPLICIT_CONFIG=true
+                shift
+            else
+                echo "❌ Tham số không hợp lệ: $1 (chạy với --help để xem hướng dẫn)"
+                exit 1
+            fi
+            ;;
     esac
 done
 
-run_single() {
-    # Default cho single mode
-    if [ -z "$NODE_ID" ]; then
-        NODE_ID="0"
+# Hàm xác định file cấu hình thực tế
+get_target_config() {
+    if [ "$EXPLICIT_CONFIG" = true ]; then
+        if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Không tìm thấy file cấu hình được chỉ định: $CONFIG_FILE" >&2
+            return 1
+        fi
+        echo "$CONFIG_FILE"
+        return 0
     fi
 
-    # Thử resolve từ CONFIG_FILE hoặc fallback /tmp/rpc_nodes.json
+    # Auto fallback
+    if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+        echo "$CONFIG_FILE"
+    elif [ -f "$DEFAULT_CONFIG_FILE" ]; then
+        echo "$DEFAULT_CONFIG_FILE"
+    elif [ -f "/tmp/rpc_nodes.json" ]; then
+        echo "/tmp/rpc_nodes.json"
+    else
+        echo ""
+    fi
+    return 0
+}
+
+run_single() {
+    local target_cfg
+    target_cfg=$(get_target_config)
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+
+    # Tự động chọn Node ID nếu người dùng không truyền --node
+    if [ -z "$NODE_ID" ]; then
+        if [ -n "$target_cfg" ] && [ -f "$target_cfg" ]; then
+            local available_nodes
+            available_nodes=$(get_configured_nodes "$target_cfg")
+            if [ -n "$available_nodes" ]; then
+                if echo "$available_nodes" | grep -qw -E "(0|m0)"; then
+                    NODE_ID="0"
+                else
+                    local first_node
+                    first_node=$(echo "$available_nodes" | awk '{print $1}')
+                    if [[ "$first_node" =~ ^m[0-9]+$ ]]; then
+                        NODE_ID="${first_node#m}"
+                    else
+                        NODE_ID="$first_node"
+                    fi
+                    echo "ℹ️ Không truyền --node, tự động chọn Node đầu tiên có sẵn trong ${target_cfg}: Node $NODE_ID"
+                fi
+            fi
+        fi
+        [ -z "$NODE_ID" ] && NODE_ID="0"
+    fi
+
     local resolved=""
     local used_cfg=""
 
-    if [ -f "$CONFIG_FILE" ]; then
-        resolved=$(resolve_node_endpoints "$NODE_ID" "$CONFIG_FILE")
+    if [ -n "$target_cfg" ] && [ -f "$target_cfg" ]; then
+        resolved=$(resolve_node_endpoints "$NODE_ID" "$target_cfg")
         if [ $? -eq 0 ] && [ -n "$resolved" ]; then
-            used_cfg="$CONFIG_FILE"
+            used_cfg="$target_cfg"
         fi
     fi
 
-    if [ -z "$resolved" ] && [ -f "/tmp/rpc_nodes.json" ]; then
+    # Chỉ fallback sang /tmp/rpc_nodes.json nếu người dùng KHÔNG chỉ định file riêng
+    if [ -z "$resolved" ] && [ "$EXPLICIT_CONFIG" != true ] && [ -f "/tmp/rpc_nodes.json" ] && [ "$target_cfg" != "/tmp/rpc_nodes.json" ]; then
         resolved=$(resolve_node_endpoints "$NODE_ID" "/tmp/rpc_nodes.json")
         if [ $? -eq 0 ] && [ -n "$resolved" ]; then
             used_cfg="/tmp/rpc_nodes.json"
@@ -175,6 +315,10 @@ run_single() {
         export TCP_URL=$(echo "$resolved" | cut -d'|' -f2)
         echo "📖 Đã nạp cấu hình Node $NODE_ID từ file: $used_cfg"
     else
+        if [ "$EXPLICIT_CONFIG" = true ]; then
+            echo "❌ Không tìm thấy thông tin Node $NODE_ID trong file cấu hình: $CONFIG_FILE"
+            exit 1
+        fi
         echo "⚠️ Không tìm thấy cấu hình Node $NODE_ID trong file config. Sử dụng fallback mặc định (Localhost)."
         case $NODE_ID in
             0) export RPC_URL="http://127.0.0.1:8545"; export TCP_URL="127.0.0.1:4200" ;;
@@ -207,13 +351,10 @@ run_single() {
 }
 
 run_multi() {
-    local target_cfg="$CONFIG_FILE"
-    if [ ! -f "$target_cfg" ] && [ -f "/tmp/rpc_nodes.json" ]; then
-        target_cfg="/tmp/rpc_nodes.json"
-    fi
-
-    if [ ! -f "$target_cfg" ]; then
-        echo "❌ Không tìm thấy file cấu hình: $CONFIG_FILE hoặc /tmp/rpc_nodes.json"
+    local target_cfg
+    target_cfg=$(get_target_config)
+    if [ $? -ne 0 ] || [ -z "$target_cfg" ] || [ ! -f "$target_cfg" ]; then
+        echo "❌ Không tìm thấy file cấu hình hợp lệ để chạy chế độ multi"
         exit 1
     fi
     
@@ -283,5 +424,5 @@ else
     else
         run_single
     fi
-    echo "✅ ĐÃ CHẠY XONG. Các tùy chọn mở rộng: ./rpc-tcp-simple.sh [--config path/config.json] [--loop] [--multi] [--node 0-4] [--rpc-url http://...] [--tcp-url host:port]"
+    echo "✅ ĐÃ CHẠY XONG. Các tùy chọn mở rộng: ./rpc-tcp-simple.sh [path/file.json] [--config path/config.json] [--loop] [--multi] [--node ID]"
 fi

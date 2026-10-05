@@ -28,11 +28,34 @@ Script sẽ lần lượt chạy lệnh `go run` của test RPC, sau đó đến
 ./rpc-tcp-simple.sh
 ```
 
-### 3. Chạy chế độ Multi (Đọc từ cluster cấu hình)
+### 3. Chỉ định File Cấu hình JSON Tùy ý (Mới Cập Nhật)
 
-Thêm cờ `--multi` để tự động đọc thông tin mạng (RPC URL, TCP URL) của cụm nhiều Node từ file `/tmp/rpc_nodes.json` (do script deploy sinh ra). Tính năng này sẽ test lần lượt tất cả các Node được cấu hình trong file đó.
+Script có thể đọc bất kỳ file JSON nào (Chain 2, Devnet, Custom Cluster) mà không bắt buộc phải dùng `/tmp/rpc_nodes.json` mặc định:
 
 ```bash
+# Cách 1: Truyền trực tiếp đường dẫn file JSON làm tham số
+./rpc-tcp-simple.sh /tmp/rpc_nodes.chain_2.json
+./rpc-tcp-simple.sh /tmp/rpc_nodes.chain_2.json --node 5
+
+# Cách 2: Sử dụng cờ --config, -c, --json hoặc --rpc-nodes-file
+./rpc-tcp-simple.sh --config /tmp/rpc_nodes.chain_2.json
+./rpc-tcp-simple.sh --rpc-nodes-file /tmp/rpc_nodes.custom.json
+
+# Cách 3: Sử dụng biến môi trường
+RPC_NODES_FILE=/tmp/rpc_nodes.chain_2.json ./rpc-tcp-simple.sh
+```
+
+> 💡 **Tự động nhận diện Node thông minh:** Nếu file JSON của bạn không có Node 0 (ví dụ Chain 2 bắt đầu từ Node 5, 6, 7, 8), script sẽ **tự động chọn Node đầu tiên tìm thấy trong file JSON** để test mà không cần bạn phải truyền `--node 5` thủ công!
+
+### 4. Chạy chế độ Multi (Test qua tất cả các Node trong file JSON)
+
+Thêm cờ `--multi` để tự động đọc thông tin mạng (RPC URL, TCP URL) của cụm nhiều Node từ file JSON được chỉ định (hoặc `/tmp/rpc_nodes.json` mặc định). Script sẽ test lần lượt tất cả các Node có trong file đó:
+
+```bash
+# Test lần lượt qua tất cả node của Chain 2
+./rpc-tcp-simple.sh /tmp/rpc_nodes.chain_2.json --multi
+
+# Hoặc cụm mặc định:
 ./rpc-tcp-simple.sh --multi
 ```
 

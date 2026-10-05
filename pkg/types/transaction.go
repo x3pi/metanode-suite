@@ -1,6 +1,7 @@
 package types
 
 import (
+	"crypto/ecdsa"
 	"math/big"
 
 	e_common "github.com/ethereum/go-ethereum/common"
@@ -22,12 +23,14 @@ type Transaction interface {
 	GetNonce32Bytes() []byte
 	// getter
 	Hash() e_common.Hash
+	SigningHash() e_common.Hash
 	RHash() e_common.Hash
 	NewDeviceKey() e_common.Hash
 	LastDeviceKey() e_common.Hash
 	FromAddress() e_common.Address
 	ToAddress() e_common.Address
 	Sign() common.Sign
+	SignBytes() []byte
 	Amount() *big.Int
 	BRelatedAddresses() [][]byte
 	RelatedAddresses() []e_common.Address
@@ -47,6 +50,10 @@ type Transaction interface {
 	ToEthTransaction() *e_types.Transaction
 
 	ValidEthSign() bool
+	ValidSecpProtoSign() bool
+	ValidSecpSign() bool
+	Type() uint64
+	SignSecpProto(privKey *ecdsa.PrivateKey) error
 	GetIsDebug() bool
 	// setter
 	SetSign(privateKey common.PrivateKey)
@@ -65,6 +72,7 @@ type Transaction interface {
 	// 0 = standard, 100 = CC_SIG_ACK (chưa đủ vote), 101 = CC_EXECUTE (đủ 2/3 vote)
 	SetType(txType uint64)
 	GetType() uint64
+	SetGasFeeCap(gasFeeCap *big.Int)
 
 	// verifiers
 	ValidTx0(fromAccountState AccountState, chainId string) (bool, int64)

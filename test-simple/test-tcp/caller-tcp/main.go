@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,8 +17,10 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	client_tcp "tool-test/pkg/client-tcp"
+	com_pkg "tool-test/pkg/client-tcp/common"
 	tcp_config "tool-test/pkg/client-tcp/config"
 	tx_models "tool-test/pkg/client-tcp/models"
 	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
@@ -39,7 +42,7 @@ type DataPayload struct {
 	InputData      string          `json:"input_data"`
 	ExpectedEvents []ExpectedEvent `json:"expected_events"`
 	Amount         string          `json:"amount"` // Số lượng MOC (đơn vị wei)
-	Verify         []interface{}   `json:"verify"` // Kiểm tra dữ liệu trả về của call
+	Verify         []interface{}   `json:"verify"`
 }
 
 func main() {
@@ -51,7 +54,7 @@ func main() {
 	// Khai báo flags
 	configFlag := flag.String("config", "config-main.json", "Đường dẫn đến file cấu hình TCP")
 	dataFlag := flag.String("data", "data.json", "Đường dẫn đến file dữ liệu (Action, Method, Args)")
-	connAddrFlag := flag.String("conn", "", "Ghi đè Parent Connection Address (Override)")
+	urlFlag := flag.String("url", "", "Ghi đè Connection Address (Override)")
 	pkFlag := flag.String("pk", "", "Ghi đè Private Key (Override)")
 	chainFlag := flag.Int("chain", 0, "Ghi đè Chain ID (Override, ví dụ: 991)")
 	loopFlag := flag.Bool("loop", false, "Gửi giao dịch liên tục (lặp lại) cho đến khi thoát")
@@ -69,12 +72,13 @@ func main() {
 	cfg := cfgRaw.(*tcp_config.ClientConfig)
 
 	// Ghi đè (Override) cấu hình nếu người dùng truyền Flag
-	if *connAddrFlag != "" {
-		cfg.ParentConnectionAddress = *connAddrFlag
+	if *urlFlag != "" {
+		cfg.ParentConnectionAddress = *urlFlag
 		fmt.Printf("⚠️  Bật chế độ Override: Connection Address <- %s\n", cfg.ParentConnectionAddress)
 	}
 	if *pkFlag != "" {
 		cfg.EthPrivateKey = *pkFlag
+		cfg.PrivateKey_ = *pkFlag
 		fmt.Printf("⚠️  Bật chế độ Override: Private Key <- (đã ghi đè)\n")
 	}
 	if *chainFlag != 0 {
@@ -92,7 +96,31 @@ func main() {
 	}
 	time.Sleep(1 * time.Second)
 
-	fromAddress := common.HexToAddress(cfg.ParentAddress)
+	keyHex := cfg.EthPrivateKey
+	if keyHex == "" {
+		keyHex = cfg.PrivateKey_
+	}
+	if *pkFlag != "" {
+		keyHex = *pkFlag
+	}
+	if keyHex == "" {
+		log.Fatalf("❌ Private key không được cấu hình (cả private_key, eth_private_key và flag -pk đều rỗng)!")
+	}
+	senderPrivKey, err := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x"))
+	if err != nil {
+		log.Fatalf("❌ Lỗi parse sender private key: %v", err)
+	}
+	cfg.EthPrivateKey = keyHex
+	cfg.PrivateKey_ = keyHex
+
+	fromAddress := crypto.PubkeyToAddress(senderPrivKey.PublicKey)
+	fmt.Printf("🔑 Sender Address (từ Private Key chuẩn ETH Secp256k1): %s\n", fromAddress.Hex())
+
+	// Query sender state ban đầu
+	if senderState, err := tcpClient.AccountState(fromAddress); err == nil && senderState != nil {
+		fmt.Printf("   📊 Sender initial on-chain nonce:   %d\n", senderState.Nonce())
+		fmt.Printf("   💰 Sender initial on-chain balance: %s wei\n", senderState.Balance().String())
+	}
 
 	var lastDeployedAddress *common.Address
 
@@ -152,7 +180,7 @@ func main() {
 				if choice == "2" {
 					useInputData = true
 				}
-			} else if d.InputData != "" || d.Method == "" {
+			} else if d.InputData != "" || d.Method == "" || action == "transfer" {
 				useInputData = true
 			}
 
@@ -165,13 +193,12 @@ func main() {
 						log.Fatalf("❌ Lỗi giải mã InputData: %v", err)
 					}
 				}
-				fmt.Println("   📝 Đang sử dụng raw InputData Hex...")
+				if len(payloadData) > 0 {
+					fmt.Println("   📝 Đang sử dụng raw InputData Hex...")
+				}
 				if !hasAbi {
 					d.Method = ""
 				}
-			} else if action == "transfer" {
-				// Bỏ qua kiểm tra ABI nếu là transfer thuần
-				useInputData = true
 			} else {
 				if !hasAbi {
 					log.Fatalf("❌ Task giao dịch bằng Method+Args BẮT BUỘC phải đọc được ABI hợp lệ!")
@@ -192,13 +219,13 @@ func main() {
 				if len(payloadData) == 0 {
 					fmt.Println("⚠️ Cảnh báo: Action Deploy đang có Bytecode rỗng!")
 				}
-				executeDeployTCP(tcpClient, cfg, fromAddress, payloadData, &lastDeployedAddress)
+				executeDeployTCP(tcpClient, cfg, senderPrivKey, fromAddress, payloadData, &lastDeployedAddress)
 			} else if action == "call" || action == "read" {
 				executeCallTCP(tcpClient, cfg, contractAddress, fromAddress, contractAbi, d.Method, payloadData, d.Verify)
 			} else if action == "send" || action == "write" {
-				executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, payloadData, txAmount, d.Method)
+				executeSendTCP(tcpClient, cfg, senderPrivKey, contractAddress, fromAddress, payloadData, txAmount, d.Method)
 			} else if action == "transfer" {
-				executeSendTCP(tcpClient, cfg, contractAddress, fromAddress, nil, txAmount, "NativeTransfer")
+				executeSendTCP(tcpClient, cfg, senderPrivKey, contractAddress, fromAddress, nil, txAmount, "NativeTransfer")
 			} else {
 				log.Fatalf("❌ Action không hợp lệ: %s", d.Action)
 			}
@@ -229,29 +256,51 @@ func loadData(path string) []DataPayload {
 // ----------------------------------------------------
 // THỰC THI ACTION: DEPLOY (TCP)
 // ----------------------------------------------------
-func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, fromAddress common.Address, bytecode []byte, lastDeployed **common.Address) {
-	fmt.Println("▶️  Chạy TCP Deploy Contract...")
-	if as, err := cli.GetAccountState(fromAddress, 3*time.Second); err == nil && as != nil {
+func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, senderPrivKey *ecdsa.PrivateKey, fromAddress common.Address, bytecode []byte, lastDeployed **common.Address) {
+	fmt.Println("▶️  Chạy TCP Deploy Contract (Secp256k1 ETH standard)...")
+	if as, err := cli.AccountState(fromAddress); err == nil && as != nil {
 		fmt.Printf("   📝 CHI TIẾT TX DEPLOY:\n")
-		fmt.Printf("      - From: %s\n", fromAddress.Hex())
-		fmt.Printf("      - Nonce: %d\n", as.Nonce())
-		fmt.Printf("      - Balance: %s wei\n", as.Balance().String())
+		fmt.Printf("      - From:            %s\n", fromAddress.Hex())
+		fmt.Printf("      - Nonce:           %d\n", as.Nonce())
+		fmt.Printf("      - Balance:         %s wei\n", as.Balance().String())
 		fmt.Printf("      - Bytecode Length: %d bytes\n", len(bytecode))
 	}
 	emptyAddress := common.Address{}
 
-	receipt, err := tx_helper.SendTransaction(
+	// ══════════════════════════════════════════════════════════════════
+	// 🔑 [KIỂU MỚI]: Ký ECDSA Secp256k1 (Type 0xFF) chuẩn Ethereum
+	// ══════════════════════════════════════════════════════════════════
+	receipt, err := tx_helper.SendSecpTransaction(
 		"deploy",
 		cli,
 		cfg,
+		senderPrivKey,
 		emptyAddress,
 		fromAddress,
 		bytecode,
 		&tx_models.TxOptions{
-			MaxGas:      10000000000,
-			MaxGasPrice: 2000000000,
+			MaxGas:      com_pkg.DefaultMaxGas,
+			MaxGasPrice: com_pkg.DefaultMaxGasPrice,
 		},
 	)
+
+	// ------------------------------------------------------------------
+	// ⚠️ [KIỂU CŨ ĐÃ COMMENT - KHÔNG DÙNG NỮA TRÁNH NHẦM LẪN]:
+	// Ký bằng BLS Key kết hợp DeviceKey (Giao dịch Type 0 truyền thống)
+	// ------------------------------------------------------------------
+	// receipt, err := tx_helper.SendTransaction(
+	// 	"deploy",
+	// 	cli,
+	// 	cfg,
+	// 	emptyAddress,
+	// 	fromAddress,
+	// 	bytecode,
+	// 	&tx_models.TxOptions{
+	// 		MaxGas:      com_pkg.DefaultMaxGas,
+	// 		MaxGasPrice: com_pkg.DefaultMaxGasPrice,
+	// 	},
+	// )
+
 	if err != nil {
 		log.Fatalf("❌ Lỗi deploy TCP: %v", err)
 	}
@@ -288,12 +337,15 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, from
 }
 
 // ----------------------------------------------------
-// THỰC THI ACTION: CALL (TCP)
+// THỰC THI ACTION: CALL (TCP - READ ONLY)
+// 💡 LƯU Ý VỀ CHỮ KÝ:
+// Giao dịch ĐỌC (Call/Read) là mô phỏng off-chain trong EVM (tương đương eth_call).
+// Do đó: HOÀN TOÀN KHÔNG CẦN KÝ (không cần BLS hay Secp256k1), KHÔNG tốn nonce và KHÔNG tốn gas!
 // ----------------------------------------------------
 func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contractAddress common.Address, fromAddress common.Address, parsedABI abi.ABI, methodName string, payloadData []byte, expectedVerify []interface{}) {
-	fmt.Printf("▶️  Chạy thử TCP Call (READ) cho hàm %s...\n", methodName)
+	fmt.Printf("▶️  Chạy thử TCP Call (READ - Không cần ký) cho hàm %s...\n", methodName)
 
-	receipt, err := tx_helper.SendReadTransaction(
+	receipt, err := tx_helper.SendReadTransactionWithoutNonce(
 		methodName,
 		cli,
 		cfg,
@@ -350,36 +402,53 @@ func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 }
 
 // ----------------------------------------------------
-// THỰC THI ACTION: SEND & TRANSFER (TCP)
+// THỰC THI ACTION: SEND & TRANSFER (TCP - WRITE)
 // ----------------------------------------------------
-func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contractAddress common.Address, fromAddress common.Address, payloadData []byte, amount *big.Int, methodName string) {
-	fmt.Printf("▶️  Chạy TCP SendTransaction (WRITE) cho hàm/hành động %s...\n", methodName)
-	if as, err := cli.GetAccountState(fromAddress, 3*time.Second); err == nil && as != nil {
+func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, senderPrivKey *ecdsa.PrivateKey, contractAddress common.Address, fromAddress common.Address, payloadData []byte, amount *big.Int, methodName string) {
+	fmt.Printf("▶️  Chạy TCP SendTransaction (WRITE - Secp256k1 ETH standard) cho hàm/hành động %s...\n", methodName)
+	if as, err := cli.AccountState(fromAddress); err == nil && as != nil {
 		fmt.Printf("   📝 CHI TIẾT TX GỬI ĐI (%s):\n", methodName)
-		fmt.Printf("      - From: %s\n", fromAddress.Hex())
-		fmt.Printf("      - Nonce: %d\n", as.Nonce())
+		fmt.Printf("      - From:    %s\n", fromAddress.Hex())
+		fmt.Printf("      - To:      %s\n", contractAddress.Hex())
+		fmt.Printf("      - Nonce:   %d\n", as.Nonce())
 		fmt.Printf("      - Balance: %s wei\n", as.Balance().String())
-		fmt.Printf("      - To Contract: %s\n", contractAddress.Hex())
 	}
 
-	// Cố tình set MaxGas cực lớn để vi phạm MAX_GROUP_GAS
 	options := &tx_models.TxOptions{
-		MaxGas:      10000000000,
-		MaxGasPrice: 2000000000,
+		MaxGas:      com_pkg.DefaultMaxGas,
+		MaxGasPrice: com_pkg.DefaultMaxGasPrice,
 	}
 	if amount != nil {
 		options.Amount = amount
 	}
 
-	receipt, err := tx_helper.SendTransaction(
+	// ══════════════════════════════════════════════════════════════════
+	// 🔑 [KIỂU MỚI]: Ký ECDSA Secp256k1 (Type 0xFF) chuẩn Ethereum
+	// ══════════════════════════════════════════════════════════════════
+	receipt, err := tx_helper.SendSecpTransaction(
 		methodName,
 		cli,
 		cfg,
+		senderPrivKey,
 		contractAddress,
 		fromAddress,
 		payloadData,
 		options,
 	)
+
+	// ------------------------------------------------------------------
+	// ⚠️ [KIỂU CŨ ĐÃ COMMENT - KHÔNG DÙNG NỮA TRÁNH NHẦM LẪN]:
+	// Ký bằng BLS Key kết hợp DeviceKey (Giao dịch Type 0 truyền thống)
+	// ------------------------------------------------------------------
+	// receipt, err := tx_helper.SendTransaction(
+	// 	methodName,
+	// 	cli,
+	// 	cfg,
+	// 	contractAddress,
+	// 	fromAddress,
+	// 	payloadData,
+	// 	options,
+	// )
 	if err != nil {
 		log.Fatalf("❌ Lỗi gửi TCP Send: %v", err)
 	}

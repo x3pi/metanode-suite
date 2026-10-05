@@ -6,7 +6,6 @@ SUITE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 METANODE_DIR="$(cd "$SUITE_DIR/../metanode" 2>/dev/null && pwd || echo "/home/abc/nhat/con-chain-v2/metanode")"
 
 RPC_NODES_FILE="/tmp/rpc_nodes.json"
-PRIV_CHAINS_FILE="/tmp/private_chains.json"
 
 TARGET_CHAIN_ARG="${TARGET_CHAIN:-${CHAIN:-""}}"
 
@@ -41,7 +40,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ------------------------------------------------------------------------------
-# 1. TỰ ĐỘNG ĐỒNG BỘ /tmp/private_chains.json TỪ inventory.yml CỦA ANSIBLE CLUSTERS
+# 1. CHỌN FILE ENDPOINT ĐÃ ĐƯỢC SCRIPT DEPLOY CẬP NHẬT
 # ------------------------------------------------------------------------------
 CLUSTER_INVENTORY=""
 PARSE_INV_SCRIPT=""
@@ -63,10 +62,14 @@ for s in "$METANODE_DIR/deploy/ansible_clusters/scripts/parse_inventory.py" \
     fi
 done
 
-if [ -n "$CLUSTER_INVENTORY" ] && [ -n "$PARSE_INV_SCRIPT" ]; then
+# Các script deploy mới tự gộp public chain + execution clusters vào
+# /tmp/rpc_nodes.json. Chỉ export từ inventory như fallback khi file chung chưa có.
+if [ ! -f "$RPC_NODES_FILE" ] && [ -n "$CLUSTER_INVENTORY" ] && [ -n "$PARSE_INV_SCRIPT" ]; then
     python3 "$PARSE_INV_SCRIPT" "$CLUSTER_INVENTORY" export >/dev/null 2>&1 || true
-    echo "✅ Đã đồng bộ $PRIV_CHAINS_FILE từ ansible_clusters/inventory.yml"
+    echo "✅ Đã tạo endpoint fallback từ ansible_clusters/inventory.yml"
 fi
+
+CHAIN_ENDPOINTS_FILE="$RPC_NODES_FILE"
 
 # ------------------------------------------------------------------------------
 # 2. XÁC ĐỊNH CHẾ ĐỘ CHẠY: PUBLIC CHAIN HAY PRIVATE CHAIN
@@ -77,11 +80,11 @@ TARGET_CHAIN_NAME=""
 
 if [ -n "$TARGET_CHAIN_ARG" ] && [ "$TARGET_CHAIN_ARG" != "public" ] && [ "$TARGET_CHAIN_ARG" != "root" ] && [ "$TARGET_CHAIN_ARG" != "parent" ] && [ "$TARGET_CHAIN_ARG" != "default" ]; then
     USE_PRIVATE_CHAIN=true
-elif [ ! -f "$RPC_NODES_FILE" ] && [ -f "$PRIV_CHAINS_FILE" ]; then
+elif [ ! -f "$RPC_NODES_FILE" ]; then
     # Không có Public chain, tự động chọn Private chain đầu tiên
     FIRST_CID=$(python3 -c "
 import json
-with open('$PRIV_CHAINS_FILE') as f:
+with open('$CHAIN_ENDPOINTS_FILE') as f:
     d = json.load(f)
 chains = d.get('private_chains') or d.get('chain_nodes') or d.get('nodes', {})
 if chains:
@@ -99,8 +102,8 @@ if [ "$USE_PRIVATE_CHAIN" = true ]; then
     echo "🔗 ĐANG CẤU HÌNH TEST SUITE CHO PRIVATE CHAIN: $TARGET_CHAIN_ARG"
     echo "=========================================================="
 
-    if [ ! -f "$PRIV_CHAINS_FILE" ]; then
-        echo "Error: $PRIV_CHAINS_FILE not found." >&2
+    if [ ! -f "$CHAIN_ENDPOINTS_FILE" ]; then
+        echo "Error: $RPC_NODES_FILE does not contain private-chain endpoints." >&2
         exit 1
     fi
 
@@ -108,7 +111,7 @@ if [ "$USE_PRIVATE_CHAIN" = true ]; then
     EVAL_INFO=$(python3 -c "
 import json, sys
 
-with open('$PRIV_CHAINS_FILE') as f:
+with open('$CHAIN_ENDPOINTS_FILE') as f:
     p_data = json.load(f)
 
 p_chains = p_data.get('private_chains') or p_data.get('chain_nodes', {})
@@ -123,7 +126,7 @@ canonical = cluster_map.get(target, target)
 c_info = p_chains.get(canonical) or p_chains.get(target, {})
 
 if not c_info:
-    print(f'Error: Không tìm thấy private chain \"$TARGET_CHAIN_ARG\" trong $PRIV_CHAINS_FILE', file=sys.stderr)
+    print(f'Error: Không tìm thấy private chain \"$TARGET_CHAIN_ARG\" trong $CHAIN_ENDPOINTS_FILE', file=sys.stderr)
     print(f'Các chain khả dụng: {list(p_chains.keys())}', file=sys.stderr)
     sys.exit(1)
 
@@ -205,7 +208,7 @@ print(json.dumps(res))
     fi
     if [ -f "$FILE6" ]; then
         echo "Updating $FILE6 using Private Chain $TARGET_CID (Unified RPC & TCP)..."
-        python3 - "$FILE6" "$PRIV_CHAINS_FILE" "$TARGET_CID" "$TARGET_NAME" "$P_M0_RPC" "$P_M0_TCP" "$P_M1_TCP" "$P_M1_RPC_CLEAN" "$P_M2_TCP" "$P_M2_RPC_CLEAN" "$P_M3_TCP" "$P_M3_RPC_CLEAN" << 'EOF'
+        python3 - "$FILE6" "$CHAIN_ENDPOINTS_FILE" "$TARGET_CID" "$TARGET_NAME" "$P_M0_RPC" "$P_M0_TCP" "$P_M1_TCP" "$P_M1_RPC_CLEAN" "$P_M2_TCP" "$P_M2_RPC_CLEAN" "$P_M3_TCP" "$P_M3_RPC_CLEAN" << 'EOF'
 import sys, json
 
 file6 = sys.argv[1]
@@ -426,9 +429,9 @@ else
         fi
 
         # Cập nhật thông tin Private Chains từ /tmp/rpc_nodes.json (nếu có)
-        if [ -f "$PRIV_CHAINS_FILE" ]; then
-            echo "Updating Private Chains RPC & TCP in $FILE6 from $PRIV_CHAINS_FILE..."
-            python3 - "$FILE6" "$PRIV_CHAINS_FILE" << 'EOF'
+        if [ -f "$CHAIN_ENDPOINTS_FILE" ]; then
+            echo "Updating Private Chains RPC & TCP in $FILE6 from $CHAIN_ENDPOINTS_FILE..."
+            python3 - "$FILE6" "$CHAIN_ENDPOINTS_FILE" << 'EOF'
 import sys, json
 
 file6 = sys.argv[1]
@@ -439,7 +442,7 @@ with open(file6) as f:
 with open(priv_file) as f:
     p_data = json.load(f)
 
-p_clusters = p_data.get('clusters', {})
+p_clusters = p_data.get('private_chains') or p_data.get('clusters', {})
 if 'private_chains' not in cfg:
     cfg['private_chains'] = {}
 

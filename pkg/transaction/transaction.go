@@ -29,9 +29,10 @@ import (
 )
 
 type Transaction struct {
-	proto       *pb.Transaction
-	cachedHash  atomic.Pointer[common.Hash]
-	cachedRHash atomic.Pointer[common.Hash]
+	proto             *pb.Transaction
+	cachedHash        atomic.Pointer[common.Hash]
+	cachedSigningHash atomic.Pointer[common.Hash]
+	cachedRHash       atomic.Pointer[common.Hash]
 
 	isDebug bool
 }
@@ -546,6 +547,7 @@ func (t *Transaction) String() (str string) {
 }
 func (t *Transaction) ClearCacheHash() {
 	t.cachedHash.Store(nil)
+	t.cachedSigningHash.Store(nil)
 	t.cachedRHash.Store(nil)
 }
 
@@ -585,6 +587,58 @@ func (t *Transaction) Hash() common.Hash {
 	// Lưu vào cache (atomic)
 	t.cachedHash.Store(&hash)
 
+	return hash
+}
+
+// SigningHash computes the deterministic Keccak256 hash of TransactionHashData
+// with R, S, and V cleared. This is the exact hash signed by the secp256k1 private key
+// for Type 0xFF transactions, breaking the circular hash dependency.
+func (t *Transaction) SigningHash() (hash common.Hash) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("Panic in SigningHash: %v", r)
+			hash = common.Hash{}
+		}
+	}()
+
+	if t == nil || t.proto == nil {
+		return common.Hash{}
+	}
+
+	if cached := t.cachedSigningHash.Load(); cached != nil {
+		return *cached
+	}
+
+	hashPb := &pb.TransactionHashData{
+		FromAddress:   t.proto.FromAddress,
+		ToAddress:     t.proto.ToAddress,
+		Amount:        t.proto.Amount,
+		MaxGas:        t.proto.MaxGas,
+		MaxGasPrice:   t.proto.MaxGasPrice,
+		MaxTimeUse:    t.proto.MaxTimeUse,
+		Data:          t.proto.Data,
+		Type:          t.proto.Type,
+		LastDeviceKey: t.proto.LastDeviceKey,
+		NewDeviceKey:  t.proto.NewDeviceKey,
+		Nonce:         t.proto.Nonce,
+		ChainID:       t.proto.ChainID,
+		// R, S, V are intentionally nil for SigningHash
+		R:             nil,
+		S:             nil,
+		V:             nil,
+		GasTipCap:     t.proto.GasTipCap,
+		GasFeeCap:     t.proto.GasFeeCap,
+		AccessList:    t.proto.AccessList,
+	}
+
+	bHashPb, err := proto.MarshalOptions{Deterministic: true}.Marshal(hashPb)
+	if err != nil {
+		logger.Error("Transaction.SigningHash: proto.Marshal failed: %v", err)
+		return common.Hash{}
+	}
+
+	hash = crypto.Keccak256Hash(bHashPb)
+	t.cachedSigningHash.Store(&hash)
 	return hash
 }
 
@@ -666,6 +720,13 @@ func (t *Transaction) Sign() p_common.Sign {
 	return p_common.SignFromBytes(t.proto.Sign)
 }
 
+func (t *Transaction) SignBytes() []byte {
+	if t == nil || t.proto == nil {
+		return nil
+	}
+	return t.proto.Sign
+}
+
 func (t *Transaction) Amount() *big.Int {
 	return big.NewInt(0).SetBytes(t.proto.Amount)
 }
@@ -709,6 +770,15 @@ func (t *Transaction) GetReadOnly() bool {
 
 func (t *Transaction) SetType(txType uint64) {
 	t.proto.Type = txType
+	t.ClearCacheHash()
+}
+
+func (t *Transaction) SetGasFeeCap(gasFeeCap *big.Int) {
+	if gasFeeCap != nil {
+		t.proto.GasFeeCap = gasFeeCap.Bytes()
+	} else {
+		t.proto.GasFeeCap = nil
+	}
 	t.ClearCacheHash()
 }
 
@@ -873,6 +943,111 @@ func (t *Transaction) ValidEthSign() bool {
 	}
 	logger.Info("from: ", from)
 	return from == t.FromAddress()
+}
+
+// Type returns the transaction type from proto.Type (field 16).
+// Alias of GetType for idiomatic Go.
+func (t *Transaction) Type() uint64 {
+	if t == nil || t.proto == nil {
+		return 0
+	}
+	return t.proto.Type
+}
+
+// ValidSecpProtoSign validates secp256k1 signatures directly encoded on Protobuf
+// (Transaction Type 0xFF).
+// Invariants enforced:
+// 1. Type must be 0xFF.
+// 2. Sign field must be empty (prevent confusion with BLS/cross-chain signature).
+// 3. R and S must be exactly 32 bytes each.
+// 4. V must be exactly 1 byte with value 0 or 1.
+// 5. ChainID must be non-zero (anti-replay).
+// 6. s must be in the lower half of the curve order (s <= N/2, homestead/EIP-2 compliant).
+// 7. Recovered public key address must match FromAddress.
+func (t *Transaction) ValidSecpProtoSign() bool {
+	if t == nil || t.proto == nil {
+		return false
+	}
+	if t.proto.Type != 0xFF {
+		return false
+	}
+	if len(t.proto.Sign) != 0 {
+		return false
+	}
+	if len(t.proto.R) != 32 || len(t.proto.S) != 32 || len(t.proto.V) != 1 {
+		return false
+	}
+	v := t.proto.V[0]
+	if v > 1 {
+		return false
+	}
+	if t.proto.ChainID == 0 {
+		return false
+	}
+	r := new(big.Int).SetBytes(t.proto.R)
+	s := new(big.Int).SetBytes(t.proto.S)
+	if !crypto.ValidateSignatureValues(v, r, s, true) {
+		return false
+	}
+
+	sig := make([]byte, 65)
+	copy(sig[0:32], t.proto.R)
+	copy(sig[32:64], t.proto.S)
+	sig[64] = v
+
+	h := t.SigningHash()
+	pubKey, err := crypto.SigToPub(h.Bytes(), sig)
+	if err != nil {
+		return false
+	}
+	recoveredAddr := crypto.PubkeyToAddress(*pubKey)
+	return recoveredAddr == t.FromAddress()
+}
+
+// ValidSecpSign is the unified validation seam for ECDSA secp256k1 signatures.
+// If Type == 0xFF, it validates via ValidSecpProtoSign().
+// Otherwise, it validates standard Ethereum tx formats via ValidEthSign().
+func (t *Transaction) ValidSecpSign() bool {
+	if t == nil || t.proto == nil {
+		return false
+	}
+	if t.proto.Type == 0xFF {
+		return t.ValidSecpProtoSign()
+	}
+	return t.ValidEthSign()
+}
+
+// SignSecpProto signs the transaction with a secp256k1 private key for Type 0xFF.
+// It sets Type = 0xFF, clears Sign, computes SigningHash(), signs it with crypto.Sign,
+// and populates R (32B), S (32B), V (1B).
+func (t *Transaction) SignSecpProto(privKey *ecdsa.PrivateKey) error {
+	if t == nil || t.proto == nil {
+		return errors.New("transaction is nil")
+	}
+	if privKey == nil {
+		return errors.New("private key is nil")
+	}
+	t.proto.Type = 0xFF
+	t.proto.Sign = nil
+	t.ClearCacheHash()
+
+	h := t.SigningHash()
+	sig, err := crypto.Sign(h.Bytes(), privKey)
+	if err != nil {
+		return fmt.Errorf("crypto.Sign failed: %w", err)
+	}
+	if len(sig) != 65 {
+		return fmt.Errorf("invalid signature length: %d", len(sig))
+	}
+
+	t.proto.R = make([]byte, 32)
+	copy(t.proto.R, sig[0:32])
+	t.proto.S = make([]byte, 32)
+	copy(t.proto.S, sig[32:64])
+	t.proto.V = []byte{sig[64]}
+	t.ClearCacheHash()
+
+	return nil
 }
 
 // DerivePublicKeyFromEthTransaction khôi phục và trả về public key của người gửi từ một giao dịch.

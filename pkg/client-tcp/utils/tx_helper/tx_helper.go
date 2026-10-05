@@ -1,8 +1,10 @@
 package tx_helper
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"tool-test/pkg/types"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 var (
@@ -237,6 +240,96 @@ func SendReadTransaction(
 	return receipt, nil
 }
 
+// SendSecpTransaction signs and sends a Type 0xFF transaction using an ECDSA secp256k1 key.
+func SendSecpTransaction(
+	action string,
+	cli *clientpkg.Client,
+	cfg *c_config.ClientConfig,
+	privKey *ecdsa.PrivateKey,
+	contract common.Address,
+	from common.Address,
+	input []byte,
+	opts *models.TxOptions,
+) (types.Receipt, error) {
+	if cli == nil || cfg == nil {
+		return nil, fmt.Errorf("client and config are required")
+	}
+	if privKey == nil {
+		return nil, fmt.Errorf("ecdsa private key is required")
+	}
+	if (contract == common.Address{}) && action != "deploy" {
+		return nil, fmt.Errorf("contract address is required")
+	}
+	if (from == common.Address{}) {
+		from = crypto.PubkeyToAddress(privKey.PublicKey)
+	}
+
+	normalized := NormalizeTxOptions(opts)
+	amount := normalized.Amount
+	if amount == nil {
+		amount = big.NewInt(0)
+	}
+
+	maxGas := ChooseOrDefault(normalized.MaxGas, com_pkg.DefaultMaxGas)
+	maxGasPrice := ChooseOrDefault(normalized.MaxGasPrice, com_pkg.DefaultMaxGasPrice)
+
+	var payload []byte
+	var err error
+	if action == "deploy" || contract == (common.Address{}) {
+		deployData := mt_transaction.NewDeployData(input, common.Address{})
+		payload, err = deployData.Marshal()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal deploydata for %s: %w", action, err)
+		}
+	} else if len(input) > 0 {
+		callData := mt_transaction.NewCallData(input)
+		payload, err = callData.Marshal()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal calldata for %s: %w", action, err)
+		}
+	}
+
+	var cachedNonce uint64
+	if val, ok := nonceCache.Load(from); ok {
+		cachedNonce = val.(uint64)
+	}
+
+	as, err := cli.AccountState(from)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account state for %s: %w", from.Hex(), err)
+	}
+
+	usedNonce := as.Nonce()
+	if cachedNonce != 0 && cachedNonce > usedNonce {
+		logger.Info("Node nonce lag (got %d, expected %d), using cached nonce to proceed", usedNonce, cachedNonce)
+		usedNonce = cachedNonce
+	}
+
+	receipt, tx, err := cli.SendSecpProtoTransactionWithNonce(
+		privKey,
+		contract,
+		amount,
+		maxGas,
+		maxGasPrice,
+		payload,
+		usedNonce,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send %s secp transaction: %w", action, err)
+	}
+
+	nonceCache.Store(from, usedNonce+1)
+
+	if receipt == nil {
+		return nil, fmt.Errorf("%s transaction returned empty receipt (txHash: %s)", action, tx.Hash().Hex())
+	}
+	status := receipt.Status()
+	if status != pb.RECEIPT_STATUS_RETURNED && status != pb.RECEIPT_STATUS_HALTED {
+		return receipt, fmt.Errorf("%s transaction failed with status %s (Return: %s)", action, status.String(), string(receipt.Return()))
+	}
+	return receipt, nil
+}
+
 func SendTransaction(
 	action string,
 	cli *clientpkg.Client,
@@ -249,6 +342,17 @@ func SendTransaction(
 	if cli == nil || cfg == nil {
 		return nil, fmt.Errorf("client and config are required")
 	}
+
+	keyHex := cfg.EthPrivateKey
+	if keyHex == "" {
+		keyHex = cfg.PrivateKey_
+	}
+	if keyHex != "" {
+		if privKey, errKey := crypto.HexToECDSA(strings.TrimPrefix(keyHex, "0x")); errKey == nil && privKey != nil {
+			return SendSecpTransaction(action, cli, cfg, privKey, contract, from, input, opts)
+		}
+	}
+
 	if (contract == common.Address{}) && action != "deploy" {
 		return nil, fmt.Errorf("contract address is required")
 	}

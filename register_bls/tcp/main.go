@@ -420,35 +420,6 @@ func main() {
 						"Block", "TXs", "WaitGo", "WaitRust", "Consensus", "RustFFI", "ClientBatch", "ProcessTX", "CalcRoots", "BlockData", "Mapping", "CommitMem", "SaveDB", "Total", "GCPause")
 					fmt.Printf("  %s\n", strings.Repeat("-", 190))
 
-					// traces, err := rpcClient.GetBlockTraces(traceStart, lastConfirmedBlockNum)
-					// if err != nil {
-					// 	fmt.Printf("  ❌ Could not fetch block traces: %v\n", err)
-					// } else {
-					// 	// for _, t := range traces {
-					// 	// 	realTotalUs := float64(t.WaitGoUs) +
-					// 	// 		float64(t.WaitRustUs) +
-					// 	// 		float64(t.ConsensusDurationUs) +
-					// 	// 		float64(t.ClientBatchProcessingUs) +
-					// 	// 		float64(t.ProcessTxsDurationUs) +
-					// 	// 		float64(t.TotalBlockDurationUs)
-
-					// 	// 	fmt.Printf("  %-8d | %-6d | %-8.1fms | %-8.1fms | %-8.1fms | %-6.1fms | %-9.1fms | %-8.1fms | %-8.1fms | %-8.2fms | %-8.2fms | %-8.1fms | %-8.1fms | %-8.1fms | %-8.1fms\n",
-					// 	// 		t.BlockNumber, t.TxCount,
-					// 	// 		float64(t.WaitGoUs)/1000.0,
-					// 	// 		float64(t.WaitRustUs)/1000.0,
-					// 	// 		float64(t.ConsensusDurationUs)/1000.0,
-					// 	// 		float64(t.RustDeliveryFFIDurationUs)/1000.0,
-					// 	// 		float64(t.ClientBatchProcessingUs)/1000.0,
-					// 	// 		float64(t.ProcessTxsDurationUs)/1000.0,
-					// 	// 		float64(t.Phase1TotalDurationUs)/1000.0,
-					// 	// 		float64(t.BlockDataDurationUs)/1000.0,
-					// 	// 		float64(t.MappingDurationUs)/1000.0,
-					// 	// 		float64(t.CommitMemoryDurationUs)/1000.0,
-					// 	// 		float64(t.SaveDBDurationUs)/1000.0,
-					// 	// 		realTotalUs/1000.0,
-					// 	// 		float64(t.GCPauseUs)/1000.0)
-					// 	// }
-					// }
 					fmt.Printf("═══════════════════════════════════════════════════\n")
 				}
 			}
