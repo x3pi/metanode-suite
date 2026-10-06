@@ -122,6 +122,9 @@ func NewClient(
 	go client.runReceiptRouter()
 
 	clientContext.KeyPair = bls.NewKeyPair(config.PrivateKey())
+	if clientContext.KeyPair == nil {
+		clientContext.KeyPair = bls.GenerateKeyPair()
+	}
 	clientContext.MessageSender = p_network.NewMessageSender(
 		config.Version(),
 	)

@@ -75,3 +75,4 @@ test-simple/test-rpc/test-chain/spam-contract/spam-contract
 test-simple/test-rpc/test-chain/.evm_recovery_contract.json
 test-simple/test-rpc/test-chain/.xapian_recovery_contract.json
 test-simple/test-rpc/test-rpc
+register_account/register_account

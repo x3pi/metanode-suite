@@ -51,6 +51,7 @@ func main() {
 	nativeOnlyFlag := flag.Bool("native_only", false, "Chỉ test chuyển native, bỏ qua việc đăng ký BLS")
 	configFlag := flag.String("config", "../../configs/config.json", "Đường dẫn file config")
 	useConfigBlsFlag := flag.Bool("use_config_bls", false, "Sử dụng public key BLS từ file config thay vì key sinh ngẫu nhiên")
+	blsPubFlag := flag.String("bls_pub", "", "Public key BLS (hex) dùng để đăng ký trực tiếp cho toàn bộ ví")
 	flag.Parse()
 
 	logger.SetConfig(&logger.LoggerConfig{
@@ -143,6 +144,13 @@ func main() {
 		log.Fatalf("❌ Số lượng ví (-count) phải lớn hơn 0")
 	}
 
+	var customBlsPub string
+	if *blsPubFlag != "" {
+		customBlsPub = strings.TrimPrefix(strings.TrimSpace(*blsPubFlag), "0x")
+	} else if *useConfigBlsFlag {
+		customBlsPub = publicKeyBLS
+	}
+
 	transferAmtStr := "1000000000000000000" // Mặc định 1 token
 	transferAmount, ok := new(big.Int).SetString(transferAmtStr, 10)
 	if !ok {
@@ -202,11 +210,16 @@ func main() {
 			}
 		}
 
+		keyBls := blsPubHex
+		if customBlsPub != "" {
+			keyBls = customBlsPub
+		}
+
 		generatedKeys = append(generatedKeys, GeneratedKey{
 			Index:        i,
 			PrivateKey:   hexKey,
 			Address:      addressHex,
-			BlsPublicKey: blsPubHex,
+			BlsPublicKey: keyBls,
 		})
 	}
 
@@ -279,10 +292,10 @@ func main() {
 				defer func() { <-sem }()
 				client := clientPool[idx%len(clientPool)]
 
-				// blsKeyToUse quyết định sẽ lấy public key BLS từ cấu hình hay từ random
+				// blsKeyToUse quyết định sẽ lấy public key BLS từ CLI flag, cấu hình hay từ random
 				blsKeyToUse := k.BlsPublicKey
-				if *useConfigBlsFlag {
-					blsKeyToUse = publicKeyBLS
+				if customBlsPub != "" {
+					blsKeyToUse = customBlsPub
 				}
 
 				// Gửi bằng giao dịch chuẩn (Ký bằng ECDSA, vượt qua mọi mạng)

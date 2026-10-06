@@ -38,6 +38,8 @@ go run main.go
 # Tạo 1 ví, Đăng ký BLS bằng public_key_bls cấu hình sẵn trong config-single.json
 go run main.go -count 1 --use_config_bls=true -skip_fund
 
+go run main.go -count 1 -bls_pub 0x944488b4... -skip_fund
+
 # Tạo và xử lý cho N ví (ví dụ: 100 ví, gửi đều lên 5 node)
 go run main.go -count 100
 
