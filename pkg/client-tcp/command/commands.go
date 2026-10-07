@@ -15,11 +15,14 @@ const (
 	SendTransaction              = "SendTransaction"
 	SendTransactionWithDeviceKey = "SendTransactionWithDeviceKey"
 	SendTransactions             = "SendTransactions"
-	GetAccountState              = "GetAccountState"
-	SubscribeToAddress           = "SubscribeToAddress"
-	GetStakeState                = "GetStakeState"
-	GetSmartContractData         = "GetSmartContractData"
-	GetNonce                     = "GetNonce"
+	// Eth-only chain ingress. The payload is an EIP-2718 binary envelope.
+	SendRawTransaction   = "SendRawTransaction"
+	SendRawTransactions  = "SendRawTransactions"
+	GetAccountState      = "GetAccountState"
+	SubscribeToAddress   = "SubscribeToAddress"
+	GetStakeState        = "GetStakeState"
+	GetSmartContractData = "GetSmartContractData"
+	GetNonce             = "GetNonce"
 
 	GetDeviceKey = "GetDeviceKey"
 
@@ -50,22 +53,22 @@ const (
 
 	// Chain-direct commands — gửi thẳng lên chain, không qua RPC proxy
 	// Dùng header ID để match request/response
-	GetChainId           = "GetChainId"
-	ChainId              = "ChainId"
+	GetChainId            = "GetChainId"
+	ChainId               = "ChainId"
 	GetTransactionReceipt = "GetTransactionReceipt"
 	TransactionReceipt    = "TransactionReceipt"
 	GetBlockNumber        = "GetBlockNumber"
 	BlockNumber           = "BlockNumber"
 
-	GetLogs               = "GetLogs"
-	Logs                  = "Logs"
+	GetLogs = "GetLogs"
+	Logs    = "Logs"
 
-	GetTransactionByHash  = "GetTransactionByHash"
-	TransactionByHash     = "TransactionByHash"
+	GetTransactionByHash = "GetTransactionByHash"
+	TransactionByHash    = "TransactionByHash"
 
-	TransactionSuccess    = "TransactionSuccess"
+	TransactionSuccess = "TransactionSuccess"
 
 	// Backup DB sync commands
 	GetBlockDataByNumberFromMaster = "GetBlockDataByNumberFromMaster"
-	BlockDataFromMainMaster       = "BlockDataFromMainMaster"
+	BlockDataFromMainMaster        = "BlockDataFromMainMaster"
 )

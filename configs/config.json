@@ -1,6 +1,6 @@
 {
   "bls_private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
-  "target_chain": "",
+  "target_chain": "chain_a",
   "rpc_url": "http://192.168.1.234:10751",
   "rpc_nodes": {
     "m5": "http://192.168.1.234:10751",
@@ -46,16 +46,16 @@
       "bls_private_key": "2a61eac9235fab64ae377b2b7e39f8fa9648c5737094d28c7ee68a14b5086d39",
       "address": "0x0d4CC97b62a149a8fe8DE81262270426A80B0935",
       "bls_pubkey": "0x83221629eeff1a69aa96ac6aadea402a7b62a74647633c0743cd517b71dcd5cd39fec42841b953fc481dac039bceb465",
-      "rpc_url": "http://127.0.0.1:8647",
-      "ws_url": "ws://127.0.0.1:8647/ws",
+      "rpc_url": "http://192.168.1.234:8750",
+      "ws_url": "ws://192.168.1.234:8750/ws",
       "rpc_nodes": {
-        "m0": "http://127.0.0.1:8647"
+        "m0": "http://192.168.1.234:8750"
       },
       "ws_nodes": {
-        "m0": "ws://127.0.0.1:8647/ws"
+        "m0": "ws://192.168.1.234:8750/ws"
       },
       "tcp_nodes": {
-        "m0": "127.0.0.1:4202"
+        "m0": "192.168.1.234:4203"
       },
       "private_keys": [
         "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",
@@ -131,16 +131,16 @@
       "bls_private_key": "2a61eac9235fab64ae377b2b7e39f8fa9648c5737094d28c7ee68a14b5086d39",
       "address": "0x0d4CC97b62a149a8fe8DE81262270426A80B0935",
       "bls_pubkey": "0x83221629eeff1a69aa96ac6aadea402a7b62a74647633c0743cd517b71dcd5cd39fec42841b953fc481dac039bceb465",
-      "rpc_url": "http://127.0.0.1:8647",
-      "ws_url": "ws://127.0.0.1:8647/ws",
+      "rpc_url": "http://192.168.1.234:8750",
+      "ws_url": "ws://192.168.1.234:8750/ws",
       "rpc_nodes": {
-        "m0": "http://127.0.0.1:8647"
+        "m0": "http://192.168.1.234:8750"
       },
       "ws_nodes": {
-        "m0": "ws://127.0.0.1:8647/ws"
+        "m0": "ws://192.168.1.234:8750/ws"
       },
       "tcp_nodes": {
-        "m0": "127.0.0.1:4202"
+        "m0": "192.168.1.234:4203"
       },
       "private_keys": [
         "ad1aec8715275f484f8a11a2f82065a031a2e895227773989fc8e3b7fc51051a",

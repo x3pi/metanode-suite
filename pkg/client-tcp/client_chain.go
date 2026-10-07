@@ -149,6 +149,36 @@ func (client *Client) ChainGetTransactionReceipt(txHash common.Hash) (*pb.GetTra
 	return resp, nil
 }
 
+// SendRawEthTransaction submits one signed EIP-2718 Ethereum envelope through
+// the chain-direct TCP ingress. TransactionSuccess only confirms mempool
+// admission; callers must wait for the receipt separately to observe execution.
+func (client *Client) SendRawEthTransaction(rawTx []byte) (common.Hash, error) {
+	if len(rawTx) == 0 {
+		return common.Hash{}, fmt.Errorf("raw Ethereum transaction is empty")
+	}
+
+	respMsg, err := client.sendChainRequest(command.SendRawTransaction, rawTx, 60*time.Second)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("send raw Ethereum transaction: %w", err)
+	}
+
+	switch respMsg.Command() {
+	case command.TransactionSuccess:
+		if len(respMsg.Body()) != common.HashLength {
+			return common.Hash{}, fmt.Errorf("invalid TransactionSuccess hash length: %d", len(respMsg.Body()))
+		}
+		return common.BytesToHash(respMsg.Body()), nil
+	case command.TransactionError:
+		txErr := &mt_transaction.TransactionHashWithError{}
+		if err := txErr.Unmarshal(respMsg.Body()); err != nil {
+			return common.Hash{}, fmt.Errorf("failed to unmarshal transaction error: %w", err)
+		}
+		return common.Hash{}, fmt.Errorf("transaction rejected: %s", txErr.Proto().Description)
+	default:
+		return common.Hash{}, fmt.Errorf("unexpected command: %s", respMsg.Command())
+	}
+}
+
 // ChainGetLogs lấy logs từ chain theo filter criteria
 func (client *Client) ChainGetLogs(
 	blockHash []byte,

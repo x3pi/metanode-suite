@@ -17,15 +17,16 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	e_types "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	client_tcp "tool-test/pkg/client-tcp"
 	com_pkg "tool-test/pkg/client-tcp/common"
 	tcp_config "tool-test/pkg/client-tcp/config"
-	tx_models "tool-test/pkg/client-tcp/models"
 	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
 	"tool-test/pkg/logger"
 	pb "tool-test/pkg/proto"
+	"tool-test/pkg/types"
 )
 
 type ExpectedEvent struct {
@@ -257,7 +258,7 @@ func loadData(path string) []DataPayload {
 // THỰC THI ACTION: DEPLOY (TCP)
 // ----------------------------------------------------
 func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, senderPrivKey *ecdsa.PrivateKey, fromAddress common.Address, bytecode []byte, lastDeployed **common.Address) {
-	fmt.Println("▶️  Chạy TCP Deploy Contract (Secp256k1 ETH standard)...")
+	fmt.Println("▶️  Chạy TCP Deploy Contract (raw Ethereum EIP-2718)...")
 	if as, err := cli.AccountState(fromAddress); err == nil && as != nil {
 		fmt.Printf("   📝 CHI TIẾT TX DEPLOY:\n")
 		fmt.Printf("      - From:            %s\n", fromAddress.Hex())
@@ -265,41 +266,14 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, send
 		fmt.Printf("      - Balance:         %s wei\n", as.Balance().String())
 		fmt.Printf("      - Bytecode Length: %d bytes\n", len(bytecode))
 	}
-	emptyAddress := common.Address{}
 
 	// ══════════════════════════════════════════════════════════════════
-	// 🔑 [KIỂU MỚI]: Ký ECDSA Secp256k1 (Type 0xFF) chuẩn Ethereum
+	// Sign and submit a canonical Ethereum EIP-155 transaction.
 	// ══════════════════════════════════════════════════════════════════
-	receipt, err := tx_helper.SendSecpTransaction(
-		"deploy",
-		cli,
-		cfg,
-		senderPrivKey,
-		emptyAddress,
-		fromAddress,
-		bytecode,
-		&tx_models.TxOptions{
-			MaxGas:      com_pkg.DefaultMaxGas,
-			MaxGasPrice: com_pkg.DefaultMaxGasPrice,
-		},
+	receipt, tx, err := sendRawEthereumTransaction(
+		cli, cfg, senderPrivKey, nil, big.NewInt(0), bytecode,
+		com_pkg.DefaultMaxGas, com_pkg.DefaultMaxGasPrice,
 	)
-
-	// ------------------------------------------------------------------
-	// ⚠️ [KIỂU CŨ ĐÃ COMMENT - KHÔNG DÙNG NỮA TRÁNH NHẦM LẪN]:
-	// Ký bằng BLS Key kết hợp DeviceKey (Giao dịch Type 0 truyền thống)
-	// ------------------------------------------------------------------
-	// receipt, err := tx_helper.SendTransaction(
-	// 	"deploy",
-	// 	cli,
-	// 	cfg,
-	// 	emptyAddress,
-	// 	fromAddress,
-	// 	bytecode,
-	// 	&tx_models.TxOptions{
-	// 		MaxGas:      com_pkg.DefaultMaxGas,
-	// 		MaxGasPrice: com_pkg.DefaultMaxGasPrice,
-	// 	},
-	// )
 
 	if err != nil {
 		log.Fatalf("❌ Lỗi deploy TCP: %v", err)
@@ -307,22 +281,9 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, send
 
 	if receipt != nil && (receipt.Status() == pb.RECEIPT_STATUS_RETURNED || receipt.Status() == pb.RECEIPT_STATUS_HALTED) {
 		fmt.Printf("   ✅ DEPLOY THÀNH CÔNG! (Gas used: %d)\n", receipt.GasUsed())
-		// Trong TCP metanode, contract address thường được trả về qua ToAddress hoặc Return
-		var addr common.Address
-		toAddr := receipt.ToAddress()
-		retBytes := receipt.Return()
-
-		if (toAddr != common.Address{}) {
-			addr = toAddr
-			fmt.Printf("   📌 CONTRACT ADDRESS MỚI TẠO (ToAddress): %s\n", addr.Hex())
-			*lastDeployed = &addr
-		} else if len(retBytes) >= 20 {
-			addr = common.BytesToAddress(retBytes)
-			fmt.Printf("   📌 CONTRACT ADDRESS MỚI TẠO (Return Data): %s\n", addr.Hex())
-			*lastDeployed = &addr
-		} else {
-			fmt.Printf("   ⚠️ Deploy thành công nhưng không lấy được address! (Return len: %d)\n", len(retBytes))
-		}
+		addr := crypto.CreateAddress(fromAddress, tx.Nonce())
+		fmt.Printf("   📌 CONTRACT ADDRESS MỚI TẠO (Ethereum CREATE): %s\n", addr.Hex())
+		*lastDeployed = &addr
 	} else {
 		status := pb.RECEIPT_STATUS_TRANSACTION_ERROR
 		if receipt != nil {
@@ -405,7 +366,7 @@ func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 // THỰC THI ACTION: SEND & TRANSFER (TCP - WRITE)
 // ----------------------------------------------------
 func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, senderPrivKey *ecdsa.PrivateKey, contractAddress common.Address, fromAddress common.Address, payloadData []byte, amount *big.Int, methodName string) {
-	fmt.Printf("▶️  Chạy TCP SendTransaction (WRITE - Secp256k1 ETH standard) cho hàm/hành động %s...\n", methodName)
+	fmt.Printf("▶️  Chạy TCP SendRawTransaction (WRITE - Ethereum EIP-2718) cho hàm/hành động %s...\n", methodName)
 	if as, err := cli.AccountState(fromAddress); err == nil && as != nil {
 		fmt.Printf("   📝 CHI TIẾT TX GỬI ĐI (%s):\n", methodName)
 		fmt.Printf("      - From:    %s\n", fromAddress.Hex())
@@ -414,41 +375,20 @@ func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, sender
 		fmt.Printf("      - Balance: %s wei\n", as.Balance().String())
 	}
 
-	options := &tx_models.TxOptions{
-		MaxGas:      com_pkg.DefaultMaxGas,
-		MaxGasPrice: com_pkg.DefaultMaxGasPrice,
-	}
 	if amount != nil {
-		options.Amount = amount
+		amount = new(big.Int).Set(amount)
+	} else {
+		amount = big.NewInt(0)
 	}
 
 	// ══════════════════════════════════════════════════════════════════
-	// 🔑 [KIỂU MỚI]: Ký ECDSA Secp256k1 (Type 0xFF) chuẩn Ethereum
+	// Sign and submit a canonical Ethereum EIP-155 transaction.
 	// ══════════════════════════════════════════════════════════════════
-	receipt, err := tx_helper.SendSecpTransaction(
-		methodName,
-		cli,
-		cfg,
-		senderPrivKey,
-		contractAddress,
-		fromAddress,
-		payloadData,
-		options,
+	receipt, _, err := sendRawEthereumTransaction(
+		cli, cfg, senderPrivKey, &contractAddress, amount, payloadData,
+		com_pkg.DefaultMaxGas, com_pkg.DefaultMaxGasPrice,
 	)
 
-	// ------------------------------------------------------------------
-	// ⚠️ [KIỂU CŨ ĐÃ COMMENT - KHÔNG DÙNG NỮA TRÁNH NHẦM LẪN]:
-	// Ký bằng BLS Key kết hợp DeviceKey (Giao dịch Type 0 truyền thống)
-	// ------------------------------------------------------------------
-	// receipt, err := tx_helper.SendTransaction(
-	// 	methodName,
-	// 	cli,
-	// 	cfg,
-	// 	contractAddress,
-	// 	fromAddress,
-	// 	payloadData,
-	// 	options,
-	// )
 	if err != nil {
 		log.Fatalf("❌ Lỗi gửi TCP Send: %v", err)
 	}
@@ -467,6 +407,66 @@ func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, sender
 	} else {
 		fmt.Printf("   ⚠️ Tx gửi thành công nhưng không có Receipt\n")
 	}
+}
+
+// sendRawEthereumTransaction signs a canonical Ethereum legacy (EIP-155)
+// transaction, submits its EIP-2718 binary envelope to the Eth-only TCP
+// ingress, then waits for its asynchronously delivered execution receipt.
+func sendRawEthereumTransaction(
+	cli *client_tcp.Client,
+	cfg *tcp_config.ClientConfig,
+	privateKey *ecdsa.PrivateKey,
+	to *common.Address,
+	value *big.Int,
+	data []byte,
+	gas uint64,
+	gasPrice uint64,
+) (types.Receipt, *e_types.Transaction, error) {
+	if cfg.ChainId == 0 {
+		return nil, nil, fmt.Errorf("chain ID must be configured")
+	}
+	if value == nil {
+		value = big.NewInt(0)
+	}
+
+	from := crypto.PubkeyToAddress(privateKey.PublicKey)
+	account, err := cli.AccountState(from)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get sender nonce: %w", err)
+	}
+
+	chainID := new(big.Int).SetUint64(cfg.ChainId)
+	unsigned := e_types.NewTx(&e_types.LegacyTx{
+		Nonce:    account.Nonce(),
+		GasPrice: new(big.Int).SetUint64(gasPrice),
+		Gas:      gas,
+		To:       to,
+		Value:    new(big.Int).Set(value),
+		Data:     append([]byte(nil), data...),
+	})
+	signed, err := e_types.SignTx(unsigned, e_types.LatestSignerForChainID(chainID), privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sign Ethereum transaction: %w", err)
+	}
+	rawTx, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal EIP-2718 transaction: %w", err)
+	}
+
+	acceptedHash, err := cli.SendRawEthTransaction(rawTx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if acceptedHash != signed.Hash() {
+		return nil, nil, fmt.Errorf("node acknowledged unexpected transaction hash: got %s want %s", acceptedHash.Hex(), signed.Hash().Hex())
+	}
+	fmt.Printf("   ✅ Node accepted Ethereum transaction: %s\n", acceptedHash.Hex())
+
+	receipt, err := cli.FindReceiptByHash(acceptedHash)
+	if err != nil {
+		return nil, nil, fmt.Errorf("wait for transaction receipt %s: %w", acceptedHash.Hex(), err)
+	}
+	return receipt, signed, nil
 }
 
 // ----------------------------------------------------

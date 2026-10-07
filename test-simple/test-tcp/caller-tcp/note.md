@@ -2,6 +2,8 @@
 go run main.go -config=config-server.json -data=data.json
 go run main.go -config=config-nhat.json -data=transfer.json
 go run main.go -config=config-local.json -data=data.json
+go run main.go -config=config-local.json -data=data.json -loop
+
 
 
 
@@ -12,8 +14,6 @@ go run main.go -config=config-local.json -data=data.json
 go run main.go -config=config-server.json -data=data-send-native.json
 go run main.go -config=config-local.json -data=data-send-native.json
 
-go run main-no-none.go -config=config-local.json -data=data.json
-go run main-no-none.go -config=config-local.json -data=data.json -loop
 ```
 
 ## Tính năng xác thực kết quả (Verify)
