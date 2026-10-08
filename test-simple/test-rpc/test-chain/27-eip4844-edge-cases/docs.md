@@ -8,6 +8,12 @@ Kiểm tra các trường hợp biên, giới hạn an toàn và phòng chống 
 
 ## 🚀 Cách chạy
 ```bash
-cd metanode-suite/test-simple/test-rpc/test-blockstm/27-eip4844-edge-cases
+cd metanode-suite/test-simple/test-rpc/test-chain/27-eip4844-edge-cases
 go run main.go
 ```
+
+Test xác minh commitment/proof gốc hợp lệ trước khi sửa một byte proof.
+Case 2 mã hóa recipient rỗng trong RLP, không dùng địa chỉ zero thay cho `nil`.
+Case 3 yêu cầu RPC trả mã `-32000` với `KZG proof verification failed`.
+Node trả `invalid transaction` chỉ chứng minh giao dịch bị từ chối, chưa xác định
+được bước KZG; cần triển khai binary có bản sửa giữ nguyên lỗi KZG qua lớp RPC.

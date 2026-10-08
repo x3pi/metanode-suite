@@ -126,16 +126,30 @@ func RunTest(configPath string) error {
 
 	fmt.Println("\n📊 KẾT QUẢ TEST 5 (GAS & ROLLBACK):")
 
-	var revertCount int
+	receipts := make([]*types.Receipt, len(txHashes))
 	for i, hash := range txHashes {
 		if hash == (common.Hash{}) {
 			continue
 		}
-		receipt, err := waitReceipt(client, hash)
+		r, err := waitReceipt(client, hash)
 		if err != nil {
 			return fmt.Errorf("lỗi chờ receipt tx %s: %w", hash.Hex(), err)
 		}
+		receipts[i] = r
+	}
 
+	var wallet0Block uint64
+	var wallet0Index uint
+	if len(receipts) > 0 && receipts[0] != nil && receipts[0].BlockNumber != nil {
+		wallet0Block = receipts[0].BlockNumber.Uint64()
+		wallet0Index = receipts[0].TransactionIndex
+	}
+
+	var revertCount int
+	for i, receipt := range receipts {
+		if receipt == nil {
+			continue
+		}
 		status := "SUCCESS"
 		if receipt.Status != 1 {
 			status = "REVERTED"
@@ -147,10 +161,51 @@ func RunTest(configPath string) error {
 			blockNum = receipt.BlockNumber.Uint64()
 		}
 		fmt.Printf("Wallet %d | Trạng thái: %-8s | Block: %-4d | TxIndex: %-2d | Gas sử dụng (GasUsed): %d\n", i, status, blockNum, receipt.TransactionIndex, receipt.GasUsed)
+
+		if i > 0 {
+			isAfterWallet0 := (blockNum > wallet0Block) || (blockNum == wallet0Block && receipt.TransactionIndex > wallet0Index)
+			if isAfterWallet0 && receipt.Status == 1 {
+				return fmt.Errorf("TEST FAILED: Wallet %d (Block %d, TxIndex %d) nằm SAU setPhase=2 (Block %d, TxIndex %d) nhưng lại SUCCESS thay vì REVERT", i, blockNum, receipt.TransactionIndex, wallet0Block, wallet0Index)
+			}
+			if !isAfterWallet0 && receipt.Status != 1 {
+				return fmt.Errorf("TEST FAILED: Wallet %d (Block %d, TxIndex %d) nằm TRƯỚC setPhase=2 (Block %d, TxIndex %d) nhưng lại bị REVERT thay vì SUCCESS", i, blockNum, receipt.TransactionIndex, wallet0Block, wallet0Index)
+			}
+		}
 	}
 
 	if revertCount == 0 {
-		return fmt.Errorf("TEST FAILED: Lỗi Block-STM, đáng lẽ phải có giao dịch bị Revert để test Gas, nhưng tất cả lại SUCCESS")
+		fmt.Printf("\nℹ️ Wallet 0 (setPhase=2) được xếp ở cuối cùng (Block %d, TxIndex %d), nên tất cả %d tx trước đó chạy khi phase=1 và SUCCESS là HOÀN TOÀN HỢP LỆ.\n", wallet0Block, wallet0Index, len(cfg.PrivateKeys)-1)
+		fmt.Println("🔥 Gửi thêm 1 giao dịch updateIfPhase1 khi phase=2 để kiểm tra Gas và Rollback...")
+
+		pk1, err := crypto.HexToECDSA(cfg.PrivateKeys[1])
+		if err != nil {
+			return fmt.Errorf("invalid private key[1]: %w", err)
+		}
+		from1 := crypto.PubkeyToAddress(pk1.PublicKey)
+		data, _ := parsedABI.Pack("updateIfPhase1", big.NewInt(999))
+		extraHash, err := sendTx(client, pk1, cfg.ChainID, from1, contractAddr, data, big.NewInt(1e9))
+		if err != nil {
+			return fmt.Errorf("lỗi gửi extra tx: %w", err)
+		}
+		extraReceipt, err := waitReceipt(client, extraHash)
+		if err != nil {
+			return fmt.Errorf("lỗi chờ receipt extra tx: %w", err)
+		}
+
+		extraBlock := uint64(0)
+		if extraReceipt.BlockNumber != nil {
+			extraBlock = extraReceipt.BlockNumber.Uint64()
+		}
+		extraStatus := "SUCCESS"
+		if extraReceipt.Status != 1 {
+			extraStatus = "REVERTED"
+			revertCount++
+		}
+		fmt.Printf("Extra Wallet 1 | Trạng thái: %-8s | Block: %-4d | TxIndex: %-2d | Gas sử dụng (GasUsed): %d\n", extraStatus, extraBlock, extraReceipt.TransactionIndex, extraReceipt.GasUsed)
+
+		if extraReceipt.Status == 1 {
+			return fmt.Errorf("TEST FAILED: Giao dịch bổ sung chạy khi phase=2 nhưng không bị Revert")
+		}
 	}
 
 	fmt.Printf("🎉 Thành công! Có %d giao dịch bị Revert và tiêu thụ gas hợp lý.\n", revertCount)

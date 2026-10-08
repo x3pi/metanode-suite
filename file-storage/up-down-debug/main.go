@@ -28,6 +28,8 @@ import (
 	processor "tool-test/file-storage/up-down-debug/proccessor"
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
+	pb "tool-test/pkg/proto"
+	mt_types "tool-test/pkg/types"
 
 	"tool-test/pkg/logger"
 
@@ -132,6 +134,69 @@ func waitForTransaction(client *ethclient.Client, txHash common.Hash) (*types.Re
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+}
+
+// sendRawEthereumTransaction signs a canonical Ethereum legacy (EIP-155)
+// transaction, submits its EIP-2718 binary envelope to the Eth-only TCP
+// ingress, then waits for its asynchronously delivered execution receipt.
+func sendRawEthereumTransaction(
+	cli *client_tcp.Client,
+	cfg *tcp_config.ClientConfig,
+	privateKey *ecdsa.PrivateKey,
+	to *common.Address,
+	value *big.Int,
+	data []byte,
+	gas uint64,
+	gasPrice uint64,
+) (mt_types.Receipt, *types.Transaction, error) {
+	if cfg.ChainId == 0 {
+		return nil, nil, fmt.Errorf("chain ID must be configured")
+	}
+	if value == nil {
+		value = big.NewInt(0)
+	}
+
+	from := crypto.PubkeyToAddress(privateKey.PublicKey)
+	account, err := cli.AccountState(from)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get sender nonce: %w", err)
+	}
+
+	chainID := new(big.Int).SetUint64(cfg.ChainId)
+	unsigned := types.NewTx(&types.LegacyTx{
+		Nonce:    account.Nonce(),
+		GasPrice: new(big.Int).SetUint64(gasPrice),
+		Gas:      gas,
+		To:       to,
+		Value:    new(big.Int).Set(value),
+		Data:     append([]byte(nil), data...),
+	})
+	signed, err := types.SignTx(unsigned, types.LatestSignerForChainID(chainID), privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sign Ethereum transaction: %w", err)
+	}
+	rawTx, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal EIP-2718 transaction: %w", err)
+	}
+
+	acceptedHash, err := cli.SendRawEthTransaction(rawTx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if acceptedHash != signed.Hash() {
+		return nil, nil, fmt.Errorf("node acknowledged unexpected transaction hash: got %s want %s", acceptedHash.Hex(), signed.Hash().Hex())
+	}
+	log.Printf("   ✅ Node accepted Ethereum transaction: %s", acceptedHash.Hex())
+
+	receipt, err := cli.FindReceiptByHash(acceptedHash)
+	if err != nil {
+		return nil, nil, fmt.Errorf("wait for transaction receipt %s: %w", acceptedHash.Hex(), err)
+	}
+	if receipt != nil && receipt.Status() != pb.RECEIPT_STATUS_RETURNED && receipt.Status() != pb.RECEIPT_STATUS_HALTED {
+		return receipt, signed, fmt.Errorf("transaction failed on chain with status %s (return: %s)", receipt.Status().String(), string(receipt.Return()))
+	}
+	return receipt, signed, nil
 }
 
 // buildMerkleTreePadded xây dựng cây tương thích với logic xác minh `index >> level`
@@ -407,16 +472,21 @@ func main() {
 		}
 
 		if *mode == "tcp" {
+			keyHex := config.PrivateKeyHex
 			tcpCfg = &tcp_config.ClientConfig{
 				ParentConnectionAddress: config.TcpUrl,
-				PrivateKey_:             config.PrivateKeyBLS,
-				EthPrivateKey:           config.PrivateKeyHex,
+				PrivateKey_:             keyHex,
+				EthPrivateKey:           keyHex,
 				ChainId:                 uint64(config.ChainId),
 				ParentAddress:           fromAddress.Hex(),
 			}
 			tcpClient, err = client_tcp.NewClient(tcpCfg)
 			if err != nil {
 				log.Fatalf("Lỗi kết nối TCP: %v", err)
+			}
+			time.Sleep(1 * time.Second)
+			if senderState, err := tcpClient.AccountState(fromAddress); err == nil && senderState != nil {
+				log.Printf("📊 TCP Sender initial on-chain nonce: %d, balance: %s wei", senderState.Nonce(), senderState.Balance().String())
 			}
 		}
 
@@ -538,17 +608,46 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 	auth.Value = requiredPayment // Gửi kèm thanh toán (0)
 	logger.Info("___ RequiredPayment", requiredPayment)
 
-	tx, err := instance.PushFileInfo(auth, info)
-	if err != nil {
-		log.Fatalf("Failed to call PushFileInfo: %v", err)
+	var txHash common.Hash
+	var tx *types.Transaction
+
+	if mode == "tcp" {
+		log.Println("▶️  Chạy TCP SendRawTransaction (PushFileInfo - Ethereum EIP-2718)...")
+		callData, err := contractABI.Pack("pushFileInfo", info)
+		if err != nil {
+			log.Fatalf("Failed to pack pushFileInfo: %v", err)
+		}
+		targetContract := common.HexToAddress(config.ContractAddressHex)
+		receiptTCP, signedTx, err := sendRawEthereumTransaction(
+			tcpClient,
+			tcpCfg,
+			privateKey,
+			&targetContract,
+			requiredPayment,
+			callData,
+			auth.GasLimit,
+			gasPrice.Uint64(),
+		)
+		if err != nil {
+			log.Fatalf("Failed to send PushFileInfo via TCP: %v", err)
+		}
+		tx = signedTx
+		txHash = signedTx.Hash()
+		log.Printf("PushFileInfo TCP tx %s mined with status %s (GasUsed: %d)", txHash.Hex(), receiptTCP.Status().String(), receiptTCP.GasUsed())
+	} else {
+		tx, err = instance.PushFileInfo(auth, info)
+		if err != nil {
+			log.Fatalf("Failed to call PushFileInfo: %v", err)
+		}
+		txHash = tx.Hash()
 	}
 
 	fmt.Println("Waiting for PushFileInfo tx to be mined...")
-	receipt, err := waitForTransaction(client, tx.Hash())
+	receipt, err := waitForTransaction(client, txHash)
 	if err != nil {
 		log.Fatalf("Failed to wait for tx: %v", err)
 	}
-	log.Printf("PushFileInfo tx %v mined in block %d with receipt %v, tx %v", tx.Hash(), receipt.BlockNumber.Uint64(), receipt, tx)
+	log.Printf("PushFileInfo tx %v mined in block %d with receipt %v, tx %v", txHash, receipt.BlockNumber.Uint64(), receipt, tx)
 
 	balanceAfter, err := client.BalanceAt(context.Background(), fromAddress, nil)
 	if err != nil {

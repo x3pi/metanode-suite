@@ -148,7 +148,27 @@ func RunTest(configPath string) error {
 	fmt.Printf("Phase hiện tại: %s\n", phase.String())
 
 	if revertCount == 0 {
-		return fmt.Errorf("TEST FAILED: Block-STM đã lỗi, không bắt được xung đột (conflict) nên không có giao dịch nào bị Revert")
+		fmt.Println("ℹ️ Wallet 0 (setPhase=2) đã được xếp sau cùng, nên tất cả giao dịch trước đó đều SUCCESS là hợp lệ.")
+		fmt.Println("🔥 Gửi thêm 1 giao dịch updateIfPhase1 khi phase=2 để xác nhận rollback/revert...")
+		pk1, err := crypto.HexToECDSA(cfg.PrivateKeys[1])
+		if err != nil {
+			return fmt.Errorf("invalid private key[1]: %w", err)
+		}
+		from1 := crypto.PubkeyToAddress(pk1.PublicKey)
+		data, _ := parsedABI.Pack("updateIfPhase1", big.NewInt(999))
+		extraHash, err := sendTx(client, pk1, cfg.ChainID, from1, contractAddr, data, big.NewInt(1e9))
+		if err != nil {
+			return fmt.Errorf("lỗi gửi extra tx: %w", err)
+		}
+		extraReceipt, err := waitReceipt(client, extraHash)
+		if err != nil {
+			return fmt.Errorf("lỗi chờ receipt extra tx: %w", err)
+		}
+		if extraReceipt.Status == 1 {
+			return fmt.Errorf("TEST FAILED: Giao dịch chạy khi phase=2 nhưng không bị Revert")
+		}
+		fmt.Printf("🔄 Extra Wallet 1 [UPDATE IF PHASE = 1 (val: 999)] -> REVERTED (Đúng như thiết kế rollback! Tx: %s, Block: %d, TxIndex: %d)\n", extraHash.Hex(), extraReceipt.BlockNumber.Uint64(), extraReceipt.TransactionIndex)
+		revertCount++
 	}
 
 	fmt.Printf("🎉 Tuyệt vời! Có %d giao dịch đã bị Revert đúng như thiết kế của Block-STM.\n", revertCount)

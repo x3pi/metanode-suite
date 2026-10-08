@@ -447,10 +447,40 @@ func convertToType(t abi.Type, val interface{}) (interface{}, error) {
 	return val, nil
 }
 
+// receiptPollStats separates RPC round-trip time from polling sleeps.
+// It retains only aggregates, so long waits do not accumulate samples.
+type receiptPollStats struct {
+	requests, pending                                    int
+	rpcTotal, rpcMax, rpcLast, sleepTotal, lastPendingAt time.Duration
+}
+
+func (s *receiptPollStats) record(start, end, pollStart time.Time, pending bool) {
+	d := end.Sub(start)
+	s.requests++
+	s.rpcTotal += d
+	s.rpcLast = d
+	if d > s.rpcMax {
+		s.rpcMax = d
+	}
+	if pending {
+		s.pending++
+		s.lastPendingAt = end.Sub(pollStart)
+	}
+}
+
+func (s *receiptPollStats) print() {
+	fmt.Printf("   🔬 Receipt RPC: calls=%d | chưa có=%d | tổng RPC=%v | RPC lâu nhất=%v | RPC cuối=%v | tổng sleep=%v\n",
+		s.requests, s.pending, s.rpcTotal, s.rpcMax, s.rpcLast, s.sleepTotal)
+	if s.pending > 0 {
+		fmt.Printf("   🔬 Lần cuối chưa có receipt kết thúc ở +%v; chưa đủ để suy ra thời điểm commit chính xác.\n", s.lastPendingAt)
+	}
+}
+
 // ----------------------------------------------------
 // THỰC THI ACTION: DEPLOY (Tạo Contract Mới)
 // ----------------------------------------------------
 func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId int64, fromAddress common.Address, bytecode []byte, timeout time.Duration) (*common.Address, error) {
+	prepareStart := time.Now()
 	fmt.Println("▶️  Chạy eth_sendRawTransaction (DEPLOY CONTRACT)...")
 
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
@@ -489,7 +519,10 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 	fmt.Printf("      - Type: Contract Creation (To: 0x0)\n")
 	fmt.Printf("      - Bytecode Length: %d bytes\n", len(bytecode))
 
+	prepareElapsed := time.Since(prepareStart)
+	sendStart := time.Now()
 	err = client.SendTransaction(context.Background(), signedTx)
+	sendElapsed := time.Since(sendStart)
 	if err != nil {
 		return nil, fmt.Errorf("Lỗi gửi transaction Deploy: %v", err)
 	}
@@ -498,17 +531,22 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 	fmt.Printf("   ⏳ Đang đợi mạng Mining (Polling Receipt, tối đa %v) ", timeout)
 
 	pollStart := time.Now()
+	var pollStats receiptPollStats
 	for {
 		if timeout > 0 && time.Since(pollStart) > timeout {
 			fmt.Println()
 			return nil, fmt.Errorf("❌ Hết thời gian chờ (%v) cho receipt tx Deploy: %s", timeout, signedTx.Hash().Hex())
 		}
+		rpcStart := time.Now()
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
+		pollStats.record(rpcStart, time.Now(), pollStart, err == ethereum.NotFound || (err == nil && (receipt.BlockNumber == nil || receipt.BlockNumber.Sign() == 0)))
 		if err == nil {
 			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				if receipt.Status == 1 {
 					duration := time.Since(pollStart)
-					fmt.Printf("\n   ✅ DEPLOY THÀNH CÔNG! (Thời gian mining receipt: %v | Gas used: %d)\n", duration, receipt.GasUsed)
+					fmt.Printf("\n   ✅ DEPLOY THÀNH CÔNG! (Thời gian chờ phát hiện receipt: %v | Gas used: %d)\n", duration, receipt.GasUsed)
+					fmt.Printf("   ⏱️ Chuẩn bị: %v | Gửi → ACK: %v | ACK → thấy receipt: %v | Poll: 10ms\n", prepareElapsed, sendElapsed, duration)
+					pollStats.print()
 					fmt.Printf("   📌 CONTRACT ADDRESS MỚI TẠO: %s\n", receipt.ContractAddress.Hex())
 					return &receipt.ContractAddress, nil
 				} else {
@@ -520,7 +558,9 @@ func executeDeploy(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain
 			return nil, fmt.Errorf("Lỗi hệ thống khi check receipt: %v", err)
 		}
 		fmt.Print(".")
+		sleepStart := time.Now()
 		time.Sleep(10 * time.Millisecond)
+		pollStats.sleepTotal += time.Since(sleepStart)
 	}
 }
 
@@ -578,6 +618,7 @@ func executeCall(client *ethclient.Client, contractAddress common.Address, parse
 // THỰC THI ACTION: SEND (Giao dịch thực thụ)
 // ----------------------------------------------------
 func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId int64, fromAddress common.Address, contractAddress common.Address, payloadData []byte, methodName string, parsedABI abi.ABI, hasAbi bool, expectedEvents []ExpectedEvent, timeout time.Duration) error {
+	prepareStart := time.Now()
 	fmt.Printf("▶️  Chạy eth_sendRawTransaction (WRITE/SEND) cho hàm %s...\n", methodName)
 
 	// 2. Cấu hình giao dịch
@@ -622,7 +663,10 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 	fmt.Printf("      - Data Length: %d bytes\n", len(payloadData))
 
 	// 4. Bắn lên mạng
+	prepareElapsed := time.Since(prepareStart)
+	sendStart := time.Now()
 	err = client.SendTransaction(context.Background(), signedTx)
+	sendElapsed := time.Since(sendStart)
 	if err != nil {
 		return fmt.Errorf("Lỗi gửi transaction: %v", err)
 	}
@@ -632,20 +676,24 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 
 	// 5. Polling đợi mạng lưới
 	pollStart := time.Now()
-	// Chờ tối thiểu 35ms để mạng đóng block, tránh việc node bị miss cache mà kích hoạt quét ngược 2000 block trên disk
-	time.Sleep(35 * time.Millisecond)
+	var pollStats receiptPollStats
+	// Query immediately, then use the same polling interval as deployment.
 	for {
 		if timeout > 0 && time.Since(pollStart) > timeout {
 			fmt.Println()
 			return fmt.Errorf("❌ Hết thời gian chờ (%v) cho receipt tx Write: %s", timeout, signedTx.Hash().Hex())
 		}
+		rpcStart := time.Now()
 		receipt, err := client.TransactionReceipt(context.Background(), signedTx.Hash())
+		pollStats.record(rpcStart, time.Now(), pollStart, err == ethereum.NotFound || (err == nil && (receipt.BlockNumber == nil || receipt.BlockNumber.Sign() == 0)))
 		if err == nil {
 			if receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() > 0 {
 				fmt.Println()
 				if receipt.Status == 1 {
 					duration := time.Since(pollStart)
-					fmt.Printf("   ✅ Tx THÀNH CÔNG (Thời gian mining receipt: %v | Gas used: %d)\n", duration, receipt.GasUsed)
+					fmt.Printf("   ✅ Tx THÀNH CÔNG (Thời gian chờ phát hiện receipt: %v | Gas used: %d)\n", duration, receipt.GasUsed)
+					fmt.Printf("   ⏱️ Chuẩn bị: %v | Gửi → ACK: %v | ACK → thấy receipt: %v | Poll: 10ms\n", prepareElapsed, sendElapsed, duration)
+					pollStats.print()
 					if hasAbi && len(receipt.Logs) > 0 {
 						fmt.Printf("   📝 SỰ KIỆN (EVENTS):\n")
 						verifiedEvents := make(map[int]bool)
@@ -735,7 +783,9 @@ func executeSend(client *ethclient.Client, privateKey *ecdsa.PrivateKey, chainId
 			return fmt.Errorf("Lỗi hệ thống khi check receipt: %v", err)
 		}
 		fmt.Print(".")
-		time.Sleep(50 * time.Millisecond)
+		sleepStart := time.Now()
+		time.Sleep(10 * time.Millisecond)
+		pollStats.sleepTotal += time.Since(sleepStart)
 	}
 }
 
