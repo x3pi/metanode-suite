@@ -13,4 +13,4 @@ go run main.go -envfile=".env.2" -download="MÃ_KEY"
 go run . -envfile .env.1 -size 0.01 -workers 5 -rounds 3 -mode=http
 go run . -envfile .env.1 -size 0.01 -workers 1 -rounds 3 -mode=tcp
 
-go run . -envfile .env.1 -download ec4f9198f5c7720b8b5c4f1a6c9a6c029a5df2be03c5f127955a4230a3d72e3e -workers 5 -rounds 1
+go run . -envfile .env.1 -download 9a10f6c96c5ca15a5564feca8ecf237921c7f3e2242887c17fc58ea27825d171 -workers 5 -rounds 1
