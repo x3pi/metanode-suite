@@ -105,7 +105,7 @@ func downloadFile(instance *contract.FileContract, fileKey [32]byte) {
 	fmt.Printf("\nBắt đầu quá trình tải tệp với FileKey: %s\n", fileKeyHex)
 
 	// --- Bước 1: Lấy thông tin tệp từ Blockchain ---
-	fmt.Println("\nBước 1: Đang lấy thông tin tệp (GetFileInfo)... %s", fileKeyHex)
+	fmt.Printf("\nBước 1: Đang lấy thông tin tệp (GetFileInfo)... %s\n", fileKeyHex)
 	fileInfo, err := instance.GetFileInfo(&bind.CallOpts{}, fileKey)
 	if err != nil {
 		log.Fatalf("Lỗi lấy thông tin tệp: %v", err)

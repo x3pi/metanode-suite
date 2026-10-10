@@ -418,7 +418,7 @@ func waitForTransaction(client *ethclient.Client, txHash common.Hash, contractNa
 				if receipt.Status == 1 {
 					return receipt, nil
 				}
-				
+
 				// Lấy raw JSON receipt để đọc field revertReason
 				var raw map[string]interface{}
 				errRaw := client.Client().CallContext(ctx, &raw, "eth_getTransactionReceipt", txHash)
@@ -427,7 +427,7 @@ func waitForTransaction(client *ethclient.Client, txHash common.Hash, contractNa
 						return nil, fmt.Errorf("transaction failed with revert reason: %s", reason)
 					}
 				}
-				
+
 				return nil, fmt.Errorf("transaction failed with status %d", receipt.Status)
 			}
 		} else if err != ethereum.NotFound {

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -21,6 +22,9 @@ var (
 	ChunkSize          uint64
 	OutputFile         string
 	Address            string
+	RustServer1        string
+	RustServer2        string
+	RustServers        []string
 )
 
 // init được thực thi tự động khi package này được import
@@ -53,6 +57,35 @@ func Load(envFile string) {
 	ChunkSize, err = strconv.ParseUint(chunkSizeStr, 10, 64)
 	if err != nil {
 		log.Fatalf("Lỗi: CHUNK_SIZE không hợp lệ: %v", err)
+	}
+
+	// Tải cấu hình Rust servers
+	RustServer1 = getEnv("RUST_SERVER_1", getEnv("RUST_SERVER_1_ADDR_QUIC", "192.168.1.230:7081"))
+	RustServer2 = getEnv("RUST_SERVER_2", getEnv("RUST_SERVER_2_ADDR_QUIC", "192.168.1.230:7082"))
+	if ipRustStorage := os.Getenv("IP_RUST_STORAGE"); ipRustStorage != "" {
+		parts := strings.Split(ipRustStorage, ",")
+		if len(parts) >= 1 && strings.TrimSpace(parts[0]) != "" {
+			RustServer1 = strings.TrimSpace(parts[0])
+		}
+		if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
+			RustServer2 = strings.TrimSpace(parts[1])
+		}
+	}
+	RustServers = []string{RustServer1, RustServer2}
+	if rustServersEnv := os.Getenv("RUST_SERVERS"); rustServersEnv != "" {
+		parts := strings.Split(rustServersEnv, ",")
+		var parsed []string
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				parsed = append(parsed, trimmed)
+			}
+		}
+		if len(parsed) >= 2 {
+			RustServers = parsed
+			RustServer1 = RustServers[0]
+			RustServer2 = RustServers[1]
+		}
 	}
 
 	log.Printf("✅ Cấu hình đã được tải thành công từ '%s'", envFile)

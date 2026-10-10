@@ -395,19 +395,6 @@
 		"inputs": [
 			{
 				"internalType": "bytes32",
-				"name": "fileKey",
-				"type": "bytes32"
-			}
-		],
-		"name": "confirmFileActive",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
 				"name": "downloadKey",
 				"type": "bytes32"
 			}
@@ -439,29 +426,6 @@
 			}
 		],
 		"name": "deleteFile",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
-				"name": "fileKey",
-				"type": "bytes32"
-			},
-			{
-				"internalType": "uint256",
-				"name": "start",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "limit",
-				"type": "uint256"
-			}
-		],
-		"name": "downloadFile",
 		"outputs": [],
 		"stateMutability": "nonpayable",
 		"type": "function"
@@ -603,61 +567,6 @@
 					}
 				],
 				"internalType": "struct Info",
-				"name": "",
-				"type": "tuple"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "string[]",
-				"name": "names",
-				"type": "string[]"
-			}
-		],
-		"name": "getFileKeyFromName",
-		"outputs": [
-			{
-				"internalType": "bytes32[]",
-				"name": "",
-				"type": "bytes32[]"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
-				"name": "fileKey",
-				"type": "bytes32"
-			}
-		],
-		"name": "getFileProgress",
-		"outputs": [
-			{
-				"components": [
-					{
-						"internalType": "bytes32",
-						"name": "lastChunkHash",
-						"type": "bytes32"
-					},
-					{
-						"internalType": "uint64",
-						"name": "processedChunks",
-						"type": "uint64"
-					},
-					{
-						"internalType": "uint256",
-						"name": "processedLength",
-						"type": "uint256"
-					}
-				],
-				"internalType": "struct FileProgress",
 				"name": "",
 				"type": "tuple"
 			}
@@ -967,102 +876,54 @@
 		"name": "mKeyToFileInfo",
 		"outputs": [
 			{
-				"components": [
-					{
-						"internalType": "address",
-						"name": "owner",
-						"type": "address"
-					},
-					{
-						"internalType": "bytes32",
-						"name": "merkleRoot",
-						"type": "bytes32"
-					},
-					{
-						"internalType": "uint64",
-						"name": "contentLen",
-						"type": "uint64"
-					},
-					{
-						"internalType": "uint64",
-						"name": "totalChunks",
-						"type": "uint64"
-					},
-					{
-						"internalType": "uint64",
-						"name": "expireTime",
-						"type": "uint64"
-					},
-					{
-						"internalType": "string",
-						"name": "name",
-						"type": "string"
-					},
-					{
-						"internalType": "string",
-						"name": "ext",
-						"type": "string"
-					},
-					{
-						"internalType": "string",
-						"name": "contentDisposition",
-						"type": "string"
-					},
-					{
-						"internalType": "string",
-						"name": "contentID",
-						"type": "string"
-					},
-					{
-						"internalType": "enum FileStatus",
-						"name": "status",
-						"type": "uint8"
-					}
-				],
-				"internalType": "struct Info",
-				"name": "info",
-				"type": "tuple"
+				"internalType": "address",
+				"name": "owner",
+				"type": "address"
 			},
 			{
-				"components": [
-					{
-						"internalType": "bytes32",
-						"name": "lastChunkHash",
-						"type": "bytes32"
-					},
-					{
-						"internalType": "uint64",
-						"name": "processedChunks",
-						"type": "uint64"
-					},
-					{
-						"internalType": "uint256",
-						"name": "processedLength",
-						"type": "uint256"
-					}
-				],
-				"internalType": "struct FileProgress",
-				"name": "progress",
-				"type": "tuple"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
+				"internalType": "bytes32",
+				"name": "merkleRoot",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint64",
+				"name": "contentLen",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "totalChunks",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "expireTime",
+				"type": "uint64"
+			},
 			{
 				"internalType": "string",
-				"name": "",
+				"name": "name",
 				"type": "string"
-			}
-		],
-		"name": "mNameToFileKey",
-		"outputs": [
+			},
 			{
-				"internalType": "bytes32",
-				"name": "",
-				"type": "bytes32"
+				"internalType": "string",
+				"name": "ext",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "contentDisposition",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "contentID",
+				"type": "string"
+			},
+			{
+				"internalType": "enum FileStatus",
+				"name": "status",
+				"type": "uint8"
 			}
 		],
 		"stateMutability": "view",
@@ -1439,34 +1300,6 @@
 		"name": "upgradeToAndCall",
 		"outputs": [],
 		"stateMutability": "payable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
-				"name": "fileKey",
-				"type": "bytes32"
-			},
-			{
-				"internalType": "bytes",
-				"name": "chunkData",
-				"type": "bytes"
-			},
-			{
-				"internalType": "uint256",
-				"name": "chunkIndex",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bytes32[]",
-				"name": "merkleProof",
-				"type": "bytes32[]"
-			}
-		],
-		"name": "uploadChunk",
-		"outputs": [],
-		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{

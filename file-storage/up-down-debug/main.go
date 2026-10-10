@@ -312,6 +312,8 @@ func main() {
 	rounds := flag.Int("rounds", 1, "Number of benchmark rounds to run sequentially")
 	flag.Parse()
 	config.Load(*envFile)
+	processor.RUST_SERVER_1_ADDR_QUIC = config.RustServer1
+	processor.RUST_SERVER_2_ADDR_QUIC = config.RustServer2
 	if *fileSizeGB > 0 {
 		genFilePath := "./benchmark_file.bin"
 		sizeBytes := int64(*fileSizeGB * 1024 * 1024 * 1024)
@@ -676,12 +678,12 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 
 	chunkUploadStartTime := time.Now()
 
-	// --- Lấy địa chỉ Rust servers ---
-	rustServers, err := instance.GetRustServerAddresses(&bind.CallOpts{})
-	if err != nil || len(rustServers) < 2 {
-		log.Fatalf("Lỗi lấy danh sách Rust Servers từ contract: %v", err)
+	// --- Lấy địa chỉ Rust servers từ env ---
+	rustServers := config.RustServers
+	if len(rustServers) < 2 {
+		log.Fatalf("Lỗi cấu hình Rust Servers từ env: cần ít nhất 2 servers, hiện có: %v", rustServers)
 	}
-	fmt.Printf("🌐 Rust Servers: %v\n", rustServers)
+	fmt.Printf("🌐 Rust Servers (từ env): %v\n", rustServers)
 
 	// --- Kết nối QUIC ---
 	conn1, err := processor.CreateQuicConnection(rustServers[0])
