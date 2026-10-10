@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -21,6 +22,8 @@ var (
 	ChunkSize          uint64
 	OutputFile         string
 	Address            string
+	RustServer1        string
+	RustServer2        string
 )
 
 // init được thực thi tự động khi package này được import
@@ -55,7 +58,41 @@ func Load(envFile string) {
 		log.Fatalf("Lỗi: CHUNK_SIZE không hợp lệ: %v", err)
 	}
 
+	// Tải địa chỉ Rust servers
+	RustServer1 = getEnvFirst([]string{"RUST_SERVER_1", "RUST_SERVER_1_ADDR_QUIC"}, "192.168.1.230:7081")
+	RustServer2 = getEnvFirst([]string{"RUST_SERVER_2", "RUST_SERVER_2_ADDR_QUIC"}, "192.168.1.230:7082")
+
+	// Hỗ trợ nếu người dùng cấu hình dạng danh sách phân cách bởi dấu phẩy
+	if serversStr := os.Getenv("IP_RUST_STORAGE"); serversStr != "" {
+		parts := strings.Split(serversStr, ",")
+		if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+			RustServer1 = strings.TrimSpace(parts[0])
+		}
+		if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+			RustServer2 = strings.TrimSpace(parts[1])
+		}
+	} else if serversStr := os.Getenv("RUST_SERVERS"); serversStr != "" {
+		parts := strings.Split(serversStr, ",")
+		if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+			RustServer1 = strings.TrimSpace(parts[0])
+		}
+		if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+			RustServer2 = strings.TrimSpace(parts[1])
+		}
+	}
+
 	log.Printf("✅ Cấu hình đã được tải thành công từ '%s'", envFile)
+}
+
+// getEnvFirst lấy giá trị của biến môi trường đầu tiên tìm thấy trong danh sách keys, nếu không có thì trả về fallback
+func getEnvFirst(keys []string, fallback string) string {
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok && value != "" {
+			return value
+		}
+	}
+	log.Printf("Cảnh báo: Biến môi trường '%s' không được đặt. Sử dụng giá trị mặc định: %s", keys[0], fallback)
+	return fallback
 }
 
 // getEnv lấy biến môi trường, nếu không có thì dùng giá trị mặc định (fallback)
