@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -89,6 +90,17 @@ func Load(envFile string) {
 	}
 
 	log.Printf("✅ Cấu hình đã được tải thành công từ '%s'", envFile)
+}
+
+// getEnvFirst lấy giá trị của biến môi trường đầu tiên tìm thấy trong danh sách keys, nếu không có thì trả về fallback
+func getEnvFirst(keys []string, fallback string) string {
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok && value != "" {
+			return value
+		}
+	}
+	log.Printf("Cảnh báo: Biến môi trường '%s' không được đặt. Sử dụng giá trị mặc định: %s", keys[0], fallback)
+	return fallback
 }
 
 // getEnv lấy biến môi trường, nếu không có thì dùng giá trị mặc định (fallback)

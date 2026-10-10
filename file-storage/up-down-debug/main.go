@@ -688,11 +688,11 @@ func uploadFile(client *ethclient.Client, clientHttp *ethclient.Client, privateK
 	// --- Kết nối QUIC ---
 	conn1, err := processor.CreateQuicConnection(rustServers[0])
 	if err != nil {
-		log.Fatalf("Lỗi kết nối QUIC server 1: %v", err)
+		log.Fatalf("Lỗi kết nối QUIC server 1 (%s): %v", rustServers[0], err)
 	}
 	conn2, err := processor.CreateQuicConnection(rustServers[1])
 	if err != nil {
-		log.Fatalf("Lỗi kết nối QUIC server 2: %v", err)
+		log.Fatalf("Lỗi kết nối QUIC server 2 (%s): %v", rustServers[1], err)
 	}
 
 	// --- Tạo chữ ký (Signature) ---
