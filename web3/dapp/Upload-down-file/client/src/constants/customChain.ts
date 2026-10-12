@@ -2,7 +2,7 @@
 import { type Chain } from "viem";
 
 // Bật cờ này thành `true` khi deploy lên server thật có SSL và tên miền chuẩn
-export const IS_PRODUCTION = false;
+export const IS_PRODUCTION = true;
 // export const GO_BACKEND_RPC_URL = window.location.origin;
 // export const WS_BASE = window.location.origin.replace(/^http/, "ws");
 // export const WSS_RPC = `${WS_BASE}/interceptor`;
@@ -19,10 +19,10 @@ export const GO_BACKEND_RPC_URL = "http://192.168.1.234:8747";
 // export const WSS_RPC = "wss://rpc-proxy-sequoia.iqnb.com:8446";
 
 // Cấu hình các server tải file
-export const DOWNLOAD_SERVER_1 = "https://192.168.1.230:8081";
-export const DOWNLOAD_SERVER_2 = "https://192.168.1.230:8082";
-// export const DOWNLOAD_SERVER_1 = "https://file-keeper-2.iqnb.com:8081";
-// export const DOWNLOAD_SERVER_2 = "https://file-keeper-1.iqnb.com:8082";
+// export const DOWNLOAD_SERVER_1 = "https://192.168.1.230:8081";
+// export const DOWNLOAD_SERVER_2 = "https://192.168.1.230:8082";
+export const DOWNLOAD_SERVER_1 = "https://file-keeper-1.iqnb.com:8081";
+export const DOWNLOAD_SERVER_2 = "https://file-keeper-1.iqnb.com:8082";
 
 // WebTransport Self-signed Certificate Hash (dùng cho môi trường Local / Non-Production)
 export const WT_SERVER_CERTIFICATE_HASH = new Uint8Array([

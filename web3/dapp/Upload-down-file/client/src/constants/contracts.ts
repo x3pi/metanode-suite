@@ -12,7 +12,7 @@ export const privateKey = "fb64857fe95b55dff91a11d2da0c8db2dddb29f617d3d1ddaa9a9
 export const contracts = {
   File: {
     abi: FileAbi as Abi,
-    address: "0x087cdab97d38a3bfFcDee170739E8C11Af651569" as `0x${string}`,
+    address: "0xCDD8E298140fcF086b56b194599B63F36EfF107a" as `0x${string}`,
   },
   // Thêm các contracts khác ở đây nếu cần
   // VíDụ:
