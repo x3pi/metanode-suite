@@ -16,6 +16,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+
+	client_tcp "tool-test/pkg/client-tcp"
+	tcp_config "tool-test/pkg/client-tcp/config"
+	"tool-test/pkg/logger"
 )
 
 // ============================================================================
@@ -271,18 +275,197 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 	}
 }
 
+// Thực hiện quy trình onboarding 1 ví qua TCP Socket với cơ chế ASYNC PUSH (Không Polling)
+func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, index int) (*RegisteredAccountRecord, error) {
+	userAddr := crypto.PubkeyToAddress(privKey.PublicKey)
+	privKeyHex := hexutil.Encode(crypto.FromECDSA(privKey))
+
+	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("🚀 [%d] (TCP Socket) Đang xử lý ví: %s\n", index, userAddr.Hex())
+	fmt.Printf("   Private Key: %s\n", privKeyHex)
+
+	// 1. Kiểm tra trạng thái hiện tại của ví qua TCP (GetRegistrationStatus)
+	statusInfo, err := client.ChainGetRegistrationStatus(userAddr)
+	if err == nil && statusInfo != nil {
+		if statusInfo.Status == "CONFIRMED" {
+			fmt.Printf("   ✅ Ví này ĐÃ ĐƯỢC ĐĂNG KÝ từ trước (Status: CONFIRMED)!\n")
+			return &RegisteredAccountRecord{
+				Index:        index,
+				Address:      userAddr.Hex(),
+				PrivateKey:   privKeyHex,
+				Status:       "CONFIRMED",
+				RegisterTime: time.Now().Format(time.RFC3339),
+			}, nil
+		}
+	}
+
+	// 2. Lấy 32-byte hashToSign cần ký từ node qua TCP (GetRegistrationMessage)
+	fmt.Printf("   1️⃣ Đang lấy thông điệp đăng ký từ node qua TCP (GetRegistrationMessage)...\n")
+	hashToSign, err := client.ChainGetRegistrationMessage(userAddr)
+	if err != nil {
+		return nil, fmt.Errorf("thất bại khi lấy thông điệp đăng ký qua TCP: %w", err)
+	}
+	fmt.Printf("      • Hash to Sign: %s\n", hashToSign.Hex())
+
+	// 3. Ký ECDSA secp256k1 lên hashToSign
+	sigBytes, err := crypto.Sign(hashToSign.Bytes(), privKey)
+	if err != nil {
+		return nil, fmt.Errorf("lỗi tạo chữ ký ECDSA: %w", err)
+	}
+	fmt.Printf("   2️⃣ Đã ký chữ ký ECDSA thành công: %s\n", hexutil.Encode(sigBytes))
+
+	// 4. Gửi yêu cầu đăng ký và CHỜ ASYNC PUSH (KHÔNG POLLING)
+	fmt.Printf("   3️⃣ Gửi đăng ký lên TCP Socket & chờ kết quả Push (ChainRegisterAccountWait - KHÔNG Polling)...\n")
+	result, err := client.ChainRegisterAccountWait(userAddr, sigBytes, 45*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("đăng ký qua TCP thất bại: %w", err)
+	}
+
+	fmt.Printf("      • Kết quả Push nhận được: %s (Reason: %s)\n", result.Status, result.Reason)
+
+	switch result.Status {
+	case "CONFIRMED":
+		fmt.Printf("   🎉 CHÚC MỪNG! Node chủ động PUSH kết quả CONFIRMED qua TCP Socket THÀNH CÔNG!\n")
+		return &RegisteredAccountRecord{
+			Index:        index,
+			Address:      userAddr.Hex(),
+			PrivateKey:   privKeyHex,
+			Status:       "CONFIRMED",
+			RegisterTime: time.Now().Format(time.RFC3339),
+		}, nil
+
+	case "REJECTED":
+		return nil, fmt.Errorf("ví bị Parent Chain từ chối (REJECTED): đã đăng ký ở cụm khác (%s)", result.HomeCluster)
+
+	case "FAILED":
+		return nil, fmt.Errorf("đăng ký thất bại (FAILED): %s", result.Reason)
+
+	default:
+		return nil, fmt.Errorf("trạng thái không xác định: %s", result.Status)
+	}
+}
+
 func main() {
-	rpcFlag := flag.String("rpc", "http://127.0.0.1:8747", "http://192.168.1.234:8747)")
+	rpcFlag := flag.String("rpc", "http://127.0.0.1:8747", "Endpoint JSON-RPC HTTP (ví dụ: http://192.168.1.234:8747)")
+	tcpFlag := flag.String("tcp", "", "Endpoint TCP Socket của node (ví dụ: 127.0.0.1:8080 hoặc 192.168.1.234:4200)")
+	tcpConfigFlag := flag.String("tcp-config", "", "Đường dẫn file cấu hình JSON TCP (tùy chọn)")
 	countFlag := flag.Int("count", 1, "Số lượng ví mới cần tạo và đăng ký")
 	walletPkFlag := flag.String("wallet-pk", "", "Private key hex của ví có sẵn (nếu muốn đăng ký cho ví cũ)")
 	outFileFlag := flag.String("out", "registered_wallets.json", "Đường dẫn file JSON để xuất danh sách ví đã đăng ký")
 	checkOnlyFlag := flag.String("check", "", "Địa chỉ ví cần kiểm tra trạng thái đăng ký (chỉ kiểm tra, không đăng ký)")
 	flag.Parse()
 
+	// ══════════════════════════════════════════════════════════════════
+	// CHẾ ĐỘ 1: THỰC THI QUA GIAO THỨC TCP SOCKET (NẾU CÓ CỜ -tcp HOẶC -tcp-config)
+	// ══════════════════════════════════════════════════════════════════
+	if *tcpFlag != "" || *tcpConfigFlag != "" {
+		var cfg *tcp_config.ClientConfig
+		if *tcpConfigFlag != "" {
+			cfgRaw, err := tcp_config.LoadConfig(*tcpConfigFlag)
+			if err != nil {
+				fmt.Printf("❌ Lỗi đọc file config TCP: %v\n", err)
+				os.Exit(1)
+			}
+			cfg = cfgRaw.(*tcp_config.ClientConfig)
+		} else {
+			cfg = &tcp_config.ClientConfig{
+				ParentConnectionAddress: *tcpFlag,
+				ParentConnectionType:    "client",
+				Version_:                "0.0.1.0",
+			}
+		}
+		if *tcpFlag != "" {
+			cfg.ParentConnectionAddress = *tcpFlag
+		}
+
+		logger.SetConfig(&logger.LoggerConfig{
+			Flag:    logger.FLAG_INFO,
+			Outputs: []*os.File{os.Stdout},
+		})
+
+		fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
+		fmt.Println("║      METANODE ACCOUNT GATE ONBOARDING TOOL (TCP SOCKET)          ║")
+		fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
+		fmt.Printf("📡 Endpoint TCP: %s\n", cfg.GetParentConnectionAddress())
+
+		tcpClient, err := client_tcp.NewClient(cfg)
+		if err != nil {
+			fmt.Printf("❌ Lỗi kết nối TCP %s: %v\n", cfg.GetParentConnectionAddress(), err)
+			os.Exit(1)
+		}
+		time.Sleep(500 * time.Millisecond)
+
+		// Chỉ kiểm tra 1 địa chỉ qua TCP
+		if *checkOnlyFlag != "" {
+			checkAddr := common.HexToAddress(*checkOnlyFlag)
+			fmt.Printf("🔍 (TCP) Đang kiểm tra trạng thái ví: %s\n", checkAddr.Hex())
+			status, err := tcpClient.ChainGetRegistrationStatus(checkAddr)
+			if err != nil {
+				fmt.Printf("❌ Lỗi kiểm tra status qua TCP: %v\n", err)
+				return
+			}
+			fmt.Printf("   • Trạng thái Gate: %s\n", status.Status)
+			if status.HomeCluster != "" {
+				fmt.Printf("   • Home Cluster:    %s\n", status.HomeCluster)
+			}
+			if as, err := tcpClient.AccountState(checkAddr); err == nil && as != nil {
+				fmt.Printf("   • Số dư:           %s wei\n", as.Balance().String())
+				fmt.Printf("   • Nonce:           %d\n", as.Nonce())
+			}
+			return
+		}
+
+		var results []*RegisteredAccountRecord
+
+		if *walletPkFlag != "" {
+			cleanPk := strings.TrimPrefix(*walletPkFlag, "0x")
+			privKey, err := crypto.HexToECDSA(cleanPk)
+			if err != nil {
+				fmt.Printf("❌ Private key không hợp lệ: %v\n", err)
+				os.Exit(1)
+			}
+			record, err := registerOneWalletTCP(tcpClient, privKey, 1)
+			if err != nil {
+				fmt.Printf("❌ Lỗi đăng ký qua TCP: %v\n", err)
+				os.Exit(1)
+			}
+			results = append(results, record)
+		} else {
+			fmt.Printf("🔑 Chuẩn bị sinh ngẫu nhiên và đăng ký %d ví mới qua TCP Socket (Push Mode)...\n", *countFlag)
+			for i := 1; i <= *countFlag; i++ {
+				privKey, err := crypto.GenerateKey()
+				if err != nil {
+					fmt.Printf("❌ Lỗi sinh private key cho ví %d: %v\n", i, err)
+					continue
+				}
+				record, err := registerOneWalletTCP(tcpClient, privKey, i)
+				if err != nil {
+					fmt.Printf("❌ Ví %d thất bại: %v\n", i, err)
+				} else {
+					results = append(results, record)
+				}
+			}
+		}
+
+		if len(results) > 0 && *outFileFlag != "" {
+			data, err := json.MarshalIndent(results, "", "  ")
+			if err == nil {
+				_ = os.WriteFile(*outFileFlag, data, 0644)
+				fmt.Printf("\n💾 Đã lưu danh sách %d ví đăng ký thành công vào file: %s\n", len(results), *outFileFlag)
+			}
+		}
+
+		fmt.Printf("\n✨ Hoàn thành qua TCP! (%d/%d ví đăng ký thành công)\n", len(results), *countFlag)
+		return
+	}
+
+	// ══════════════════════════════════════════════════════════════════
+	// CHẾ ĐỘ 2: THỰC THI QUA JSON-RPC HTTP (CHẾ ĐỘ MẶC ĐỊNH / POLLING)
+	// ══════════════════════════════════════════════════════════════════
 	client := NewNodeClient(*rpcFlag)
 
 	fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║      METANODE ACCOUNT GATE ONBOARDING TOOL (SECP CHAIN)          ║")
+	fmt.Println("║      METANODE ACCOUNT GATE ONBOARDING TOOL (HTTP JSON-RPC)       ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
 	fmt.Printf("📡 Endpoint RPC: %s\n", *rpcFlag)
 

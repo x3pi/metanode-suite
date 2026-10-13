@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -300,4 +301,117 @@ func (client *Client) SendTransactionWithDeviceKeySync(
 	}
 
 	return common.Hash{}, fmt.Errorf("unexpected command: %s", cmd)
+}
+
+// RegistrationInfo is an alias to pb.RegistrationResult for protobuf-based account gate onboarding.
+type RegistrationInfo = pb.RegistrationResult
+
+// ChainGetRegistrationMessage requests 32-byte hash to sign for address onboarding.
+func (client *Client) ChainGetRegistrationMessage(addr common.Address) (common.Hash, error) {
+	respMsg, err := client.sendChainRequest(command.GetRegistrationMessage, addr.Bytes(), 10*time.Second)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	body := respMsg.Body()
+	if len(body) != common.HashLength {
+		return common.Hash{}, fmt.Errorf("invalid registration message hash length: %d (expected %d)", len(body), common.HashLength)
+	}
+	return common.BytesToHash(body), nil
+}
+
+// ChainGetRegistrationStatus queries current onboarding status for address via protobuf.
+func (client *Client) ChainGetRegistrationStatus(addr common.Address) (*pb.RegistrationResult, error) {
+	respMsg, err := client.sendChainRequest(command.GetRegistrationStatus, addr.Bytes(), 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	var info pb.RegistrationResult
+	if err := proto.Unmarshal(respMsg.Body(), &info); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal registration status proto: %w", err)
+	}
+	return &info, nil
+}
+
+// ChainRegisterAccountWait submits account registration via protobuf (RegisterAccountRequest)
+// and awaits an asynchronous push notification (RegistrationResult).
+// It does NOT use polling; rather, the node pushes the final result back into this connection.
+func (client *Client) ChainRegisterAccountWait(addr common.Address, sig []byte, timeout time.Duration) (*pb.RegistrationResult, error) {
+	parentConn := client.clientContext.ConnectionsManager.ParentConnection()
+	if parentConn == nil || !parentConn.IsConnect() {
+		return nil, fmt.Errorf("parent connection not available")
+	}
+
+	if len(sig) != 65 {
+		return nil, fmt.Errorf("invalid signature length: %d (expected 65 bytes)", len(sig))
+	}
+
+	reqProto := &pb.RegisterAccountRequest{
+		Address:   addr.Bytes(),
+		Signature: sig,
+	}
+	reqBody, err := proto.Marshal(reqProto)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal RegisterAccountRequest: %w", err)
+	}
+
+	id := uuid.New().String()
+	respCh := make(chan t_network.Message, 2)
+	client.pendingChainRequests.Store(id, respCh)
+	defer client.pendingChainRequests.Delete(id)
+
+	msg := p_network.NewMessage(&pb.Message{
+		Header: &pb.Header{
+			Command: command.RegisterAccount,
+			ID:      id,
+		},
+		Body: reqBody,
+	})
+
+	if err := parentConn.SendMessage(msg); err != nil {
+		return nil, fmt.Errorf("failed to send %s: %w", command.RegisterAccount, err)
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			return nil, fmt.Errorf("timeout (%s) waiting for registration confirmation for %s", timeout, addr.Hex())
+		case resp := <-respCh:
+			cmd := resp.Command()
+			switch cmd {
+			case command.RegisterAccountAck:
+				var ackRes pb.RegistrationResult
+				if err := proto.Unmarshal(resp.Body(), &ackRes); err == nil {
+					if ackRes.Status == "FAILED" || ackRes.Status == "REJECTED" {
+						return nil, fmt.Errorf("node registration error: %s (%s)", ackRes.Status, ackRes.Reason)
+					}
+					if ackRes.Status == "CONFIRMED" {
+						return &ackRes, nil
+					}
+				} else {
+					ackStr := string(resp.Body())
+					if strings.HasPrefix(ackStr, "ERROR") {
+						return nil, fmt.Errorf("node rejected registration: %s", ackStr)
+					}
+					if ackStr == "CONFIRMED" {
+						return &pb.RegistrationResult{
+							Status:  "CONFIRMED",
+							Address: addr.Hex(),
+						}, nil
+					}
+				}
+				// "PENDING": continue waiting for push notification (RegistrationResult)
+			case command.RegistrationResult:
+				var info pb.RegistrationResult
+				if err := proto.Unmarshal(resp.Body(), &info); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal RegistrationResult proto: %w", err)
+				}
+				return &info, nil
+			default:
+				logger.Warn("ChainRegisterAccountWait: unexpected command received: %s", cmd)
+			}
+		}
+	}
 }
