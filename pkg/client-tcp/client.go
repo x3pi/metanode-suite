@@ -260,6 +260,13 @@ func (client *Client) sendRpcRequest(cmd string, body []byte, timeout time.Durat
 	}
 }
 
+// RpcNetVersion gửi command NetVersion qua TCP và trả về chain ID
+func (client *Client) RpcNetVersion() (string, error) {
+	chainId := fmt.Sprintf("%d", client.clientContext.Config.ChainId)
+	logger.Info("✅ RpcNetVersion result: %s", chainId)
+	return chainId, nil
+}
+
 // RpcGetChainId gửi command eth_getChainId qua TCP
 func (client *Client) RpcGetChainId() (string, error) {
 	resp, err := client.sendRpcRequest("eth_getChainId", nil, defaultRpcTimeout)
@@ -351,6 +358,24 @@ func (client *Client) RpcSendRawTransactionWithReceipt(rawTxHex string) (string,
 	return txHash, nil, nil
 }
 
+// RpcSendRawTransactionReceipt gửi raw transaction hex qua TCP dùng proto TcpSendTxRequest
+// và nhận trực tiếp txHash cùng pb.Receipt từ TCP response (hoặc nil nếu không có receipt)
+func (client *Client) RpcSendRawTransactionReceipt(rawTxHex string) (string, *pb.Receipt, error) {
+	txHash, rcptBytes, err := client.RpcSendRawTransactionWithReceipt(rawTxHex)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(rcptBytes) > 0 {
+		rcpt := &pb.Receipt{}
+		if err := proto.Unmarshal(rcptBytes, rcpt); err == nil && len(rcpt.TransactionHash) > 0 {
+			logger.Info("✅ RpcSendRawTransactionReceipt receipt received: txHash=%s, status=%s, gasUsed=%d",
+				txHash, rcpt.Status.String(), rcpt.GasUsed)
+			return txHash, rcpt, nil
+		}
+	}
+	return txHash, nil, nil
+}
+
 // RpcHttpSendRawTransaction gửi raw transaction qua HTTP forward (http_sendRawTransaction command)
 // Khác với RpcSendRawTransaction (TCP-direct to chain), method này forward qua HTTP proxy
 func (client *Client) RpcHttpSendRawTransaction(rawTxHex string) (string, error) {
@@ -395,9 +420,42 @@ func (client *Client) RpcEthCall(to common.Address, data []byte) ([]byte, error)
 	return resp.Result, nil
 }
 
+// RpcEthCallReceipt gọi eth_call qua TCP và tự bọc/giải mã kết quả thành *pb.Receipt
+func (client *Client) RpcEthCallReceipt(to common.Address, data []byte) (*pb.Receipt, error) {
+	rawBytes, err := client.RpcEthCall(to, data)
+	if err != nil {
+		return nil, err
+	}
+	rcpt := &pb.Receipt{}
+	if err := proto.Unmarshal(rawBytes, rcpt); err != nil {
+		resultBytes := rawBytes
+		if len(resultBytes) > 0 && resultBytes[0] == '"' {
+			var resultHex string
+			if err := json.Unmarshal(resultBytes, &resultHex); err == nil {
+				resultHex = strings.TrimPrefix(resultHex, "0x")
+				if decoded, err := hex.DecodeString(resultHex); err == nil {
+					resultBytes = decoded
+				}
+			}
+		}
+		rcpt = &pb.Receipt{
+			Status: pb.RECEIPT_STATUS_RETURNED,
+			Return: resultBytes,
+		}
+	}
+	logger.Info("✅ RpcEthCallReceipt: status=%s, gasUsed=%d, returnLen=%d",
+		rcpt.Status.String(), rcpt.GasUsed, len(rcpt.Return))
+	return rcpt, nil
+}
+
 // RpcGetPendingNonce lấy pending nonce cho address qua TCP
-// Dùng proto TcpGetNonceRequest/TcpGetNonceResponse (binary, không JSON)
 func (client *Client) RpcGetPendingNonce(address common.Address) (uint64, error) {
+	// Ưu tiên ChainGetNonce qua lệnh GetNonce (tương thích port 9545)
+	if nonce, err := client.ChainGetNonce(address); err == nil {
+		logger.Info("✅ RpcGetPendingNonce for %s: %d", address.Hex(), nonce)
+		return nonce, nil
+	}
+	// Fallback qua eth_getTransactionCount
 	tcpReq := &pb.TcpAddressParam{Address: address.Bytes()}
 	body, err := proto.Marshal(tcpReq)
 	if err != nil {
@@ -410,11 +468,11 @@ func (client *Client) RpcGetPendingNonce(address common.Address) (uint64, error)
 	if resp.Error != nil {
 		return 0, fmt.Errorf("RPC error: code=%d, message=%s", resp.Error.Code, resp.Error.Message)
 	}
-	// Parse proto TcpGetNonceResponse
 	nonceResp := &pb.TcpGetNonceResponse{}
 	if err := proto.Unmarshal(resp.Result, nonceResp); err != nil {
 		return 0, fmt.Errorf("failed to parse TcpGetNonceResponse: %w", err)
 	}
+	logger.Info("✅ RpcGetPendingNonce for %s: %d", address.Hex(), nonceResp.Nonce)
 	return nonceResp.Nonce, nil
 }
 
@@ -505,6 +563,18 @@ func (client *Client) RpcUnsubscribe(subID string) (bool, error) {
 	client.clientContext.Handler.RemoveEventCallback(subID)
 	logger.Info("✅ RpcUnsubscribe: id=%s, result=%v", subID, result)
 	return result, nil
+}
+
+// RpcCustomCall gửi bất kỳ RPC method nào qua TCP, trả về raw JSON result
+func (client *Client) RpcCustomCall(method string, params []byte, timeout time.Duration) (json.RawMessage, error) {
+	resp, err := client.sendRpcRequest(method, params, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("RPC error: code=%d, message=%s", resp.Error.Code, resp.Error.Message)
+	}
+	return json.RawMessage(resp.Result), nil
 }
 
 // ================================== END RPC======================================

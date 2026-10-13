@@ -11,6 +11,6 @@ go run main.go -envfile=".env.2" -download="MÃ_KEY"
 -mode=http-bls: (Chế độ bạn vừa yêu cầu) Tạo giao dịch và ký bằng BLS (khóa thiết bị/MetaNode), đóng gói vào Protobuf TransactionWithDeviceKey rồi gọi trực tiếp method
 
 go run . -envfile .env.1 -size 0.01 -workers 5 -rounds 3 -mode=http
-go run . -envfile .env.1 -size 0.01 -workers 1 -rounds 3 -mode=tcp
+go run . -envfile .env.1 -size 0.01 -workers 1 -rounds 1 -mode=tcp
 
 go run . -envfile .env.1 -download 9a10f6c96c5ca15a5564feca8ecf237921c7f3e2242887c17fc58ea27825d171 -workers 5 -rounds 1
