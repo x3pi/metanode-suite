@@ -347,7 +347,7 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 
 func main() {
 	rpcFlag := flag.String("rpc", "http://127.0.0.1:8747", "Endpoint JSON-RPC HTTP (ví dụ: http://192.168.1.234:8747)")
-	tcpFlag := flag.String("tcp", "", "Endpoint TCP Socket của node (ví dụ: 127.0.0.1:8080 hoặc 192.168.1.234:4200)")
+	tcpFlag := flag.String("tcp", "", "Endpoint TCP Socket của node hoặc proxy (ví dụ: 127.0.0.1:4200 hoặc 127.0.0.1:9545)")
 	tcpConfigFlag := flag.String("tcp-config", "", "Đường dẫn file cấu hình JSON TCP (tùy chọn)")
 	countFlag := flag.Int("count", 1, "Số lượng ví mới cần tạo và đăng ký")
 	walletPkFlag := flag.String("wallet-pk", "", "Private key hex của ví có sẵn (nếu muốn đăng ký cho ví cũ)")

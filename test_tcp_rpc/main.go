@@ -292,6 +292,116 @@ func testDemoContract(
 	}
 }
 
+// ===================== DEMO ACCOUNT GATE REGISTRATION =====================
+
+// demoRegisterAccount thực hiện quy trình đăng ký Account Gate cho tài khoản
+func demoRegisterAccount(tcpClient *client_tcp.Client, privKey *ecdsa.PrivateKey, fromAddr common.Address, customPk string, checkOnly bool) {
+	targetPrivKey := privKey
+	targetAddr := fromAddr
+
+	if customPk != "" {
+		if customPk == "random" {
+			pk, err := crypto.GenerateKey()
+			if err != nil {
+				fmt.Printf("  ❌ Lỗi sinh private key ngẫu nhiên: %v\n", err)
+				return
+			}
+			targetPrivKey = pk
+			targetAddr = crypto.PubkeyToAddress(pk.PublicKey)
+			cleanHex := hex.EncodeToString(crypto.FromECDSA(pk))
+			fmt.Printf("  🎲 Đã sinh ví ngẫu nhiên mới:\n")
+			fmt.Printf("     • Private Key: 0x%s\n", cleanHex)
+			fmt.Printf("     • Address:     %s\n", targetAddr.Hex())
+		} else {
+			cleanPk := strings.TrimPrefix(customPk, "0x")
+			pk, err := crypto.HexToECDSA(cleanPk)
+			if err != nil {
+				fmt.Printf("  ❌ Private key không hợp lệ: %v\n", err)
+				return
+			}
+			targetPrivKey = pk
+			targetAddr = crypto.PubkeyToAddress(pk.PublicKey)
+		}
+	}
+
+	fmt.Println("\n╔══════════════════════════════════════════════════════╗")
+	fmt.Println("║  DEMO: Account Gate Registration (TCP Socket)        ║")
+	fmt.Println("╚══════════════════════════════════════════════════════╝")
+	fmt.Printf("  👤 Target Address: %s\n", targetAddr.Hex())
+
+	// 1. Kiểm tra trạng thái hiện tại
+	fmt.Println("\n─── 1. Kiểm tra trạng thái Gate (GetRegistrationStatus) ───")
+	status, err := tcpClient.ChainGetRegistrationStatus(targetAddr)
+	if err != nil {
+		fmt.Printf("  ⚠️ Truy vấn trạng thái thất bại: %v\n", err)
+		if strings.Contains(err.Error(), "Method not supported") || strings.Contains(err.Error(), "unexpected command") {
+			fmt.Println("  👉 Lưu ý: Endpoint TCP chưa hỗ trợ lệnh GetRegistrationStatus. Đảm bảo proxy 9545 hoặc node chain đã cập nhật bản mới nhất.")
+		}
+	} else if status != nil {
+		fmt.Printf("  • Status:       %s\n", status.Status)
+		if status.HomeCluster != "" {
+			fmt.Printf("  • Home Cluster: %s\n", status.HomeCluster)
+		}
+		if status.Reason != "" {
+			fmt.Printf("  • Reason:       %s\n", status.Reason)
+		}
+		if status.Status == "CONFIRMED" {
+			fmt.Printf("  🎉 Ví %s ĐÃ ĐƯỢC ĐĂNG KÝ THÀNH CÔNG từ trước (CONFIRMED)!\n", targetAddr.Hex())
+			return
+		}
+	}
+
+	if checkOnly {
+		return
+	}
+
+	// 2. Lấy 32-byte hashToSign từ node
+	fmt.Println("\n─── 2. Lấy thông điệp hash cần ký (GetRegistrationMessage) ───")
+	hashToSign, err := tcpClient.ChainGetRegistrationMessage(targetAddr)
+	if err != nil {
+		fmt.Printf("  ❌ Lỗi lấy thông điệp đăng ký: %v\n", err)
+		if strings.Contains(err.Error(), "Method not supported") || strings.Contains(err.Error(), "unexpected command") {
+			fmt.Println("  👉 Lưu ý: Endpoint TCP chưa hỗ trợ lệnh GetRegistrationMessage. Đảm bảo proxy 9545 hoặc node chain đã cập nhật bản mới nhất.")
+		}
+		return
+	}
+	fmt.Printf("  ✅ Hash to Sign: %s\n", hashToSign.Hex())
+
+	// 3. Ký ECDSA offline
+	fmt.Println("\n─── 3. Ký offline ECDSA secp256k1 bằng Private Key ───")
+	sigBytes, err := crypto.Sign(hashToSign.Bytes(), targetPrivKey)
+	if err != nil {
+		fmt.Printf("  ❌ Lỗi tạo chữ ký secp256k1: %v\n", err)
+		return
+	}
+	fmt.Printf("  ✅ Signature (65 bytes): 0x%x\n", sigBytes)
+
+	// 4. Gửi đăng ký & chờ kết quả Push Notification
+	fmt.Println("\n─── 4. Gửi đăng ký & chờ Async Push (ChainRegisterAccountWait) ───")
+	fmt.Println("  ⏳ Đang gửi yêu cầu và chờ xác nhận từ Parent Chain (max 45s)...")
+	result, err := tcpClient.ChainRegisterAccountWait(targetAddr, sigBytes, 45*time.Second)
+	if err != nil {
+		fmt.Printf("  ❌ Lỗi đăng ký: %v\n", err)
+		return
+	}
+
+	fmt.Printf("  • Trạng thái phản hồi: %s\n", result.Status)
+	if result.Reason != "" {
+		fmt.Printf("  • Lý do: %s\n", result.Reason)
+	}
+
+	switch result.Status {
+	case "CONFIRMED":
+		fmt.Printf("  🎉 CHÚC MỪNG! Ví %s đã được xác nhận CONFIRMED thành công qua TCP Socket Push!\n", targetAddr.Hex())
+	case "REJECTED":
+		fmt.Printf("  ❌ Bị từ chối (REJECTED): đã đăng ký ở cụm khác (%s)\n", result.HomeCluster)
+	case "FAILED":
+		fmt.Printf("  ❌ Đăng ký thất bại: %s\n", result.Reason)
+	default:
+		fmt.Printf("  ⚠️ Trạng thái: %s\n", result.Status)
+	}
+}
+
 // ===================== MAIN =====================
 
 func main() {
@@ -301,7 +411,13 @@ func main() {
 	})
 
 	configPath := flag.String("config", "config-test.json", "Path to TCP client config")
+	tcpFlag := flag.String("tcp", "", "Endpoint TCP Socket của node/proxy (ví dụ: 127.0.0.1:9545)")
 	forceDeploy := flag.Bool("deploy", false, "Force deploy a new demo contract even if address is configured")
+	testMode := flag.String("test", "", "Chế độ test: 'demo', 'register' (Account Gate), 'bls'")
+	registerFlag := flag.Bool("register", false, "Demo đăng ký account qua Account Gate (TCP Socket)")
+	randomFlag := flag.Bool("random", false, "Tự động sinh ngẫu nhiên 1 ví mới và đăng ký qua Account Gate")
+	checkRegFlag := flag.Bool("check-register", false, "Kiểm tra trạng thái đăng ký Account Gate của ví")
+	walletPkFlag := flag.String("wallet-pk", "", "Private key hex của ví cần đăng ký (mặc định lấy từ eth_private_key trong config, hoặc 'random')")
 	flag.Parse()
 
 	fmt.Println("╔══════════════════════════════════════════════════════╗")
@@ -314,6 +430,9 @@ func main() {
 		os.Exit(1)
 	}
 	cfg := cfgRaw.(*tcp_config.ClientConfig)
+	if *tcpFlag != "" {
+		cfg.ParentConnectionAddress = *tcpFlag
+	}
 
 	// Khởi tạo client
 	tcpClient, err := client_tcp.NewClient(cfg)
@@ -335,6 +454,17 @@ func main() {
 
 	fmt.Printf("\n  Admin address: %s\n", fromAddr.Hex())
 	fmt.Printf("  Chain ID: %d\n", cfg.ChainId)
+
+	targetPk := *walletPkFlag
+	if *randomFlag && targetPk == "" {
+		targetPk = "random"
+	}
+
+	// Chế độ demo đăng ký Account Gate
+	if *registerFlag || *testMode == "register" || *checkRegFlag || *randomFlag {
+		demoRegisterAccount(tcpClient, ethPrivKey, fromAddr, targetPk, *checkRegFlag)
+		return
+	}
 
 	// === Test 0: Basic RPC ===
 	fmt.Println("\n─── Basic: RpcNetVersion + RpcGetChainId ───")
