@@ -23,6 +23,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Demo contract bytecode (from test-simple/test-tcp/caller-tcp/data-demo-test.json)
+const demoContractBytecode = "0x6080604052348015600f57600080fd5b506103ef8061001f6000396000f3fe608060405234801561001057600080fd5b506004361061004c5760003560e01c8063160ef80714610051578063209652551461006d5780633fa4f2451461008b57806355241077146100a9575b600080fd5b61006b60048036038101906100669190610222565b6100c5565b005b610075610175565b604051610082919061025e565b60405180910390f35b61009361017e565b6040516100a0919061025e565b60405180910390f35b6100c360048036038101906100be9190610222565b610184565b005b60008111610108576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016100ff906102d6565b60405180910390fd5b806000808282546101199190610325565b925050819055503373ffffffffffffffffffffffffffffffffffffffff167f4b3fd1f53a9fe860fd8411e7f19ff4c49f28111e397dfc5e5db3bd9e99e24eb28260005460405161016a929190610359565b60405180910390a250565b60008054905090565b60005481565b600080549050816000819055503373ffffffffffffffffffffffffffffffffffffffff167fb485dddf4584d4931927aeccc95476c87e02c5b136fb4fbbac317b823d9a522c8284426040516101db93929190610382565b60405180910390a25050565b600080fd5b6000819050919050565b6101ff816101ec565b811461020a57600080fd5b50565b60008135905061021c816101f6565b92915050565b600060208284031215610238576102376101e7565b5b60006102468482850161020d565b91505092915050565b610258816101ec565b82525050565b6000602082019050610273600083018461024f565b92915050565b600082825260208201905092915050565b7f416d6f756e74206d7573742062652067726561746572207468616e2030000000600082015250565b60006102c0601d83610279565b91506102cb8261028a565b602082019050919050565b600060208201905081810360008301526102ef816102b3565b9050919050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052601160045260246000fd5b6000610330826101ec565b915061033b836101ec565b9250828201905080821115610353576103526102f6565b5b92915050565b600060408201905061036e600083018561024f565b61037b602083018461024f565b9392505050565b6000606082019050610397600083018661024f565b6103a4602083018561024f565b6103b1604083018461024f565b94935050505056fea2646970667358221220ebe59c84eca78988aae26388c7d56a0df5f270358c2ad6dbc3013cab5c5790c164736f6c63430008230033"
+
 // ===================== HELPERS =====================
 
 // waitReceipt đợi receipt với timeout 30s, retry 10ms
@@ -50,6 +53,62 @@ func waitReceipt(tcpClient *client_tcp.Client, txHash string) *pb.RpcReceipt {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+}
+
+// deployContract deploy contract mới qua TCP port 9545
+func deployContract(
+	tcpClient *client_tcp.Client,
+	privKey *ecdsa.PrivateKey,
+	fromAddr common.Address,
+	signer e_types.Signer,
+	bytecodeHex string,
+) (common.Address, error) {
+	fmt.Println("\n╔══════════════════════════════════════════════════════╗")
+	fmt.Println("║  DEPLOY: Deploying Demo Contract via TCP...          ║")
+	fmt.Println("╚══════════════════════════════════════════════════════╝")
+
+	cleanHex := strings.TrimPrefix(bytecodeHex, "0x")
+	bytecode, err := hex.DecodeString(cleanHex)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("invalid bytecode hex: %w", err)
+	}
+
+	nonce, err := tcpClient.RpcGetPendingNonce(fromAddr)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to get nonce: %w", err)
+	}
+	fmt.Printf("  📝 Deploy Nonce: %d\n", nonce)
+
+	tx := e_types.NewContractCreation(nonce, big.NewInt(0), 20000000, big.NewInt(10000000), bytecode)
+	signedTx, err := e_types.SignTx(tx, signer, privKey)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to sign deploy tx: %w", err)
+	}
+
+	rawTxBytes, _ := signedTx.MarshalBinary()
+	rawTxHex := "0x" + hex.EncodeToString(rawTxBytes)
+
+	txHash, receipt, err := tcpClient.RpcSendRawTransactionReceipt(rawTxHex)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("deploy error: %w", err)
+	}
+	fmt.Printf("  ✅ Deploy txHash: %s\n", txHash)
+
+	if receipt != nil {
+		fmt.Printf("  ✅ Deploy Receipt: status=%s, gasUsed=%d\n",
+			receipt.Status.String(), receipt.GasUsed)
+	} else {
+		rpcRcpt := waitReceipt(tcpClient, txHash)
+		if rpcRcpt == nil {
+			return common.Address{}, fmt.Errorf("timeout waiting for deploy receipt")
+		}
+		fmt.Printf("  ✅ Deploy Receipt (poll): status=%s, gasUsed=%s\n",
+			rpcRcpt.Status, rpcRcpt.GasUsed)
+	}
+
+	deployedAddr := crypto.CreateAddress(fromAddr, nonce)
+	fmt.Printf("  🎉 Deployed Contract Address (CREATE): %s\n", deployedAddr.Hex())
+	return deployedAddr, nil
 }
 
 // sendTxAndWait tạo, ký, gửi transaction + nhận receipt trực tiếp
@@ -141,7 +200,7 @@ func testDemoContract(
 	signer e_types.Signer,
 ) {
 	fmt.Println("\n╔══════════════════════════════════════════════════════╗")
-	fmt.Println("║  TEST: Demo Contract (setValue + increaseValue)      ║")
+	fmt.Printf("║  TEST: Demo Contract (%s) \n", contractAddr.Hex())
 	fmt.Println("╚══════════════════════════════════════════════════════╝")
 
 	// 1. Read current value
@@ -242,6 +301,7 @@ func main() {
 	})
 
 	configPath := flag.String("config", "config-test.json", "Path to TCP client config")
+	forceDeploy := flag.Bool("deploy", false, "Force deploy a new demo contract even if address is configured")
 	flag.Parse()
 
 	fmt.Println("╔══════════════════════════════════════════════════════╗")
@@ -293,9 +353,22 @@ func main() {
 		logger.Error("Failed to parse demo ABI: %v", err)
 		os.Exit(1)
 	}
-	contractAddr := common.HexToAddress(cfg.DemoContractAddress)
 
-	// Run demo transaction test
+	// 1. Xác định Contract Address: Tự động deploy nếu chưa cấu hình hoặc truyền flag -deploy
+	var contractAddr common.Address
+	if cfg.DemoContractAddress != "" && !*forceDeploy {
+		contractAddr = common.HexToAddress(cfg.DemoContractAddress)
+		fmt.Printf("\n  📌 Dùng contract có sẵn từ config: %s\n", contractAddr.Hex())
+	} else {
+		// Deploy contract mới qua TCP
+		contractAddr, err = deployContract(tcpClient, ethPrivKey, fromAddr, signer, demoContractBytecode)
+		if err != nil {
+			logger.Error("❌ Deploy contract thất bại: %v", err)
+			os.Exit(1)
+		}
+	}
+
+	// 2. Chạy test giao dịch với contract vừa xác định/deploy
 	testDemoContract(tcpClient, demoABI, contractAddr, ethPrivKey, fromAddr, signer)
 
 	fmt.Println("\n╔══════════════════════════════════════════════════════╗")

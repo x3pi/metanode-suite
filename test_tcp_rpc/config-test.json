@@ -8,7 +8,7 @@
   "parent_address": "0x4b51d69B903C136654D168d0d500dA58AFdc5b60",
   "eth_private_key": "3f7a0514531a1485edc4270f06dbed62da4974c3b5bbd54a4534060514b8023d",
   "demo_abi_path": "demo_abi.json",
-  "demo_contract_address": "0xE4410c7Ef0181C6cd0EE32037a99Cc24d29726Be",
+  "demo_contract_address": "",
   "contact_private": "0x00000000000000000000000000000000D844bb55",
   "remote_chains": []
 }
