@@ -387,7 +387,7 @@ func (client *Client) ChainRegisterAccountWait(addr common.Address, sig []byte, 
 					if ackRes.Status == "FAILED" || ackRes.Status == "REJECTED" {
 						return nil, fmt.Errorf("node registration error: %s (%s)", ackRes.Status, ackRes.Reason)
 					}
-					if ackRes.Status == "CONFIRMED" {
+					if ackRes.Status == "CONFIRMED" || ackRes.Status == "PROVISIONAL" {
 						return &ackRes, nil
 					}
 				} else {
@@ -395,14 +395,14 @@ func (client *Client) ChainRegisterAccountWait(addr common.Address, sig []byte, 
 					if strings.HasPrefix(ackStr, "ERROR") {
 						return nil, fmt.Errorf("node rejected registration: %s", ackStr)
 					}
-					if ackStr == "CONFIRMED" {
+					if ackStr == "CONFIRMED" || ackStr == "PROVISIONAL" {
 						return &pb.RegistrationResult{
-							Status:  "CONFIRMED",
+							Status:  ackStr,
 							Address: addr.Hex(),
 						}, nil
 					}
 				}
-				// "PENDING": continue waiting for push notification (RegistrationResult)
+				// "PENDING": continue waiting for a committed PROVISIONAL/CONFIRMED or terminal result.
 			case command.RegistrationResult:
 				var info pb.RegistrationResult
 				if err := proto.Unmarshal(resp.Body(), &info); err != nil {

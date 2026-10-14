@@ -60,7 +60,7 @@ type RegistrationMessage struct {
 }
 
 type RegistrationInfo struct {
-	Status      string `json:"status"` // NONE | PENDING | CONFIRMED | REJECTED | FAILED
+	Status      string `json:"status"` // NONE | PENDING | PROVISIONAL | CONFIRMED | REJECTED | FAILED
 	HomeCluster string `json:"homeCluster,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 }
@@ -189,13 +189,13 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 	// 1. Kiểm tra trạng thái hiện tại của ví
 	statusInfo, err := client.GetRegistrationStatus(userAddr)
 	if err == nil && statusInfo != nil {
-		if statusInfo.Status == "CONFIRMED" {
-			fmt.Printf("   ✅ Ví này ĐÃ ĐƯỢC ĐĂNG KÝ từ trước (Status: CONFIRMED)!\n")
+		if statusInfo.Status == "CONFIRMED" || statusInfo.Status == "PROVISIONAL" {
+			fmt.Printf("   ✅ Ví này đã hoạt động trên cụm (Status: %s)!\n", statusInfo.Status)
 			return &RegisteredAccountRecord{
 				Index:        index,
 				Address:      userAddr.Hex(),
 				PrivateKey:   privKeyHex,
-				Status:       "CONFIRMED",
+				Status:       statusInfo.Status,
 				RegisterTime: time.Now().Format(time.RFC3339),
 			}, nil
 		}
@@ -260,6 +260,16 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 					RegisterTime: time.Now().Format(time.RFC3339),
 				}, nil
 
+			case "PROVISIONAL":
+				fmt.Printf("   ✅ Ví %s đã được kích hoạt tạm trên cụm khi Parent Chain offline.\n", userAddr.Hex())
+				return &RegisteredAccountRecord{
+					Index:        index,
+					Address:      userAddr.Hex(),
+					PrivateKey:   privKeyHex,
+					Status:       "PROVISIONAL",
+					RegisterTime: time.Now().Format(time.RFC3339),
+				}, nil
+
 			case "REJECTED":
 				return nil, fmt.Errorf("ví bị Parent Chain từ chối (REJECTED): đã đăng ký ở cụm khác (%s)", currentStatus.HomeCluster)
 
@@ -287,13 +297,13 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 	// 1. Kiểm tra trạng thái hiện tại của ví qua TCP (GetRegistrationStatus)
 	statusInfo, err := client.ChainGetRegistrationStatus(userAddr)
 	if err == nil && statusInfo != nil {
-		if statusInfo.Status == "CONFIRMED" {
-			fmt.Printf("   ✅ Ví này ĐÃ ĐƯỢC ĐĂNG KÝ từ trước (Status: CONFIRMED)!\n")
+		if statusInfo.Status == "CONFIRMED" || statusInfo.Status == "PROVISIONAL" {
+			fmt.Printf("   ✅ Ví này đã hoạt động trên cụm (Status: %s)!\n", statusInfo.Status)
 			return &RegisteredAccountRecord{
 				Index:        index,
 				Address:      userAddr.Hex(),
 				PrivateKey:   privKeyHex,
-				Status:       "CONFIRMED",
+				Status:       statusInfo.Status,
 				RegisterTime: time.Now().Format(time.RFC3339),
 			}, nil
 		}
@@ -331,6 +341,16 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 			Address:      userAddr.Hex(),
 			PrivateKey:   privKeyHex,
 			Status:       "CONFIRMED",
+			RegisterTime: time.Now().Format(time.RFC3339),
+		}, nil
+
+	case "PROVISIONAL":
+		fmt.Printf("   ✅ Node PUSH kết quả PROVISIONAL; ví được phép giao dịch nội bộ và chưa được rút cross-chain.\n")
+		return &RegisteredAccountRecord{
+			Index:        index,
+			Address:      userAddr.Hex(),
+			PrivateKey:   privKeyHex,
+			Status:       "PROVISIONAL",
 			RegisterTime: time.Now().Format(time.RFC3339),
 		}, nil
 
