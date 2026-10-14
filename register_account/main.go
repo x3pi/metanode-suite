@@ -173,8 +173,15 @@ func (c *NodeClient) GetBalance(addr common.Address) (*big.Int, error) {
 	return balance, nil
 }
 
+// Interface chung cho cả RPC Client và TCP Client
+type RegistrationClient interface {
+	GetRegistrationMessage(addr common.Address) (*RegistrationMessage, error)
+	RegisterAccount(addr common.Address, sigBytes []byte) (*RegistrationInfo, error)
+	GetRegistrationStatus(addr common.Address) (*RegistrationInfo, error)
+}
+
 // Thực hiện toàn bộ quy trình onboarding 1 ví
-func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int) (*RegisteredAccountRecord, error) {
+func registerOneWallet(client RegistrationClient, privKey *ecdsa.PrivateKey, index int) (*RegisteredAccountRecord, error) {
 	userAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 	privKeyHex := hexutil.Encode(crypto.FromECDSA(privKey))
 
@@ -272,48 +279,75 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 }
 
 func main() {
-	rpcFlag := flag.String("rpc", "http://127.0.0.1:8747", "http://192.168.1.234:8747)")
+	rpcFlag := flag.String("rpc", "http://127.0.0.1:8747", "Endpoint RPC của node (http://127.0.0.1:8747)")
+	tcpFlag := flag.String("tcp", "", "Địa chỉ TCP của node (ví dụ: 192.168.1.234:4200 hoặc 127.0.0.1:4200). Nếu truyền cờ này sẽ chạy qua TCP")
 	countFlag := flag.Int("count", 1, "Số lượng ví mới cần tạo và đăng ký")
 	walletPkFlag := flag.String("wallet-pk", "", "Private key hex của ví có sẵn (nếu muốn đăng ký cho ví cũ)")
 	outFileFlag := flag.String("out", "registered_wallets.json", "Đường dẫn file JSON để xuất danh sách ví đã đăng ký")
 	checkOnlyFlag := flag.String("check", "", "Địa chỉ ví cần kiểm tra trạng thái đăng ký (chỉ kiểm tra, không đăng ký)")
 	flag.Parse()
 
-	client := NewNodeClient(*rpcFlag)
+	var regClient RegistrationClient
+	rpcClient := NewNodeClient(*rpcFlag)
 
 	fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
 	fmt.Println("║      METANODE ACCOUNT GATE ONBOARDING TOOL (SECP CHAIN)          ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
-	fmt.Printf("📡 Endpoint RPC: %s\n", *rpcFlag)
 
-	// Kiểm tra kết nối và Cluster Identity
-	clusterId, err := client.GetClusterIdentity()
-	if err != nil {
-		fmt.Printf("⚠️ Cảnh báo: Không thể lấy cluster identity từ RPC: %v\n", err)
-		fmt.Printf("👉 Đảm bảo node đang chạy với `account_gate = parent_registered` và endpoint mtn_* đã bật.\n\n")
+	if *tcpFlag != "" {
+		fmt.Printf("🔌 Chế độ: TCP Client\n")
+		fmt.Printf("📡 Endpoint TCP: %s\n\n", *tcpFlag)
+		tcpClient, err := NewTCPNodeClient(*tcpFlag)
+		if err != nil {
+			fmt.Printf("❌ Lỗi kết nối TCP tới %s: %v\n", *tcpFlag, err)
+			os.Exit(1)
+		}
+		defer tcpClient.Close()
+		regClient = tcpClient
 	} else {
-		fmt.Printf("✅ Đã kết nối cụm thành công!\n")
-		fmt.Printf("   • Chain ID:      %d\n", clusterId.ChainID)
-		fmt.Printf("   • Cluster Key:   %s\n", clusterId.ClusterKey)
-		fmt.Printf("   • Account Gate:  %v\n", clusterId.AccountGate)
-		fmt.Printf("   • Message Tag:   %s\n\n", clusterId.MessageTag)
+		fmt.Printf("🌐 Chế độ: JSON-RPC (HTTP)\n")
+		fmt.Printf("📡 Endpoint RPC: %s\n\n", *rpcFlag)
+
+		// Kiểm tra kết nối và Cluster Identity qua RPC
+		clusterId, err := rpcClient.GetClusterIdentity()
+		if err != nil {
+			fmt.Printf("⚠️ Cảnh báo: Không thể lấy cluster identity từ RPC: %v\n", err)
+			fmt.Printf("👉 Đảm bảo node đang chạy với `account_gate = parent_registered` và endpoint mtn_* đã bật.\n\n")
+		} else {
+			fmt.Printf("✅ Đã kết nối cụm thành công!\n")
+			fmt.Printf("   • Chain ID:      %d\n", clusterId.ChainID)
+			fmt.Printf("   • Cluster Key:   %s\n", clusterId.ClusterKey)
+			fmt.Printf("   • Account Gate:  %v\n", clusterId.AccountGate)
+			fmt.Printf("   • Message Tag:   %s\n\n", clusterId.MessageTag)
+		}
+		regClient = rpcClient
 	}
 
 	// Nếu chỉ kiểm tra 1 địa chỉ
 	if *checkOnlyFlag != "" {
 		checkAddr := common.HexToAddress(*checkOnlyFlag)
-		fmt.Printf("🔍 Đang kiểm tra trạng thái ví: %s\n", checkAddr.Hex())
-		status, err := client.GetRegistrationStatus(checkAddr)
+		fmt.Printf("🔍 Đang kiểm tra ví: %s\n", checkAddr.Hex())
+
+		regMsg, err := regClient.GetRegistrationMessage(checkAddr)
 		if err != nil {
-			fmt.Printf("❌ Lỗi: %v\n", err)
+			fmt.Printf("   • Lỗi lấy Hash:    %v\n", err)
+		} else {
+			fmt.Printf("   • Hash to Sign:    %s\n", regMsg.HashToSign)
+		}
+
+		status, err := regClient.GetRegistrationStatus(checkAddr)
+		if err != nil {
+			fmt.Printf("❌ Lỗi kiểm tra status: %v\n", err)
 			return
 		}
-		balance, _ := client.GetBalance(checkAddr)
 		fmt.Printf("   • Trạng thái Gate: %s\n", status.Status)
 		if status.HomeCluster != "" {
 			fmt.Printf("   • Home Cluster:    %s\n", status.HomeCluster)
 		}
-		fmt.Printf("   • Số dư:           %s wei\n", balance.String())
+		if *tcpFlag == "" {
+			balance, _ := rpcClient.GetBalance(checkAddr)
+			fmt.Printf("   • Số dư:           %s wei\n", balance.String())
+		}
 		return
 	}
 
@@ -328,7 +362,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		record, err := registerOneWallet(client, privKey, 1)
+		record, err := registerOneWallet(regClient, privKey, 1)
 		if err != nil {
 			fmt.Printf("❌ Lỗi đăng ký: %v\n", err)
 			os.Exit(1)
@@ -346,7 +380,7 @@ func main() {
 				continue
 			}
 
-			record, err := registerOneWallet(client, privKey, i)
+			record, err := registerOneWallet(regClient, privKey, i)
 			if err != nil {
 				fmt.Printf("❌ Ví %d thất bại: %v\n", i, err)
 			} else {
