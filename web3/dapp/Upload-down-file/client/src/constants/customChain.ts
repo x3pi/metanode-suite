@@ -3,7 +3,6 @@ import { type Chain } from "viem";
 
 // Bật cờ này thành `true` khi deploy lên server thật có SSL và tên miền chuẩn
 export const IS_PRODUCTION = true;
-export const IS_PRODUCTION = true;
 // export const GO_BACKEND_RPC_URL = window.location.origin;
 // export const WS_BASE = window.location.origin.replace(/^http/, "ws");
 // export const WSS_RPC = `${WS_BASE}/interceptor`;
@@ -13,8 +12,8 @@ export const IS_PRODUCTION = true;
 // export const WSS_RPC = "ws://192.168.1.234:8747/ws";
 // export const GO_BACKEND_RPC_URL = "http://192.168.1.234:8747";
 
-export const WSS_RPC = "ws://hkb0av57jsh.sn.mynetname.net:8747/ws";
-export const GO_BACKEND_RPC_URL = "http://hkb0av57jsh.sn.mynetname.net:8747";
+export const WSS_RPC = "ws://116.109.66.229:8747/ws";
+export const GO_BACKEND_RPC_URL = "http://116.109.66.229:8747";
 
 // export const GO_BACKEND_RPC_URL = "https://rpc-proxy-sequoia.iqnb.com:8446";
 // export const WSS_RPC = "wss://rpc-proxy-sequoia.iqnb.com:8446";

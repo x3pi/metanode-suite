@@ -71,4 +71,13 @@ const (
 	// Backup DB sync commands
 	GetBlockDataByNumberFromMaster = "GetBlockDataByNumberFromMaster"
 	BlockDataFromMainMaster        = "BlockDataFromMainMaster"
+
+	// Account Gate Registration TCP commands
+	GetRegistrationMessage = "GetRegistrationMessage"
+	RegistrationMessage    = "RegistrationMessage"
+	RegisterAccount        = "RegisterAccount"
+	RegisterAccountAck     = "RegisterAccountAck"
+	RegistrationResult     = "RegistrationResult"
+	GetRegistrationStatus  = "GetRegistrationStatus"
+	RegistrationStatus     = "RegistrationStatus"
 )

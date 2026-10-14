@@ -35,8 +35,8 @@ type Config struct {
 
 func main() {
 	// Parse CLI flags
-	action := flag.String("action", "deploy", "Action to perform: deploy, add, remove")
-	registryAddrFlag := flag.String("registry", "", "Address of the deployed registry proxy (for add/remove)")
+	action := flag.String("action", "deploy", "Action to perform: deploy, add, remove, list")
+	registryAddrFlag := flag.String("registry", "", "Address of the deployed registry proxy (for add/remove/list)")
 	fileAddrFlag := flag.String("file", "", "Address of the file contract to add/remove")
 	flag.Parse()
 
@@ -60,12 +60,16 @@ func main() {
 		FileContractAddress: contractToAdd,
 	}
 
-	if config.DeployerPrivateKey == "" {
+	if *action != "list" && config.DeployerPrivateKey == "" {
 		log.Fatal("PRIVATE_KEY is required in .env file")
 	}
 
 	if (*action == "add" || *action == "remove") && (*registryAddrFlag == "" || *fileAddrFlag == "") {
 		log.Fatal("For add/remove actions, you must provide -registry and -file flags")
+	}
+
+	if *action == "list" && *registryAddrFlag == "" {
+		log.Fatal("For list action, you must provide -registry flag (e.g. -registry=0x...)")
 	}
 
 	var rpcClient *rpc.Client
@@ -93,14 +97,16 @@ func main() {
 	}
 	client := ethclient.NewClient(rpcClient)
 
-	// Get deployer account
-	isDeploy := *action == "deploy"
-	deployerAuth, err := getDeployerAuth(client, config.DeployerPrivateKey, isDeploy)
-	if err != nil {
-		log.Fatalf("Failed to get deployer auth: %v", err)
+	// Get deployer account (chỉ cần khi deploy/add/remove giao dịch)
+	var deployerAuth *bind.TransactOpts
+	if *action != "list" {
+		isDeploy := *action == "deploy"
+		deployerAuth, err = getDeployerAuth(client, config.DeployerPrivateKey, isDeploy)
+		if err != nil {
+			log.Fatalf("Failed to get deployer auth: %v", err)
+		}
+		log.Printf("📍 Deployer Address: %s", deployerAuth.From.Hex())
 	}
-
-	log.Printf("📍 Deployer Address: %s", deployerAuth.From.Hex())
 
 	// Read ABI
 	abiData, err := os.ReadFile("registryAbi.json")
@@ -170,6 +176,59 @@ func main() {
 			log.Fatalf("❌ Failed to %s: %v", method, err)
 		}
 		log.Printf("✅ Successfully executed %s!", method)
+	} else if *action == "list" {
+		registryAddr := common.HexToAddress(*registryAddrFlag)
+		registryContract := bind.NewBoundContract(registryAddr, parsedABI, client, client, client)
+
+		callOpts := &bind.CallOpts{Context: ctx}
+		var totalOut []interface{}
+		err := registryContract.Call(callOpts, &totalOut, "getTotalRegisteredContracts")
+		if err != nil {
+			log.Fatalf("❌ Failed to query getTotalRegisteredContracts: %v", err)
+		}
+		var total *big.Int
+		if len(totalOut) > 0 {
+			total = totalOut[0].(*big.Int)
+		} else {
+			total = big.NewInt(0)
+		}
+
+		log.Printf("📊 Registry (%s) có tổng cộng: %s File Contract đã đăng ký", registryAddr.Hex(), total.String())
+
+		if total.Cmp(big.NewInt(0)) > 0 {
+			var listOut []interface{}
+			err = registryContract.Call(callOpts, &listOut, "getRegisteredContracts", big.NewInt(0), total)
+			if err != nil {
+				log.Fatalf("❌ Failed to query getRegisteredContracts: %v", err)
+			}
+			if len(listOut) > 0 {
+				contracts := *abi.ConvertType(listOut[0], new([]common.Address)).(*[]common.Address)
+				for i, addr := range contracts {
+					var validOut []interface{}
+					isValid := true
+					if errV := registryContract.Call(callOpts, &validOut, "isContractValid", addr); errV == nil && len(validOut) > 0 {
+						isValid = validOut[0].(bool)
+					}
+					status := "Active ✅"
+					if !isValid {
+						status = "Deregistered ❌"
+					}
+					log.Printf("  [%d] %s (%s)", i+1, addr.Hex(), status)
+				}
+			}
+		} else {
+			log.Println("  (Chưa có contract nào được đăng ký)")
+		}
+
+		// In danh sách Owners của Registry
+		var ownersOut []interface{}
+		if errO := registryContract.Call(callOpts, &ownersOut, "getOwners"); errO == nil && len(ownersOut) > 0 {
+			owners := *abi.ConvertType(ownersOut[0], new([]common.Address)).(*[]common.Address)
+			log.Printf("\n👑 Danh sách Owners của Registry (%d):", len(owners))
+			for i, o := range owners {
+				log.Printf("  - Owner [%d]: %s", i+1, o.Hex())
+			}
+		}
 	} else {
 		log.Fatalf("Unknown action: %s", *action)
 	}

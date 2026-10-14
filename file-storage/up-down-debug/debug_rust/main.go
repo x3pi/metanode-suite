@@ -23,8 +23,8 @@ import (
 // }
 
 var RUST_SERVERS = []string{
-	"206.189.152.114:7081",
-	"157.245.202.80:7082",
+	"116.109.66.229:7081",
+	"116.109.66.229:7082",
 }
 
 // --- CÁC STRUCT CŨ (CHO ListChunks) ---
@@ -44,10 +44,23 @@ type ListChunksResponse struct {
 
 // --- CÁC STRUCT MỚI (CHO API LOG ĐÃ TÁCH) ---
 
+const defaultAdminPassword = "123456"
+
+func getAdminPassword() string {
+	if p := os.Getenv("ADMIN_LOG_PASSWORD"); p != "" {
+		return p
+	}
+	return defaultAdminPassword
+}
+
 // --- API 1: GetLogList ---
+type GetLogListPayload struct {
+	Password string `json:"password"`
+}
+
 type GetLogListRequest struct {
-	Command string      `json:"command"`
-	Payload interface{} `json:"payload,omitempty"` // Sẽ gửi nil
+	Command string            `json:"command"`
+	Payload GetLogListPayload `json:"payload"`
 }
 
 type LogsListResponse struct {
@@ -58,6 +71,7 @@ type LogsListResponse struct {
 
 // --- API 2: GetLogContent ---
 type GetLogContentPayload struct {
+	Password string `json:"password"`
 	FileName string `json:"file_name"`
 }
 type GetLogContentRequest struct {
@@ -269,7 +283,9 @@ func TestGetLogList(conn quic.Connection) ([]string, error) {
 	fmt.Println("--- Testing GetLogList (API 1) ---")
 	req := GetLogListRequest{
 		Command: "GetLogList",
-		Payload: nil, // Gửi nil (Option<()>)
+		Payload: GetLogListPayload{
+			Password: getAdminPassword(),
+		},
 	}
 	jsonData, err := json.Marshal(req)
 	if err != nil {
@@ -317,6 +333,7 @@ func TestGetLogContent(conn quic.Connection, fileName string, saveDir string) er
 	req := GetLogContentRequest{
 		Command: "GetLogContent",
 		Payload: GetLogContentPayload{
+			Password: getAdminPassword(),
 			FileName: fileName,
 		},
 	}

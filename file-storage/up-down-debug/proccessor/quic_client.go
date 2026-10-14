@@ -73,9 +73,12 @@ func CreateQuicConnection(serverAddr string) (quic.Connection, error) {
 	}
 
 	quicConf := &quic.Config{
-		MaxIdleTimeout:       120 * time.Second,
-		HandshakeIdleTimeout: 30 * time.Second,
-		KeepAlivePeriod:      15 * time.Second,
+		MaxIdleTimeout:          120 * time.Second,
+		HandshakeIdleTimeout:    30 * time.Second,
+		KeepAlivePeriod:         15 * time.Second,
+		DisablePathMTUDiscovery: true, // Tránh bị drop các gói UDP kích thước lớn trên đường truyền Internet
+		// InitialStreamReceiveWindow:     4 * 1024 * 1024, // 4 MB buffer
+		// InitialConnectionReceiveWindow: 8 * 1024 * 1024, // 8 MB buffer
 	}
 
 	var conn quic.Connection

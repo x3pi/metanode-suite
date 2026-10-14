@@ -88,7 +88,8 @@ func (h *Handler) HandleRequest(request network.Request) (err error) {
 
 	// Chain-direct responses — dispatch bằng header ID
 	case command.ChainId, command.TransactionReceipt, command.BlockNumber,
-		command.Logs, command.TransactionByHash, command.Nonce, command.TransactionSuccess:
+		command.Logs, command.TransactionByHash, command.Nonce, command.TransactionSuccess,
+		command.RegistrationMessage, command.RegisterAccountAck, command.RegistrationResult, command.RegistrationStatus:
 		return h.handleChainResponse(request)
 
 	case command.BlockDataFromMainMaster:
@@ -404,7 +405,14 @@ func (h *Handler) handleChainResponse(request network.Request) error {
 		return nil
 	}
 
-	val, ok := h.pendingChainRequests.LoadAndDelete(id)
+	var val any
+	var ok bool
+	if msg.Command() == command.RegisterAccountAck {
+		val, ok = h.pendingChainRequests.Load(id)
+	} else {
+		val, ok = h.pendingChainRequests.LoadAndDelete(id)
+	}
+
 	if ok {
 		ch := val.(chan network.Message)
 		ch <- msg
