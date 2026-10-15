@@ -23,7 +23,6 @@ import (
 	client_tcp "tool-test/pkg/client-tcp"
 	com_pkg "tool-test/pkg/client-tcp/common"
 	tcp_config "tool-test/pkg/client-tcp/config"
-	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
 	"tool-test/pkg/logger"
 	pb "tool-test/pkg/proto"
 	"tool-test/pkg/types"
@@ -222,7 +221,9 @@ func main() {
 				}
 				executeDeployTCP(tcpClient, cfg, senderPrivKey, fromAddress, payloadData, &lastDeployedAddress)
 			} else if action == "call" || action == "read" {
-				executeCallTCP(tcpClient, cfg, contractAddress, fromAddress, contractAbi, d.Method, payloadData, d.Verify)
+				executeCallTCP(tcpClient, contractAddress, fromAddress, contractAbi, d.Method, payloadData, d.Verify)
+			} else if action == "estimate_gas" || action == "estimategas" || action == "estimate" {
+				executeEstimateGasTCP(tcpClient, contractAddress, fromAddress, d.Method, payloadData, txAmount)
 			} else if action == "send" || action == "write" {
 				executeSendTCP(tcpClient, cfg, senderPrivKey, contractAddress, fromAddress, payloadData, txAmount, d.Method)
 			} else if action == "transfer" {
@@ -303,20 +304,22 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, send
 // Giao dịch ĐỌC (Call/Read) là mô phỏng off-chain trong EVM (tương đương eth_call).
 // Do đó: HOÀN TOÀN KHÔNG CẦN KÝ (không cần BLS hay Secp256k1), KHÔNG tốn nonce và KHÔNG tốn gas!
 // ----------------------------------------------------
-func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contractAddress common.Address, fromAddress common.Address, parsedABI abi.ABI, methodName string, payloadData []byte, expectedVerify []interface{}) {
+func executeCallTCP(cli *client_tcp.Client, contractAddress common.Address, fromAddress common.Address, parsedABI abi.ABI, methodName string, payloadData []byte, expectedVerify []interface{}) {
 	fmt.Printf("▶️  Chạy thử TCP Call (READ - Không cần ký) cho hàm %s...\n", methodName)
 
-	receipt, err := tx_helper.SendReadTransactionWithoutNonce(
-		methodName,
-		cli,
-		cfg,
-		contractAddress,
-		fromAddress,
-		payloadData,
-		nil,
-	)
+	receipt, err := cli.ChainCall(contractAddress, payloadData, &fromAddress)
 	if err != nil {
 		log.Fatalf("❌ Lỗi gọi TCP Call %s: %v", methodName, err)
+	}
+	if receipt == nil {
+		log.Fatalf("❌ Gọi TCP Call %s trả về receipt rỗng", methodName)
+	}
+	if receipt.Status() != pb.RECEIPT_STATUS_RETURNED && receipt.Status() != pb.RECEIPT_STATUS_HALTED {
+		errMsg := string(receipt.Return())
+		if errMsg == "" {
+			errMsg = receipt.Status().String()
+		}
+		log.Fatalf("❌ TCP Call %s thất bại (Status: %s, Error: %s)", methodName, receipt.Status().String(), errMsg)
 	}
 
 	result := receipt.Return()
@@ -360,6 +363,28 @@ func executeCallTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, contra
 	} else {
 		fmt.Printf("   ✅ Kết quả RAW: %x\n", result)
 	}
+}
+
+// ----------------------------------------------------
+// THỰC THI ACTION: ESTIMATE_GAS (TCP - MÔ PHỎNG CHI PHÍ GAS)
+// 💡 LƯU Ý VỀ CHỮ KÝ:
+// Ước lượng gas (EstimateGas) là mô phỏng dry-run off-chain trong EVM (tương đương eth_estimateGas).
+// Do đó: HOÀN TOÀN KHÔNG CẦN KÝ, KHÔNG tốn nonce và KHÔNG tốn gas!
+// ----------------------------------------------------
+func executeEstimateGasTCP(cli *client_tcp.Client, contractAddress common.Address, fromAddress common.Address, methodName string, payloadData []byte, amount *big.Int) {
+	fmt.Printf("▶️  Chạy thử TCP EstimateGas (Mô phỏng - Không cần ký) cho hàm %s...\n", methodName)
+
+	gasUsed, err := cli.ChainEstimateGas(
+		contractAddress,
+		payloadData,
+		&fromAddress,
+		amount,
+	)
+	if err != nil {
+		log.Fatalf("❌ Lỗi gọi TCP EstimateGas %s: %v", methodName, err)
+	}
+
+	fmt.Printf("   ⛽ ESTIMATE GAS THÀNH CÔNG: %d gas (hàm %s)\n", gasUsed, methodName)
 }
 
 // ----------------------------------------------------

@@ -257,7 +257,17 @@ handleAccountState will receive receipt from connection
 then print it out
 */
 func (h *Handler) handleReceipt(request network.Request) (err error) {
-	body := request.Message().Body()
+	msg := request.Message()
+	body := msg.Body()
+
+	// Nếu có header ID → dispatch vào pendingChainRequests (match với sendChainRequest caller như ChainCall, ChainEstimateGas)
+	if id := msg.ID(); id != "" && h.pendingChainRequests != nil {
+		if val, ok := h.pendingChainRequests.LoadAndDelete(id); ok {
+			ch := val.(chan network.Message)
+			ch <- msg
+			return nil
+		}
+	}
 
 	// Gọi receiptCallback nếu có (để nhận receipt forwarded từ RPC server)
 	if h.receiptCallback != nil {
