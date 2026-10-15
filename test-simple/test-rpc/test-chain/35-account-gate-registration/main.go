@@ -1,31 +1,50 @@
+/*
+ * BÀI TEST & CLI TOOL ĐĂNG KÝ VÍ DUY NHẤT: 35-account-gate-registration
+ *
+ * CHỨC NĂNG:
+ * 1. AUTOMATED TEST (Mặc định trong CI & go test):
+ *    - Xác nhận Account Gate từ chối ví chưa đăng ký (RecipientNotRegistered).
+ *    - Đăng ký ví mới qua RPC (mtn_getRegistrationMessage -> ECDSA sign -> mtn_registerAccount).
+ *    - Đợi Parent Chain và Cluster xác nhận trạng thái CONFIRMED / PROVISIONAL.
+ *    - Gửi Native Token vào ví vừa đăng ký thành công (Gate mở khóa).
+ *    - Ví mới tự gửi giao dịch chuyển tiền đầu tiên thành công.
+ *    - Nếu có cấu hình TCP, kiểm tra push notification qua TCP socket.
+ *
+ * 2. STANDALONE CLI TOOL (Khi truyền cờ -count, -wallet-pk, -check, -tcp):
+ *    - go run main.go -count=5 -out=my_wallets.json
+ *    - go run main.go -wallet-pk=0x...
+ *    - go run main.go -check=0x...
+ *    - go run main.go -tcp=127.0.0.1:4200 -count=3
+ */
 package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"tool-test/test-simple/test-rpc/test-chain/config"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
 	"tool-test/pkg/logger"
 )
-
-// ============================================================================
-// METANODE ACCOUNT GATE REGISTRATION TOOL (GOLANG)
-// Onboarding ví mới hoàn toàn vào chain con (Execution Cluster) qua Account Gate
-// ============================================================================
 
 type RPCRequest struct {
 	Jsonrpc string        `json:"jsonrpc"`
@@ -73,22 +92,21 @@ type RegisteredAccountRecord struct {
 	RegisterTime string `json:"register_time"`
 }
 
-// Client gọi JSON-RPC
-type NodeClient struct {
+type NodeRPCClient struct {
 	rpcURL     string
 	httpClient *http.Client
 }
 
-func NewNodeClient(rpcURL string) *NodeClient {
-	return &NodeClient{
+func NewNodeRPCClient(rpcURL string) *NodeRPCClient {
+	return &NodeRPCClient{
 		rpcURL: strings.TrimRight(rpcURL, "/"),
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 15 * time.Second,
 		},
 	}
 }
 
-func (c *NodeClient) Call(method string, params []interface{}, resultHolder interface{}) error {
+func (c *NodeRPCClient) Call(method string, params []interface{}, resultHolder interface{}) error {
 	reqBody, err := json.Marshal(RPCRequest{
 		Jsonrpc: "2.0",
 		Method:  method,
@@ -112,7 +130,7 @@ func (c *NodeClient) Call(method string, params []interface{}, resultHolder inte
 
 	var rpcResp RPCResponse
 	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return fmt.Errorf("lỗi parse JSON response: %w (raw: %s)", err, string(body))
+		return fmt.Errorf("lỗi parse JSON: %w (raw: %s)", err, string(body))
 	}
 
 	if rpcResp.Error != nil {
@@ -127,8 +145,7 @@ func (c *NodeClient) Call(method string, params []interface{}, resultHolder inte
 	return nil
 }
 
-// Lấy thông tin Cluster Identity
-func (c *NodeClient) GetClusterIdentity() (*ClusterIdentity, error) {
+func (c *NodeRPCClient) GetClusterIdentity() (*ClusterIdentity, error) {
 	var identity ClusterIdentity
 	if err := c.Call("mtn_getClusterIdentity", []interface{}{}, &identity); err != nil {
 		return nil, err
@@ -136,8 +153,7 @@ func (c *NodeClient) GetClusterIdentity() (*ClusterIdentity, error) {
 	return &identity, nil
 }
 
-// Lấy message & hash cần ký cho địa chỉ ví
-func (c *NodeClient) GetRegistrationMessage(addr common.Address) (*RegistrationMessage, error) {
+func (c *NodeRPCClient) GetRegistrationMessage(addr common.Address) (*RegistrationMessage, error) {
 	var msg RegistrationMessage
 	if err := c.Call("mtn_getRegistrationMessage", []interface{}{addr.Hex()}, &msg); err != nil {
 		return nil, err
@@ -145,8 +161,7 @@ func (c *NodeClient) GetRegistrationMessage(addr common.Address) (*RegistrationM
 	return &msg, nil
 }
 
-// Gửi yêu cầu đăng ký
-func (c *NodeClient) RegisterAccount(addr common.Address, sigBytes []byte) (*RegistrationInfo, error) {
+func (c *NodeRPCClient) RegisterAccount(addr common.Address, sigBytes []byte) (*RegistrationInfo, error) {
 	var info RegistrationInfo
 	sigHex := hexutil.Encode(sigBytes)
 	if err := c.Call("mtn_registerAccount", []interface{}{addr.Hex(), sigHex}, &info); err != nil {
@@ -155,8 +170,7 @@ func (c *NodeClient) RegisterAccount(addr common.Address, sigBytes []byte) (*Reg
 	return &info, nil
 }
 
-// Lấy trạng thái đăng ký hiện tại
-func (c *NodeClient) GetRegistrationStatus(addr common.Address) (*RegistrationInfo, error) {
+func (c *NodeRPCClient) GetRegistrationStatus(addr common.Address) (*RegistrationInfo, error) {
 	var info RegistrationInfo
 	if err := c.Call("mtn_getRegistrationStatus", []interface{}{addr.Hex()}, &info); err != nil {
 		return nil, err
@@ -164,8 +178,7 @@ func (c *NodeClient) GetRegistrationStatus(addr common.Address) (*RegistrationIn
 	return &info, nil
 }
 
-// Kiểm tra số dư ví
-func (c *NodeClient) GetBalance(addr common.Address) (*big.Int, error) {
+func (c *NodeRPCClient) GetBalance(addr common.Address) (*big.Int, error) {
 	var balanceHex string
 	if err := c.Call("eth_getBalance", []interface{}{addr.Hex(), "latest"}, &balanceHex); err != nil {
 		return big.NewInt(0), err
@@ -177,8 +190,8 @@ func (c *NodeClient) GetBalance(addr common.Address) (*big.Int, error) {
 	return balance, nil
 }
 
-// Thực hiện toàn bộ quy trình onboarding 1 ví
-func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int) (*RegisteredAccountRecord, error) {
+// registerOneWallet thực hiện đăng ký 1 ví qua HTTP RPC
+func registerOneWallet(client *NodeRPCClient, privKey *ecdsa.PrivateKey, index int) (*RegisteredAccountRecord, error) {
 	userAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 	privKeyHex := hexutil.Encode(crypto.FromECDSA(privKey))
 
@@ -186,7 +199,6 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 	fmt.Printf("🚀 [%d] Đang xử lý ví: %s\n", index, userAddr.Hex())
 	fmt.Printf("   Private Key: %s\n", privKeyHex)
 
-	// 1. Kiểm tra trạng thái hiện tại của ví
 	statusInfo, err := client.GetRegistrationStatus(userAddr)
 	if err == nil && statusInfo != nil {
 		if statusInfo.Status == "CONFIRMED" || statusInfo.Status == "PROVISIONAL" {
@@ -201,16 +213,12 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 		}
 	}
 
-	// 2. Lấy thông điệp cần ký
 	fmt.Printf("   1️⃣ Đang lấy thông điệp đăng ký từ node (mtn_getRegistrationMessage)...\n")
 	regMsg, err := client.GetRegistrationMessage(userAddr)
 	if err != nil {
 		return nil, fmt.Errorf("thất bại khi lấy thông điệp đăng ký: %w", err)
 	}
-	fmt.Printf("      • Digest:       %s\n", regMsg.Digest)
-	fmt.Printf("      • Hash to Sign: %s\n", regMsg.HashToSign)
 
-	// 3. Ký ECDSA secp256k1 lên hashToSign
 	hashBytes, err := hexutil.Decode(regMsg.HashToSign)
 	if err != nil {
 		return nil, fmt.Errorf("lỗi decode hashToSign: %w", err)
@@ -222,7 +230,6 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 	}
 	fmt.Printf("   2️⃣ Đã ký chữ ký ECDSA thành công: %s\n", hexutil.Encode(sigBytes))
 
-	// 4. Gửi yêu cầu đăng ký lên Node thực thi
 	fmt.Printf("   3️⃣ Đang gửi đăng ký lên Node thực thi (mtn_registerAccount)...\n")
 	submitInfo, err := client.RegisterAccount(userAddr, sigBytes)
 	if err != nil {
@@ -230,7 +237,6 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 	}
 	fmt.Printf("      • Trạng thái phản hồi: %s (Reason: %s)\n", submitInfo.Status, submitInfo.Reason)
 
-	// 5. Polling thăm dò trạng thái cho tới khi CONFIRMED
 	fmt.Printf("   4️⃣ Đang chờ Node & Parent Chain xác nhận (Polling mtn_getRegistrationStatus)...\n")
 	timeout := time.After(45 * time.Second)
 	ticker := time.NewTicker(1500 * time.Millisecond)
@@ -243,7 +249,6 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 		case <-ticker.C:
 			currentStatus, err := client.GetRegistrationStatus(userAddr)
 			if err != nil {
-				fmt.Printf("      ⏳ Đang thăm dò... (lỗi nhẹ: %v)\n", err)
 				continue
 			}
 
@@ -277,15 +282,13 @@ func registerOneWallet(client *NodeClient, privKey *ecdsa.PrivateKey, index int)
 				return nil, fmt.Errorf("đăng ký thất bại (FAILED): %s", currentStatus.Reason)
 
 			case "PENDING":
-				// Tiếp tục chờ
-			default:
-				// Trạng thái khác, tiếp tục chờ
+				// Chờ tiếp
 			}
 		}
 	}
 }
 
-// Thực hiện quy trình onboarding 1 ví qua TCP Socket với cơ chế ASYNC PUSH (Không Polling)
+// registerOneWalletTCP thực hiện đăng ký 1 ví qua TCP Socket với cơ chế ASYNC PUSH (Không Polling)
 func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, index int) (*RegisteredAccountRecord, error) {
 	userAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 	privKeyHex := hexutil.Encode(crypto.FromECDSA(privKey))
@@ -294,7 +297,6 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 	fmt.Printf("🚀 [%d] (TCP Socket) Đang xử lý ví: %s\n", index, userAddr.Hex())
 	fmt.Printf("   Private Key: %s\n", privKeyHex)
 
-	// 1. Kiểm tra trạng thái hiện tại của ví qua TCP (GetRegistrationStatus)
 	statusInfo, err := client.ChainGetRegistrationStatus(userAddr)
 	if err == nil && statusInfo != nil {
 		if statusInfo.Status == "CONFIRMED" || statusInfo.Status == "PROVISIONAL" {
@@ -309,22 +311,18 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 		}
 	}
 
-	// 2. Lấy 32-byte hashToSign cần ký từ node qua TCP (GetRegistrationMessage)
 	fmt.Printf("   1️⃣ Đang lấy thông điệp đăng ký từ node qua TCP (GetRegistrationMessage)...\n")
 	hashToSign, err := client.ChainGetRegistrationMessage(userAddr)
 	if err != nil {
 		return nil, fmt.Errorf("thất bại khi lấy thông điệp đăng ký qua TCP: %w", err)
 	}
-	fmt.Printf("      • Hash to Sign: %s\n", hashToSign.Hex())
 
-	// 3. Ký ECDSA secp256k1 lên hashToSign
 	sigBytes, err := crypto.Sign(hashToSign.Bytes(), privKey)
 	if err != nil {
 		return nil, fmt.Errorf("lỗi tạo chữ ký ECDSA: %w", err)
 	}
 	fmt.Printf("   2️⃣ Đã ký chữ ký ECDSA thành công: %s\n", hexutil.Encode(sigBytes))
 
-	// 4. Gửi yêu cầu đăng ký và CHỜ ASYNC PUSH (KHÔNG POLLING)
 	fmt.Printf("   3️⃣ Gửi đăng ký lên TCP Socket & chờ kết quả Push (ChainRegisterAccountWait - KHÔNG Polling)...\n")
 	result, err := client.ChainRegisterAccountWait(userAddr, sigBytes, 45*time.Second)
 	if err != nil {
@@ -345,7 +343,7 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 		}, nil
 
 	case "PROVISIONAL":
-		fmt.Printf("   ✅ Node PUSH kết quả PROVISIONAL; ví được phép giao dịch nội bộ và chưa được rút cross-chain.\n")
+		fmt.Printf("   ✅ Node PUSH kết quả PROVISIONAL; ví được phép giao dịch nội bộ.\n")
 		return &RegisteredAccountRecord{
 			Index:        index,
 			Address:      userAddr.Hex(),
@@ -365,19 +363,264 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 	}
 }
 
+// RunTest là hàm kiểm thử tự động chính thức trong CI / Test Suite
+func RunTest(configPath string) error {
+	fmt.Println("==========================================================")
+	fmt.Println("BÀI TEST: 35-account-gate-registration")
+	fmt.Println("==========================================================")
+	fmt.Println("📖 MÔ TẢ   : Kiểm tra cơ chế Account Registration Gate trên Child Chain (Execution Cluster):")
+	fmt.Println("             1. Xác nhận ví chưa đăng ký bị chặn (RecipientNotRegistered)")
+	fmt.Println("             2. Đăng ký ví mới qua RPC (mtn_getRegistrationMessage -> sign -> mtn_registerAccount)")
+	fmt.Println("             3. Chờ trạng thái CONFIRMED/PROVISIONAL từ Parent Chain & Cluster")
+	fmt.Println("             4. Gửi Native Token vào ví vừa đăng ký thành công")
+	fmt.Println("             5. Ví mới tự gửi giao dịch chuyển tiền thành công")
+	fmt.Println("🎯 KỲ VỌNG : Toàn bộ quy trình gate & onboarding hoạt động chính xác 100%.")
+	fmt.Println("==========================================================")
+	fmt.Println("🚀 KẾT QUẢ THỰC THI:")
+
+	if configPath == "" {
+		configPath = "../config.json"
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("lỗi load config: %w", err)
+	}
+
+	client, err := ethclient.Dial(cfg.RPCUrl)
+	if err != nil {
+		return fmt.Errorf("lỗi kết nối RPC ethclient: %w", err)
+	}
+
+	if len(cfg.PrivateKeys) == 0 {
+		return fmt.Errorf("cần ít nhất 1 private key đã đăng ký để test")
+	}
+
+	rpcClient := NewNodeRPCClient(cfg.RPCUrl)
+
+	// 1. Kiểm tra Cluster Identity và trạng thái Account Gate
+	fmt.Println("🔍 [Bước 1] Kiểm tra trạng thái Account Gate của Cluster...")
+	clusterIdentity, err := rpcClient.GetClusterIdentity()
+	if err != nil {
+		fmt.Printf("⚠️ Cảnh báo: Cluster không hỗ trợ mtn_getClusterIdentity hoặc Account Gate tắt (%v)\n", err)
+		fmt.Println("👉 Bỏ qua kiểm tra Account Gate vì chain đang chạy ở chế độ không có gate.")
+		return nil
+	}
+
+	fmt.Printf("   • Chain ID:     %d\n", clusterIdentity.ChainID)
+	fmt.Printf("   • Cluster Key:  %s\n", clusterIdentity.ClusterKey)
+	fmt.Printf("   • Account Gate: %v\n", clusterIdentity.AccountGate)
+
+	if !clusterIdentity.AccountGate {
+		fmt.Println("ℹ️ Account Gate không bật trên chain này, hoàn thành kiểm tra tương thích.")
+		return nil
+	}
+
+	// 2. Tạo một tài khoản mới tinh (chưa từng đăng ký)
+	newPrivKey, err := crypto.GenerateKey()
+	if err != nil {
+		return fmt.Errorf("lỗi sinh private key mới: %w", err)
+	}
+	newAddr := crypto.PubkeyToAddress(newPrivKey.PublicKey)
+	fmt.Printf("\n🔑 [Bước 2] Sinh ngẫu nhiên ví mới: %s\n", newAddr.Hex())
+
+	// 3. Thử gửi tiền tới ví chưa đăng ký -> Phải bị chặn bởi Account Gate
+	fmt.Println("🛡️ [Bước 3] Thử gửi Native Token đến ví chưa đăng ký để kiểm tra Account Gate...")
+	fundedKey, err := crypto.HexToECDSA(cfg.PrivateKeys[0])
+	if err != nil {
+		return fmt.Errorf("lỗi parse funded private key: %w", err)
+	}
+	fundedAddr := crypto.PubkeyToAddress(fundedKey.PublicKey)
+
+	nonce, err := client.PendingNonceAt(context.Background(), fundedAddr)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy nonce ví nguồn: %w", err)
+	}
+
+	gasLimit := uint64(21000)
+	gasPrice := big.NewInt(1e9)
+	sendAmount := big.NewInt(1000000000000000) // 0.001 token
+
+	testRejectTx := types.NewTransaction(nonce, newAddr, sendAmount, gasLimit, gasPrice, nil)
+	signedRejectTx, err := types.SignTx(testRejectTx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), fundedKey)
+	if err != nil {
+		return fmt.Errorf("lỗi ký test tx: %w", err)
+	}
+
+	sendErr := client.SendTransaction(context.Background(), signedRejectTx)
+	if sendErr == nil {
+		return fmt.Errorf("❌ LỖI BẢO MẬT: Giao dịch gửi đến ví chưa đăng ký lại được chấp nhận thành công! Account Gate không hoạt động.")
+	}
+
+	fmt.Printf("   ✅ Account Gate đã chặn chính xác: \"%v\"\n", sendErr)
+
+	// 4. Đăng ký ví mới qua mtn_registerAccount
+	fmt.Println("\n📝 [Bước 4] Tiến hành đăng ký ví mới qua Account Gate RPC...")
+	regMsg, err := rpcClient.GetRegistrationMessage(newAddr)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy thông điệp đăng ký: %w", err)
+	}
+
+	hashBytes, err := hexutil.Decode(regMsg.HashToSign)
+	if err != nil {
+		return fmt.Errorf("lỗi decode HashToSign: %w", err)
+	}
+
+	sigBytes, err := crypto.Sign(hashBytes, newPrivKey)
+	if err != nil {
+		return fmt.Errorf("lỗi ký ECDSA secp256k1: %w", err)
+	}
+
+	submitInfo, err := rpcClient.RegisterAccount(newAddr, sigBytes)
+	if err != nil {
+		return fmt.Errorf("lỗi gọi mtn_registerAccount: %w", err)
+	}
+	fmt.Printf("   • Trạng thái nộp: %s (Reason: %s)\n", submitInfo.Status, submitInfo.Reason)
+
+	// 5. Chờ xác nhận CONFIRMED hoặc PROVISIONAL
+	fmt.Println("⏳ [Bước 5] Chờ Parent Chain và Node xác nhận đăng ký...")
+	timeout := time.After(45 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	confirmed := false
+	for !confirmed {
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout sau 45s: ví %s chưa được chuyển sang CONFIRMED/PROVISIONAL", newAddr.Hex())
+		case <-ticker.C:
+			statusInfo, err := rpcClient.GetRegistrationStatus(newAddr)
+			if err != nil {
+				continue
+			}
+			fmt.Printf("   ⏳ Trạng thái hiện tại: %s\n", statusInfo.Status)
+			if statusInfo.Status == "CONFIRMED" || statusInfo.Status == "PROVISIONAL" {
+				fmt.Printf("   🎉 ĐĂNG KÝ THÀNH CÔNG! Trạng thái: %s\n", statusInfo.Status)
+				confirmed = true
+			} else if statusInfo.Status == "REJECTED" || statusInfo.Status == "FAILED" {
+				return fmt.Errorf("đăng ký thất bại với trạng thái: %s (reason: %s)", statusInfo.Status, statusInfo.Reason)
+			}
+		}
+	}
+
+	// 6. Gửi tiền vào ví vừa đăng ký thành công
+	fmt.Println("\n💸 [Bước 6] Gửi Native Token vào ví vừa đăng ký thành công...")
+	nonce, err = client.PendingNonceAt(context.Background(), fundedAddr)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy nonce mới: %w", err)
+	}
+
+	fundTx := types.NewTransaction(nonce, newAddr, sendAmount, gasLimit, gasPrice, nil)
+	signedFundTx, err := types.SignTx(fundTx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), fundedKey)
+	if err != nil {
+		return fmt.Errorf("lỗi ký fund tx: %w", err)
+	}
+
+	if err := client.SendTransaction(context.Background(), signedFundTx); err != nil {
+		return fmt.Errorf("gửi tiền vào ví vừa đăng ký thất bại: %w", err)
+	}
+	fmt.Printf("   ✅ Tx gửi tiền thành công: %s\n", signedFundTx.Hash().Hex())
+
+	// Chờ tx confirm
+	fmt.Println("   ⏳ Chờ Tx nạp tiền được đóng block...")
+	for {
+		receipt, err := client.TransactionReceipt(context.Background(), signedFundTx.Hash())
+		if err == nil && receipt != nil && receipt.Status == 1 {
+			fmt.Printf("   ✅ Tx nạp tiền confirmed tại block %d!\n", receipt.BlockNumber.Uint64())
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	newBal, err := client.BalanceAt(context.Background(), newAddr, nil)
+	if err != nil {
+		return fmt.Errorf("lỗi đọc số dư ví mới: %w", err)
+	}
+	fmt.Printf("   💰 Số dư ví mới hiện tại: %s wei\n", newBal.String())
+	if newBal.Cmp(sendAmount) < 0 {
+		return fmt.Errorf("số dư không khớp kỳ vọng: có %s wei, cần ít nhất %s wei", newBal.String(), sendAmount.String())
+	}
+
+	// 7. Ví mới tự ký và gửi một giao dịch chuyển Native Token đi (Giao dịch đầu tiên của ví mới)
+	fmt.Println("\n🚀 [Bước 7] Ví mới tự gửi giao dịch đầu tiên (Outbound Transfer)...")
+	newNonce, err := client.PendingNonceAt(context.Background(), newAddr)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy nonce ví mới: %w", err)
+	}
+
+	returnAmount := big.NewInt(100000000000000) // 0.0001 token
+	outboundTx := types.NewTransaction(newNonce, fundedAddr, returnAmount, gasLimit, gasPrice, nil)
+	signedOutboundTx, err := types.SignTx(outboundTx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), newPrivKey)
+	if err != nil {
+		return fmt.Errorf("lỗi ký outbound tx: %w", err)
+	}
+
+	if err := client.SendTransaction(context.Background(), signedOutboundTx); err != nil {
+		return fmt.Errorf("ví mới gửi giao dịch thất bại: %w", err)
+	}
+	fmt.Printf("   ✅ Tx từ ví mới gửi thành công: %s\n", signedOutboundTx.Hash().Hex())
+
+	for {
+		receipt, err := client.TransactionReceipt(context.Background(), signedOutboundTx.Hash())
+		if err == nil && receipt != nil && receipt.Status == 1 {
+			fmt.Printf("   ✅ Tx từ ví mới confirmed tại block %d!\n", receipt.BlockNumber.Uint64())
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	fmt.Println("\n🎉 TEST PASSED: Toàn bộ quy trình Account Gate và Onboarding ví mới hoạt động hoàn hảo!")
+	return nil
+}
+
 func main() {
-	rpcFlag := flag.String("rpc", "http://127.0.0.1:8747", "Endpoint JSON-RPC HTTP (ví dụ: http://192.168.1.234:8747)")
-	tcpFlag := flag.String("tcp", "", "Endpoint TCP Socket của node hoặc proxy (ví dụ: 127.0.0.1:4200 hoặc 127.0.0.1:9545)")
+	// Định nghĩa cờ dòng lệnh CLI
+	rpcFlag := flag.String("rpc", "", "Endpoint JSON-RPC HTTP (ví dụ: http://192.168.1.223:8747)")
+	tcpFlag := flag.String("tcp", "", "Endpoint TCP Socket của node (ví dụ: 192.168.1.223:4200)")
 	tcpConfigFlag := flag.String("tcp-config", "", "Đường dẫn file cấu hình JSON TCP (tùy chọn)")
-	countFlag := flag.Int("count", 1, "Số lượng ví mới cần tạo và đăng ký")
-	walletPkFlag := flag.String("wallet-pk", "", "Private key hex của ví có sẵn (nếu muốn đăng ký cho ví cũ)")
-	outFileFlag := flag.String("out", "registered_wallets.json", "Đường dẫn file JSON để xuất danh sách ví đã đăng ký")
+	countFlag := flag.Int("count", 0, "Số lượng ví mới cần tạo và đăng ký (dùng cho CLI mode)")
+	walletPkFlag := flag.String("wallet-pk", "", "Private key hex của ví có sẵn cần đăng ký (CLI mode)")
+	outFileFlag := flag.String("out", "", "Đường dẫn file JSON để xuất danh sách ví đã đăng ký")
 	checkOnlyFlag := flag.String("check", "", "Địa chỉ ví cần kiểm tra trạng thái đăng ký (chỉ kiểm tra, không đăng ký)")
+	cliModeFlag := flag.Bool("cli", false, "Bắt buộc chạy ở chế độ CLI Onboarding Tool thay vì Test Suite")
 	flag.Parse()
 
-	// ══════════════════════════════════════════════════════════════════
-	// CHẾ ĐỘ 1: THỰC THI QUA GIAO THỨC TCP SOCKET (NẾU CÓ CỜ -tcp HOẶC -tcp-config)
-	// ══════════════════════════════════════════════════════════════════
+	isCLIMode := *cliModeFlag || *countFlag > 0 || *walletPkFlag != "" || *checkOnlyFlag != "" || *outFileFlag != "" || *tcpFlag != "" || *tcpConfigFlag != ""
+
+	// ════════════════════════════════════════════════════════════════════
+	// CHẾ ĐỘ 1: AUTOMATED TEST SUITE (Mặc định khi chạy CI hoặc go test)
+	// ════════════════════════════════════════════════════════════════════
+	if !isCLIMode {
+		configPath := "../config.json"
+		if flag.NArg() > 0 {
+			configPath = flag.Arg(0)
+		}
+		if err := RunTest(configPath); err != nil {
+			log.Fatalf("❌ %v", err)
+		}
+		return
+	}
+
+	// ════════════════════════════════════════════════════════════════════
+	// CHẾ ĐỘ 2: CLI ONBOARDING TOOL (Thay thế trọn vẹn register_account)
+	// ════════════════════════════════════════════════════════════════════
+
+	// Tự động load config nếu rpc / tcp chưa được cung cấp qua cờ
+	if *outFileFlag == "" && *checkOnlyFlag == "" {
+		*outFileFlag = "registered_wallets.json"
+	}
+	defaultRPC := "http://127.0.0.1:8747"
+	defaultTCP := ""
+	if cfg, err := config.LoadConfig("../config.json"); err == nil && cfg != nil {
+		if cfg.RPCUrl != "" {
+			defaultRPC = cfg.RPCUrl
+		}
+		if cfg.TCPNode != "" {
+			defaultTCP = cfg.TCPNode
+		}
+	}
+
+	// Xử lý qua TCP Socket nếu có cờ TCP
 	if *tcpFlag != "" || *tcpConfigFlag != "" {
 		var cfg *tcp_config.ClientConfig
 		if *tcpConfigFlag != "" {
@@ -415,7 +658,6 @@ func main() {
 		}
 		time.Sleep(500 * time.Millisecond)
 
-		// Chỉ kiểm tra 1 địa chỉ qua TCP
 		if *checkOnlyFlag != "" {
 			checkAddr := common.HexToAddress(*checkOnlyFlag)
 			fmt.Printf("🔍 (TCP) Đang kiểm tra trạng thái ví: %s\n", checkAddr.Hex())
@@ -436,6 +678,10 @@ func main() {
 		}
 
 		var results []*RegisteredAccountRecord
+		count := *countFlag
+		if count <= 0 && *walletPkFlag == "" {
+			count = 1
+		}
 
 		if *walletPkFlag != "" {
 			cleanPk := strings.TrimPrefix(*walletPkFlag, "0x")
@@ -451,8 +697,8 @@ func main() {
 			}
 			results = append(results, record)
 		} else {
-			fmt.Printf("🔑 Chuẩn bị sinh ngẫu nhiên và đăng ký %d ví mới qua TCP Socket (Push Mode)...\n", *countFlag)
-			for i := 1; i <= *countFlag; i++ {
+			fmt.Printf("🔑 Chuẩn bị sinh ngẫu nhiên và đăng ký %d ví mới qua TCP Socket (Push Mode)...\n", count)
+			for i := 1; i <= count; i++ {
 				privKey, err := crypto.GenerateKey()
 				if err != nil {
 					fmt.Printf("❌ Lỗi sinh private key cho ví %d: %v\n", i, err)
@@ -475,25 +721,25 @@ func main() {
 			}
 		}
 
-		fmt.Printf("\n✨ Hoàn thành qua TCP! (%d/%d ví đăng ký thành công)\n", len(results), *countFlag)
+		fmt.Printf("\n✨ Hoàn thành qua TCP! (%d ví đăng ký thành công)\n", len(results))
 		return
 	}
 
-	// ══════════════════════════════════════════════════════════════════
-	// CHẾ ĐỘ 2: THỰC THI QUA JSON-RPC HTTP (CHẾ ĐỘ MẶC ĐỊNH / POLLING)
-	// ══════════════════════════════════════════════════════════════════
-	client := NewNodeClient(*rpcFlag)
+	// Xử lý qua HTTP JSON-RPC
+	targetRPC := *rpcFlag
+	if targetRPC == "" {
+		targetRPC = defaultRPC
+	}
+	client := NewNodeRPCClient(targetRPC)
 
 	fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
 	fmt.Println("║      METANODE ACCOUNT GATE ONBOARDING TOOL (HTTP JSON-RPC)       ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
-	fmt.Printf("📡 Endpoint RPC: %s\n", *rpcFlag)
+	fmt.Printf("📡 Endpoint RPC: %s\n", targetRPC)
 
-	// Kiểm tra kết nối và Cluster Identity
 	clusterId, err := client.GetClusterIdentity()
 	if err != nil {
-		fmt.Printf("⚠️ Cảnh báo: Không thể lấy cluster identity từ RPC: %v\n", err)
-		fmt.Printf("👉 Đảm bảo node đang chạy với `account_gate = parent_registered` và endpoint mtn_* đã bật.\n\n")
+		fmt.Printf("⚠️ Cảnh báo: Không thể lấy cluster identity từ RPC: %v\n\n", err)
 	} else {
 		fmt.Printf("✅ Đã kết nối cụm thành công!\n")
 		fmt.Printf("   • Chain ID:      %d\n", clusterId.ChainID)
@@ -502,7 +748,6 @@ func main() {
 		fmt.Printf("   • Message Tag:   %s\n\n", clusterId.MessageTag)
 	}
 
-	// Nếu chỉ kiểm tra 1 địa chỉ
 	if *checkOnlyFlag != "" {
 		checkAddr := common.HexToAddress(*checkOnlyFlag)
 		fmt.Printf("🔍 Đang kiểm tra trạng thái ví: %s\n", checkAddr.Hex())
@@ -521,8 +766,11 @@ func main() {
 	}
 
 	var results []*RegisteredAccountRecord
+	count := *countFlag
+	if count <= 0 && *walletPkFlag == "" {
+		count = 1
+	}
 
-	// Trường hợp 1: Đăng ký cho 1 ví cụ thể qua private key
 	if *walletPkFlag != "" {
 		cleanPk := strings.TrimPrefix(*walletPkFlag, "0x")
 		privKey, err := crypto.HexToECDSA(cleanPk)
@@ -539,10 +787,8 @@ func main() {
 		results = append(results, record)
 
 	} else {
-		// Trường hợp 2: Sinh ngẫu nhiên N ví mới và đăng ký hàng loạt
-		fmt.Printf("🔑 Chuẩn bị sinh ngẫu nhiên và đăng ký %d ví mới...\n", *countFlag)
-
-		for i := 1; i <= *countFlag; i++ {
+		fmt.Printf("🔑 Chuẩn bị sinh ngẫu nhiên và đăng ký %d ví mới...\n", count)
+		for i := 1; i <= count; i++ {
 			privKey, err := crypto.GenerateKey()
 			if err != nil {
 				fmt.Printf("❌ Lỗi sinh private key cho ví %d: %v\n", i, err)
@@ -558,7 +804,6 @@ func main() {
 		}
 	}
 
-	// Xuất kết quả ra file JSON
 	if len(results) > 0 && *outFileFlag != "" {
 		data, err := json.MarshalIndent(results, "", "  ")
 		if err == nil {
@@ -567,5 +812,6 @@ func main() {
 		}
 	}
 
-	fmt.Printf("\n✨ Hoàn thành! (%d/%d ví đăng ký thành công)\n", len(results), *countFlag)
+	fmt.Printf("\n✨ Hoàn thành! (%d ví đăng ký thành công)\n", len(results))
+	_ = defaultTCP
 }

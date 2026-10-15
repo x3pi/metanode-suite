@@ -7,11 +7,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -198,7 +202,60 @@ func RunTest(configPath string) error {
 		return fmt.Errorf("TEST FAILED: Mempool từ chối giao dịch hoặc Balance bị sai lệch do Race Condition")
 	}
 
-	fmt.Println("\n🎉 TEST PASSED: Mempool xử lý Nonce tăng dần cực chuẩn và Balance của tất cả ví nhận cập nhật chính xác!")
+	fmt.Println("\n🎉 Mempool xử lý Nonce tăng dần cực chuẩn và Balance của tất cả ví nhận cập nhật chính xác!")
+
+	// =========================================================================
+	// CASE KIỂM THỬ ACCOUNT GATE: Chuyển tiền tới tài khoản CHƯA đăng ký trên cụm
+	// Kỳ vọng: Hệ thống (Account Gate) phải từ chối và báo lỗi chưa đăng ký
+	// =========================================================================
+	fmt.Println("\n🛡️ [CASE KIỂM THỬ ACCOUNT GATE] Chuyển tiền tới tài khoản CHƯA đăng ký trên cụm...")
+	unregisteredAddr := common.HexToAddress("0x0000000000000000000000000000000000000088")
+	unregNonce, err := client.PendingNonceAt(context.Background(), senderAddr)
+	if err != nil {
+		return fmt.Errorf("lỗi lấy nonce ví kiểm tra gate: %w", err)
+	}
+
+	unregTx := types.NewTransaction(unregNonce, unregisteredAddr, sendAmount, uint64(21000), big.NewInt(1e9), nil)
+	signedUnregTx, err := types.SignTx(unregTx, types.NewEIP155Signer(big.NewInt(cfg.ChainID)), pk0)
+	if err != nil {
+		return fmt.Errorf("lỗi ký transaction unreg: %w", err)
+	}
+
+	sendErr := client.SendTransaction(context.Background(), signedUnregTx)
+
+	// Kiểm tra xem chain có bật Account Gate hay không qua RPC
+	rpcClient := &http.Client{Timeout: 5 * time.Second}
+	hasGate := false
+	type rpcResp struct {
+		Result struct {
+			AccountGate bool `json:"accountGate"`
+		} `json:"result"`
+	}
+	reqBody := []byte(`{"jsonrpc":"2.0","method":"mtn_getClusterIdentity","params":[],"id":1}`)
+	if resp, err := rpcClient.Post(cfg.RPCUrl, "application/json", bytes.NewBuffer(reqBody)); err == nil {
+		var r rpcResp
+		if b, err := io.ReadAll(resp.Body); err == nil {
+			_ = json.Unmarshal(b, &r)
+			hasGate = r.Result.AccountGate
+		}
+		_ = resp.Body.Close()
+	}
+
+	if sendErr == nil {
+		if hasGate {
+			return fmt.Errorf("TEST FAILED: Cụm bật Account Gate nhưng cho phép chuyển tiền tới ví chưa đăng ký (%s)", unregisteredAddr.Hex())
+		}
+		fmt.Printf("   ℹ️ Node cho phép gửi tiền (Account Gate không kích hoạt trên chain này)\n")
+	} else {
+		errStr := sendErr.Error()
+		if strings.Contains(errStr, "recipient not registered") || strings.Contains(errStr, "not registered") {
+			fmt.Printf("   ✅ ĐÚNG KỲ VỌNG: Node từ chối chuyển tiền tới ví chưa đăng ký (%s):\n      👉 Lỗi nhận được: \"%v\"\n", unregisteredAddr.Hex(), sendErr)
+		} else {
+			return fmt.Errorf("giao dịch bị từ chối nhưng lỗi không mong muốn: %w", sendErr)
+		}
+	}
+
+	fmt.Println("🎉 TEST PASSED: Toàn bộ kiểm thử Native Transfer (One-to-Many) và Account Gate hoàn tất xuất sắc!")
 	return nil
 }
 

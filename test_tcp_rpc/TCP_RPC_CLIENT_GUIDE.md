@@ -36,9 +36,9 @@ go run main.go -register -random -tcp=127.0.0.1:9545
 ```
 
 > [!TIP]
-> Nếu muốn đăng ký **hàng loạt N ví** và lưu kết quả ra file JSON, dùng tool `register_account`:
+> Nếu muốn đăng ký **hàng loạt N ví** và lưu kết quả ra file JSON, dùng tool `35-account-gate-registration`:
 > ```bash
-> cd ../register_account
+> cd ../test-simple/test-rpc/test-chain/35-account-gate-registration
 > go run main.go -tcp=127.0.0.1:9545 -count=5
 > ```
 

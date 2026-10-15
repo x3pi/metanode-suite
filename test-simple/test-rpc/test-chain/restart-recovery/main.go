@@ -516,7 +516,7 @@ func main() {
 		fmt.Printf("⏳ Bắt đầu gửi %d giao dịch phân phối đều qua %d Validator đang sống: [%s] (sử dụng %d ví)...\n",
 			*txCount, len(txSendNodes), strings.Join(txNames, ", "), len(accounts))
 	}
-	receiverAddr := common.HexToAddress("0x0000000000000000000000000000000000000088")
+	receiverAddr := accounts[0].Address
 	chainID := big.NewInt(cfg.ChainID)
 
 	type TxRecord struct {

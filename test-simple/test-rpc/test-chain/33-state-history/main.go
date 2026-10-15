@@ -181,7 +181,12 @@ func RunTest(configPath string) error {
 		return fmt.Errorf("lỗi parse private key: %w", err)
 	}
 	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
-	toAddress := common.HexToAddress("0x7c6f5e38E6d4457cDdE34134B15FCC04F64bf6bd")
+	toAddress := fromAddress
+	if len(cfg.PrivateKeys) > 1 {
+		if pk1, err := crypto.HexToECDSA(cfg.PrivateKeys[1]); err == nil {
+			toAddress = crypto.PubkeyToAddress(pk1.PublicKey)
+		}
+	}
 
 	// Lấy danh sách RPC Nodes được bật rpc_nodes
 	nodeMap, urls := collectRPCURLs(cfg)
