@@ -109,7 +109,7 @@ func RunTest(configPath string) error {
 		BuildFn  func(nonce uint64, fromPK *ecdsa.PrivateKey, to common.Address) *types.Transaction
 	}
 
-	pk1, _ := crypto.HexToECDSA(testKeys[1])
+	pk1, _ := crypto.HexToECDSA(testKeys[8])
 	addr1 := crypto.PubkeyToAddress(pk1.PublicKey)
 	pk3, _ := crypto.HexToECDSA(testKeys[3])
 	addr3 := crypto.PubkeyToAddress(pk3.PublicKey)
