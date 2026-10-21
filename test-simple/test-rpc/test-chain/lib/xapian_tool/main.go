@@ -394,6 +394,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("❌ Lỗi load config: %v", err)
 	}
+	// only the cluster's own nodes (m0..mN): the shared config may also list parent/replica endpoints of other clusters
+	for k := range cfg.RPCNodes {
+		if id := strings.ReplaceAll(strings.ReplaceAll(k, "m", ""), "node", ""); id == "" || strings.Trim(id, "0123456789") != "" {
+			delete(cfg.RPCNodes, k)
+		}
+	}
 
 	contractABI, err := abi.JSON(strings.NewReader(abiJSON))
 	if err != nil {
