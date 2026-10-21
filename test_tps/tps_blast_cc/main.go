@@ -25,7 +25,9 @@ import (
 	"bufio"
 
 	"github.com/ethereum/go-ethereum/common"
+	e_types "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
@@ -35,7 +37,6 @@ import (
 	p_common "tool-test/pkg/common"
 	"tool-test/pkg/logger"
 	pb "tool-test/pkg/proto"
-	"tool-test/pkg/transaction"
 	"tool-test/test_tps/tps_blast_cc/rpc"
 )
 
@@ -809,7 +810,7 @@ func main() {
 	}
 	var allTxs []rawTx
 	var buildErrors int
-	for _, acc := range toSend {
+	for idx, acc := range toSend {
 		privKeyBytes, err := hex.DecodeString(acc.PrivateKey)
 		if err != nil {
 			buildErrors++
@@ -820,15 +821,17 @@ func main() {
 			buildErrors++
 			continue
 		}
-		fromAddr := crypto.PubkeyToAddress(ecdsaKey.PublicKey)
 
 		var targetContract common.Address
 		var bCallData []byte
 
-		// Generate a unique dummy address so each sender sends to an untouched recipient
-		// This makes verification perfectly isolated and guarantees the balance must equal txAmount.
-		dummyKey, _ := crypto.GenerateKey()
-		targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
+		if recipient != "" && recipient != "0xbF2b4B9b9dFB6d23F7F0FC46981c2eC89f94A9F2" {
+			targetContract = common.HexToAddress(recipient)
+		} else if len(toSend) > 1 {
+			targetContract = common.HexToAddress(toSend[(idx+1)%len(toSend)].Address)
+		} else {
+			targetContract = common.HexToAddress(acc.Address)
+		}
 		bCallData = []byte{}
 
 		// Get nonce for this account
@@ -847,39 +850,31 @@ func main() {
 
 		txAmount := amount
 
-		internalTx := transaction.NewTransaction(
-			fromAddr,
-			targetContract,
-			txAmount,
-			1000000, // maxGas
-			1000000, // maxGasPrice
-			0,       // maxPriorityFee
-			bCallData,
-			[][]byte{},
-			common.Hash{},
-			common.Hash{},
-			nonce,
-			chainId,
-		)
-
-		// Sign with parent's BLS key (all generated accounts registered this)
-		internalTx.SetSign(pKey)
-
-		bTx, err := internalTx.Marshal()
+		chainID := new(big.Int).SetUint64(chainId)
+		unsigned := e_types.NewTx(&e_types.LegacyTx{
+			Nonce:    nonce,
+			GasPrice: big.NewInt(1000000000), // 1 Gwei
+			Gas:      100000,
+			To:       &targetContract,
+			Value:    new(big.Int).Set(txAmount),
+			Data:     bCallData,
+		})
+		signedTx, err := e_types.SignTx(unsigned, e_types.LatestSignerForChainID(chainID), ecdsaKey)
+		if err != nil {
+			buildErrors++
+			continue
+		}
+		rawBytes, err := signedTx.MarshalBinary()
 		if err != nil {
 			buildErrors++
 			continue
 		}
 
-		txHash := internalTx.ToEthTransaction().Hash()
+		txHash := signedTx.Hash()
 		txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
-		txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
-
-		rawHash := crypto.Keccak256Hash(bTx)
-		txHashMap.Store(strings.ToLower(rawHash.Hex()), acc.Address)
 
 		allTxs = append(allTxs, rawTx{
-			bytes:  bTx,
+			bytes:  rawBytes,
 			addr:   acc.Address,
 			txHash: txHash,
 			target: targetContract,
@@ -1135,7 +1130,7 @@ func main() {
 			rebuildStart := time.Now()
 			allTxs = nil
 			var rebuildErrors int
-			for _, acc := range toSend {
+			for idx, acc := range toSend {
 				privKeyBytes, err := hex.DecodeString(acc.PrivateKey)
 				if err != nil {
 					rebuildErrors++
@@ -1146,13 +1141,17 @@ func main() {
 					rebuildErrors++
 					continue
 				}
-				fromAddr := crypto.PubkeyToAddress(ecdsaKey.PublicKey)
 
 				var targetContract common.Address
 				var bCallData []byte
 
-				dummyKey, _ := crypto.GenerateKey()
-				targetContract = crypto.PubkeyToAddress(dummyKey.PublicKey)
+				if recipient != "" && recipient != "0xbF2b4B9b9dFB6d23F7F0FC46981c2eC89f94A9F2" {
+					targetContract = common.HexToAddress(recipient)
+				} else if len(toSend) > 1 {
+					targetContract = common.HexToAddress(toSend[(idx+1)%len(toSend)].Address)
+				} else {
+					targetContract = common.HexToAddress(acc.Address)
+				}
 				bCallData = []byte{}
 
 				nonce, ok := nonceMap[acc.Address]
@@ -1169,27 +1168,31 @@ func main() {
 
 				txAmount := amount
 
-				internalTx := transaction.NewTransaction(
-					fromAddr, targetContract, txAmount,
-					1000000, 1000000, 0,
-					bCallData, [][]byte{},
-					common.Hash{}, common.Hash{},
-					nonce, chainId,
-				)
-				internalTx.SetSign(pKey)
-				bTx, err := internalTx.Marshal()
+				chainID := new(big.Int).SetUint64(chainId)
+				unsigned := e_types.NewTx(&e_types.LegacyTx{
+					Nonce:    nonce,
+					GasPrice: big.NewInt(1000000000),
+					Gas:      100000,
+					To:       &targetContract,
+					Value:    new(big.Int).Set(txAmount),
+					Data:     bCallData,
+				})
+				signedTx, err := e_types.SignTx(unsigned, e_types.LatestSignerForChainID(chainID), ecdsaKey)
 				if err != nil {
 					rebuildErrors++
 					continue
 				}
-				txHash := internalTx.ToEthTransaction().Hash()
+				rawBytes, err := signedTx.MarshalBinary()
+				if err != nil {
+					rebuildErrors++
+					continue
+				}
+
+				txHash := signedTx.Hash()
 				txHashMap.Store(strings.ToLower(txHash.Hex()), acc.Address)
-				txHashMap.Store(strings.ToLower(internalTx.Hash().Hex()), acc.Address)
-				rawHash := crypto.Keccak256Hash(bTx)
-				txHashMap.Store(strings.ToLower(rawHash.Hex()), acc.Address)
 
 				allTxs = append(allTxs, rawTx{
-					bytes:  bTx,
+					bytes:  rawBytes,
 					addr:   acc.Address,
 					txHash: txHash,
 					target: targetContract,
@@ -1217,24 +1220,24 @@ func main() {
 		fmt.Printf("\n  🏁 Starting block: %d | Epoch: %d | Time: %s\n", startBlock, startEpochBeforeBlast, time.Now().Format("15:04:05.000"))
 
 		// Batch and blast
-		fmt.Printf("\n🔥 BLASTING %d %s TXs across %d nodes via SendTransactions...\n", len(allTxs), txTypeName, len(clients))
-		fmt.Printf("   Epoch: %d | Start Time: %s | Batch size: %d, Sleep: %dms\n", startEpochBeforeBlast, time.Now().Format("15:04:05.000"), batchSize, sleepMs)
+		fmt.Printf("\n🔥 BLASTING %d %s TXs across %d nodes via SendRawTransactions...\n", len(allTxs), txTypeName, len(clients))
+		sendBatchSize := batchSize
+		if sendBatchSize <= 0 || sendBatchSize > 1000 {
+			sendBatchSize = 1000
+		}
+		fmt.Printf("   Epoch: %d | Start Time: %s | Batch size: %d, Sleep: %dms\n", startEpochBeforeBlast, time.Now().Format("15:04:05.000"), sendBatchSize, sleepMs)
 
 		var batchedMsgs [][]byte
-		for i := 0; i < len(allTxs); i += batchSize {
-			end := i + batchSize
+		for i := 0; i < len(allTxs); i += sendBatchSize {
+			end := i + sendBatchSize
 			if end > len(allTxs) {
 				end = len(allTxs)
 			}
-			var pbTxs []*pb.Transaction
+			var rawBatch [][]byte
 			for j := i; j < end; j++ {
-				txProto := &pb.Transaction{}
-				if err := proto.Unmarshal(allTxs[j].bytes, txProto); err == nil {
-					pbTxs = append(pbTxs, txProto)
-				}
+				rawBatch = append(rawBatch, allTxs[j].bytes)
 			}
-			batchProto := &pb.Transactions{Transactions: pbTxs}
-			batchBytes, err := proto.Marshal(batchProto)
+			batchBytes, err := rlp.EncodeToBytes(rawBatch)
 			if err == nil {
 				batchedMsgs = append(batchedMsgs, batchBytes)
 			}
@@ -1246,21 +1249,6 @@ func main() {
 		for _, tx := range allTxs {
 			ethHashLower := strings.ToLower(tx.txHash.Hex())
 			expectedTxHashes[ethHashLower] = true
-
-			internalTx := &transaction.Transaction{}
-			if err := internalTx.Unmarshal(tx.bytes); err == nil {
-				pbHash := internalTx.Hash()
-				pbHashLower := strings.ToLower(pbHash.Hex())
-				expectedTxHashes[pbHashLower] = true
-
-				rawHash := crypto.Keccak256Hash(tx.bytes)
-				rawHashLower := strings.ToLower(rawHash.Hex())
-				expectedTxHashes[rawHashLower] = true
-
-				hashMapping[ethHashLower] = []string{pbHashLower, rawHashLower}
-				hashMapping[pbHashLower] = []string{ethHashLower, rawHashLower}
-				hashMapping[rawHashLower] = []string{ethHashLower, pbHashLower}
-			}
 		}
 
 		blastStart := time.Now()
@@ -1295,23 +1283,18 @@ func main() {
 						}
 					}
 
-					err := client.rw.sendRaw(command.SendTransactions, batchBytes)
+					err := client.rw.sendRaw(command.SendRawTransactions, batchBytes)
 					nowSend := time.Now()
 					if err == nil {
 						txSendTimeMu.Lock()
-						batchStartIdx := i * batchSize
-						batchEndIdx := batchStartIdx + batchSize
+						batchStartIdx := i * sendBatchSize
+						batchEndIdx := batchStartIdx + sendBatchSize
 						if batchEndIdx > len(allTxs) {
 							batchEndIdx = len(allTxs)
 						}
 						for j := batchStartIdx; j < batchEndIdx; j++ {
 							ethH := strings.ToLower(allTxs[j].txHash.Hex())
 							txSendTimeMap[ethH] = nowSend
-							if otherHashes, exists := hashMapping[ethH]; exists {
-								for _, oh := range otherHashes {
-									txSendTimeMap[oh] = nowSend
-								}
-							}
 						}
 						txSendTimeMu.Unlock()
 					}
@@ -1324,7 +1307,7 @@ func main() {
 						client.rw.close()
 						client.rw = reconnectNode(client.addr)
 						if client.rw != nil {
-							errRetry := client.rw.sendRaw(command.SendTransactions, batchBytes)
+							errRetry := client.rw.sendRaw(command.SendRawTransactions, batchBytes)
 							if errRetry != nil {
 								fmt.Printf("\n[%s] ❌ [ERROR] Đang gửi giao dịch tới Node TCP: %s, RPC: %v nhưng gặp lỗi: Gửi Batch %d thất bại sau khi reconnect. Chi tiết: %v. Dừng chương trình!\n", ts(), client.addr, activeRPCEndpoints, i, errRetry)
 								os.Exit(1)
@@ -1339,12 +1322,17 @@ func main() {
 						client.rw.flush()
 					}
 
-					currentSent := atomic.AddInt64(&totalSent, int64(batchSize))
+					batchStartIdx := i * sendBatchSize
+					batchEndIdx := batchStartIdx + sendBatchSize
+					if batchEndIdx > len(allTxs) {
+						batchEndIdx = len(allTxs)
+					}
+					currentSent := atomic.AddInt64(&totalSent, int64(batchEndIdx-batchStartIdx))
 					if currentSent > int64(len(allTxs)) {
 						currentSent = int64(len(allTxs))
 					}
 
-					if currentSent%int64(batchSize*10) == 0 || currentSent >= int64(len(allTxs)) {
+					if currentSent%int64(sendBatchSize*10) == 0 || currentSent >= int64(len(allTxs)) {
 						elapsed := time.Since(blastStart)
 						rate := float64(currentSent) / elapsed.Seconds()
 						fmt.Printf("\r[%s]   📤 [%d/%d] %.0f tx/s | elapsed %s   ",
@@ -1702,19 +1690,13 @@ func main() {
 			for idx, tx := range allTxs {
 				ethHashLower := strings.ToLower(tx.txHash.Hex())
 				if expectedTxHashes[ethHashLower] {
-					pbHash := common.Hash{}
-					internalTx := &transaction.Transaction{}
-					if err := internalTx.Unmarshal(tx.bytes); err == nil {
-						pbHash = internalTx.Hash()
-					}
-
 					clientAddr := "Unknown"
-					if len(clients) > 0 && batchSize > 0 {
-						clientAddr = clients[(idx/batchSize)%len(clients)].addr
+					if len(clients) > 0 && sendBatchSize > 0 {
+						clientAddr = clients[(idx/sendBatchSize)%len(clients)].addr
 					}
 
-					fmt.Printf("   - TX #%d | EthHash: %s | PbHash: %s | Account: %s | Node: %s\n",
-						stuckCount+1, tx.txHash.Hex(), pbHash.Hex(), tx.addr, clientAddr)
+					fmt.Printf("   - TX #%d | EthHash: %s | Account: %s | Node: %s\n",
+						stuckCount+1, tx.txHash.Hex(), tx.addr, clientAddr)
 
 					stuckCount++
 					if stuckCount >= 10 {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -24,9 +25,8 @@ import (
 
 	client_tcp "tool-test/pkg/client-tcp"
 	tcp_config "tool-test/pkg/client-tcp/config"
-	tx_models "tool-test/pkg/client-tcp/models"
-	tx_helper "tool-test/pkg/client-tcp/utils/tx_helper"
 	pb "tool-test/pkg/proto"
+	mt_types "tool-test/pkg/types"
 )
 
 // GlobalConfig ánh xạ file configs/config.json
@@ -656,9 +656,87 @@ func unpackMessageSentEvent(contractAbi abi.ABI, topics []common.Hash, data []by
 // PHẦN 3: TEST TỰ ĐỘNG LATENCY QUA TCP (NATIVE PROTOCOL)
 // -------------------------------------------------------------
 
+var (
+	tcpNonceMu  sync.Mutex
+	tcpNonceMap = make(map[common.Address]uint64)
+)
+
+func sendRawEthereumTransaction(
+	cli *client_tcp.Client,
+	chainId uint64,
+	privateKey *ecdsa.PrivateKey,
+	to *common.Address,
+	value *big.Int,
+	data []byte,
+	gas uint64,
+	gasPrice uint64,
+) (mt_types.Receipt, *types.Transaction, error) {
+	if chainId == 0 {
+		return nil, nil, fmt.Errorf("chain ID must be configured")
+	}
+	if value == nil {
+		value = big.NewInt(0)
+	}
+
+	from := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	tcpNonceMu.Lock()
+	var nonce uint64
+	if as, err := cli.AccountState(from); err == nil && as != nil {
+		nonce = as.Nonce()
+	}
+	if cached, ok := tcpNonceMap[from]; ok && cached > nonce {
+		nonce = cached
+	}
+	tcpNonceMap[from] = nonce + 1
+	tcpNonceMu.Unlock()
+
+	chainID := new(big.Int).SetUint64(chainId)
+	unsigned := types.NewTx(&types.LegacyTx{
+		Nonce:    nonce,
+		GasPrice: new(big.Int).SetUint64(gasPrice),
+		Gas:      gas,
+		To:       to,
+		Value:    new(big.Int).Set(value),
+		Data:     append([]byte(nil), data...),
+	})
+	signed, err := types.SignTx(unsigned, types.LatestSignerForChainID(chainID), privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sign Ethereum transaction: %w", err)
+	}
+	rawTx, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal EIP-2718 transaction: %w", err)
+	}
+
+	acceptedHash, err := cli.SendRawEthTransaction(rawTx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if acceptedHash != signed.Hash() {
+		return nil, nil, fmt.Errorf("node acknowledged unexpected transaction hash: got %s want %s", acceptedHash.Hex(), signed.Hash().Hex())
+	}
+
+	receipt, err := cli.FindReceiptByHash(acceptedHash)
+	if err != nil {
+		return nil, nil, fmt.Errorf("wait for transaction receipt %s: %w", acceptedHash.Hex(), err)
+	}
+	return receipt, signed, nil
+}
+
 func runTcpAutoTest(p *ChainParams, contractAddr common.Address, contractAbi abi.ABI, rounds int) (*LatencyStats, error) {
+	_, pk1, err1 := keyToAccount(p.User1Key)
+	if err1 != nil {
+		return nil, fmt.Errorf("User 1 private key không hợp lệ: %w", err1)
+	}
+	_, pk2, err2 := keyToAccount(p.User2Key)
+	if err2 != nil {
+		return nil, fmt.Errorf("User 2 private key không hợp lệ: %w", err2)
+	}
+
 	cfg1 := &tcp_config.ClientConfig{
-		PrivateKey_:             p.BlsKey,
+		PrivateKey_:             p.User1Key,
+		EthPrivateKey:           p.User1Key,
 		ParentAddress:           p.User1Addr.Hex(),
 		ParentConnectionAddress: p.TcpNode,
 		ParentConnectionType:    "client",
@@ -667,7 +745,8 @@ func runTcpAutoTest(p *ChainParams, contractAddr common.Address, contractAbi abi
 		NationId:                1,
 	}
 	cfg2 := &tcp_config.ClientConfig{
-		PrivateKey_:             p.BlsKey,
+		PrivateKey_:             p.User2Key,
+		EthPrivateKey:           p.User2Key,
 		ParentAddress:           p.User2Addr.Hex(),
 		ParentConnectionAddress: p.TcpNode,
 		ParentConnectionType:    "client",
@@ -715,9 +794,9 @@ func runTcpAutoTest(p *ChainParams, contractAddr common.Address, contractAbi abi
 						pongText := strings.Replace(text, "PING", "PONG", 1)
 						go func(target common.Address, msg string, timestamp *big.Int) {
 							payload, _ := contractAbi.Pack("sendMessage", target, msg, timestamp)
-							_, _ = tx_helper.SendTransaction(
-								"sendMessage", cli1, cfg1, contractAddr, p.User1Addr, payload,
-								&tx_models.TxOptions{MaxGas: 5000000},
+							_, _, _ = sendRawEthereumTransaction(
+								cli1, uint64(p.ChainId), pk1, &contractAddr, big.NewInt(0), payload,
+								5000000, 2000000000,
 							)
 						}(from, pongText, ts)
 					}
@@ -777,9 +856,9 @@ func runTcpAutoTest(p *ChainParams, contractAddr common.Address, contractAbi abi
 		}
 
 		tSend := time.Now()
-		receipt, err := tx_helper.SendTransaction(
-			"sendMessage", cli2, cfg2, contractAddr, p.User2Addr, payload,
-			&tx_models.TxOptions{MaxGas: 5000000},
+		receipt, _, err := sendRawEthereumTransaction(
+			cli2, uint64(p.ChainId), pk2, &contractAddr, big.NewInt(0), payload,
+			5000000, 2000000000,
 		)
 		serverMs := time.Since(tSend).Milliseconds()
 		if err != nil || receipt == nil || (receipt.Status() != pb.RECEIPT_STATUS_RETURNED && receipt.Status() != pb.RECEIPT_STATUS_HALTED) {
@@ -958,8 +1037,14 @@ func runInteractiveChat(p *ChainParams, contractAddr common.Address, contractAbi
 	fmt.Printf("💬 CHAT MODE KHỞI ĐỘNG (User %d: %s ➡️  Target: %s)\n", userRole, myAddr.Hex()[:10], targetAddr.Hex()[:10])
 
 	if strings.ToLower(proto) == "tcp" {
+		_, myPrivKey, errKey := keyToAccount(myKeyHex)
+		if errKey != nil {
+			log.Fatalf("❌ Lỗi parse private key chat: %v", errKey)
+		}
+
 		cfg := &tcp_config.ClientConfig{
-			PrivateKey_:             p.BlsKey,
+			PrivateKey_:             myKeyHex,
+			EthPrivateKey:           myKeyHex,
 			ParentAddress:           myAddr.Hex(),
 			ParentConnectionAddress: p.TcpNode,
 			ParentConnectionType:    "client",
@@ -997,9 +1082,9 @@ func runInteractiveChat(p *ChainParams, contractAddr common.Address, contractAbi
 			t0 := time.Now()
 			ts := big.NewInt(t0.UnixMilli())
 			payload, _ := contractAbi.Pack("sendMessage", targetAddr, text, ts)
-			_, err := tx_helper.SendTransaction(
-				"sendMessage", cli, cfg, contractAddr, myAddr, payload,
-				&tx_models.TxOptions{MaxGas: 5000000},
+			_, _, err := sendRawEthereumTransaction(
+				cli, uint64(p.ChainId), myPrivKey, &contractAddr, big.NewInt(0), payload,
+				5000000, 2000000000,
 			)
 			if err != nil {
 				fmt.Printf("❌ Lỗi gửi: %v\n> ", err)
