@@ -34,6 +34,7 @@ TESTS=(
     "26.1-eip7702-setcode-tcp"
     "27-eip4844-edge-cases"
     "28-eip7702-delegated-execution-and-revocation"
+    "28.1-eip7702-factory-create-nonce"
     "29-blockhash-opcode-verifier"
     "30-eip7702-parallel-contention"
     "31-mixed-all-types-block"
