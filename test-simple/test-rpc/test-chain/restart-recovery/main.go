@@ -344,11 +344,20 @@ func main() {
 
 	// 1. Khởi tạo danh sách toàn bộ các node RPC (Gộp cả RPCNodes Validator và SyncNodes để kiểm tra toàn bộ 5 node)
 	urlMap := make(map[string]string)
+	// only the cluster's own nodes (m0..mN): the shared config may also list parent/replica endpoints of other clusters
+	isClusterNode := func(name string) bool {
+		id := strings.ReplaceAll(strings.ReplaceAll(name, "m", ""), "node", "")
+		return id != "" && strings.Trim(id, "0123456789") == ""
+	}
 	for name, url := range cfg.RPCNodes {
-		urlMap[name] = url
+		if isClusterNode(name) {
+			urlMap[name] = url
+		}
 	}
 	for name, url := range cfg.SyncNodes {
-		urlMap[name] = url
+		if isClusterNode(name) {
+			urlMap[name] = url
+		}
 	}
 	if len(urlMap) == 0 && cfg.RPCUrl != "" {
 		urlMap["m0"] = cfg.RPCUrl

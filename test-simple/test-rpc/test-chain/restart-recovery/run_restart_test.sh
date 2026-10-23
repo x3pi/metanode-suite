@@ -160,6 +160,8 @@ try:
     online = []
     for k, url in nodes_map.items():
         node_id = k.replace('m', '').replace('node', '')
+        if not node_id.isdigit():
+            continue  # only the cluster's own validators/sync nodes (m0..mN); skip parent/replica endpoints that share the config
         try:
             req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
             with urllib.request.urlopen(req, timeout=2) as resp:
@@ -332,6 +334,8 @@ with open(config_path, "r") as f:
 # Gộp toàn bộ các node trong cụm (Validator + SyncOnly)
 all_nodes = dict(cfg.get("rpc_nodes", {}))
 all_nodes.update(cfg.get("sync_nodes", {}))
+# only the cluster's own nodes (m0..mN); the shared config may also list parent/replica endpoints
+all_nodes = {k: v for k, v in all_nodes.items() if k.replace("m", "").replace("node", "").isdigit()}
 
 # Loại trừ node đang tắt hoặc đang snapshot (nếu có chỉ định)
 if exclude_node:
@@ -654,6 +658,7 @@ try:
         c = json.load(f)
     nodes_map = dict(c.get('rpc_nodes', {}))
     nodes_map.update(c.get('sync_nodes', {}))
+    nodes_map = {k: v for k, v in nodes_map.items() if k.replace('m', '').replace('node', '').isdigit()}
 
     ignore_nodes = []
     if os.path.isfile('/tmp/monitors_ignore_nodes'):
