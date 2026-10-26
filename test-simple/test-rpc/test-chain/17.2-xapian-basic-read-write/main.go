@@ -228,7 +228,7 @@ func deployAndLog(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64,
 		gasPrice = big.NewInt(100000)
 	}
 
-	gasLimit := uint64(3000000)
+	gasLimit := uint64(10_000_000)
 
 	fmt.Printf("   📝 CHI TIẾT TX DEPLOY:\n")
 	fmt.Printf("      - From: %s\n", from.Hex())

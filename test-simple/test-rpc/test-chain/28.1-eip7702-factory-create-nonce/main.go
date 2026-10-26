@@ -164,7 +164,7 @@ func RunTest(configPath string) error {
 		Nonce:     relayerNonce,
 		GasTipCap: gasTipCap,
 		GasFeeCap: gasPrice,
-		Gas:       500000,
+		Gas:       3000000,
 		To:        nil, // Contract creation
 		Value:     big.NewInt(0),
 		Data:      factoryDeployCode,
@@ -273,7 +273,7 @@ func RunTest(configPath string) error {
 		Nonce:     relayerNonce,
 		GasTipCap: uint256.MustFromBig(gasTipCap),
 		GasFeeCap: uint256.MustFromBig(gasPrice),
-		Gas:       500000,
+		Gas:       2000000,
 		To:        addrAuthority,
 		Value:     uint256.NewInt(0),
 		Data:      []byte{0x01}, // Calldata kích hoạt EVM call vào delegated code
