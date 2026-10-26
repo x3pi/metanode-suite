@@ -42,6 +42,7 @@ TESTS=(
     "33-state-history"
     "34-ws-contract-call"
     "35-account-gate-registration"
+    "36-eip2930-access-list"
 )
 
 # Xử lý tham số truyền vào: --chain=<tên_chain> hoặc --gotest

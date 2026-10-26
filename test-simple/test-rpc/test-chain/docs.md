@@ -116,3 +116,12 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
   5. **Outbound Execution:** Ví mới dùng số dư vừa nhận để tự ký và gửi giao dịch đầu tiên thành công trên chuỗi.
 - **Kết quả kỳ vọng:** 100% các bước chặn ví lậu, đăng ký hợp lệ, nhận tiền và gửi tiền đều thành công mỹ mãn.
 
+### 36. `36-eip2930-access-list/main.go` (Kiểm tra Toàn diện EIP-2930 Access List Transaction & Block-STM)
+- **Mục đích:** Kiểm tra và làm rõ vai trò cốt lõi của giao dịch Access List (Type 0x01 EIP-2930 và Type 0x02 EIP-1559 với Access List):
+  1. **Khái niệm & Bản chất:** Giải quyết bài toán EIP-2929 tăng phí Cold SLOAD từ 800 lên 2.100 gas khiến các hợp đồng có gas limit hạn hẹp bị lỗi Out-Of-Gas. Bằng việc trả trước 1.900 gas/slot trong Intrinsic Gas, slot được làm ấm (Warm SLOAD) chỉ tốn 100 gas khi đọc (tiết kiệm 100 gas và chống đứt gas).
+  2. **So khớp Gas:** Xác thực GasUsed giữa giao dịch thường (Cold Access) và giao dịch có AccessList (Warm Access).
+  3. **Tương thích Transaction Types:** Xác thực Receipt Type = 0x01 cho EIP-2930 và Receipt Type = 0x02 cho EIP-1559 có AccessList.
+  4. **Khả năng song song dưới Block-STM:** Gửi đồng thời nhiều giao dịch Type 0x01 song song, kiểm chứng Block-STM commit 100% deterministic, không có state drift.
+- **Cách hoạt động:** Deploy TestCounter contract; gửi giao dịch Cold SLOAD; gửi giao dịch Warm SLOAD với Storage Slot 0; gửi giao dịch EIP-1559 với AccessList; gửi 4 giao dịch AccessList song song từ nhiều ví; kiểm tra giá trị count cuối cùng qua eth_call.
+- **Kết quả kỳ vọng:** 100% giao dịch commit thành công (Status = 1), Type khớp chuẩn EVM, count tăng đúng số lần gọi.
+
