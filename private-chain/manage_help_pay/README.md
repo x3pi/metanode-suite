@@ -6,10 +6,10 @@ Tool dùng để Thêm/Xóa các ví có nhiệm vụ trả phí Gas hoặc phá
 Đảm bảo file `config.json` nằm cùng thư mục với các thông tin:
 ```json
 {
-  "http_rpc": "http://127.0.0.1:8545",
+  "http_rpc": "192.168.1.234:8545",
   "eth_private_key": "PRIVATE_KEY_ADMIN",
-  "chain_id": 1337,
-  "contact_private": "ĐỊA_CHỈ_CONTRACT"
+  "chain_id": 991,
+  "contact_private": "0x00000000000000000000000000000000D844bb55"
 }
 ```
 
@@ -20,16 +20,18 @@ Tool dùng để Thêm/Xóa các ví có nhiệm vụ trả phí Gas hoặc phá
 go run main.go list
 ```
 
-**2. Thêm ví trả hộ**
+**2. Thêm ví trả hộ (dùng Private Key)**
 ```bash
-go run main.go add <địa_chỉ_ví>
+go run main.go add <private_key>
 ```
-*Ví dụ:* `go run main.go add 0x5e582475A504998c5631E12A5a2585D2B1911812`
+*Ví dụ:* `go run main.go add 48d0959736be4999d4fcfce48423e2e0f98610663ae3ee87f879eb69f74a0746`  
+*(Tool tự động tính ra địa chỉ ví tương ứng và lưu private key vào node để ký giao dịch).*
 
 **3. Xóa ví trả hộ**
 ```bash
-go run main.go remove <địa_chỉ_ví>
+go run main.go remove <địa_chỉ_ví_hoặc_private_key>
 ```
-*Ví dụ:* `go run main.go remove 0x123...`
+*Ví dụ theo địa chỉ ví:* `go run main.go remove 0x0B143e894a600114C4A3729874214e5fC5EA9cbc`  
+*Ví dụ theo private key:* `go run main.go remove 48d0959736be4999d4fcfce48423e2e0f98610663ae3ee87f879eb69f74a0746`
 
 Hệ thống RPC Node sẽ **tự động cập nhật** danh sách ngay lập tức khi giao dịch thành công. Không cần khởi động lại server.

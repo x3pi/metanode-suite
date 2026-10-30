@@ -20,7 +20,10 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run main.go <add|remove|list> [wallet_address]")
+		fmt.Println("Usage: go run main.go <add|remove|list> [private_key|wallet_address]")
+		fmt.Println("  add <private_key>             : Thêm ví trả hộ bằng ECDSA private key (hex)")
+		fmt.Println("  remove <wallet_address|pk>    : Xóa ví trả hộ theo địa chỉ ví hoặc private key")
+		fmt.Println("  list                          : Xem danh sách các ví trả hộ đã đăng ký")
 		os.Exit(1)
 	}
 
@@ -30,16 +33,41 @@ func main() {
 		log.Fatalf("Invalid action. Must be 'add', 'remove', or 'list'.")
 	}
 
-	var walletAddress common.Address
-	if action == "add" || action == "remove" {
+	var privateKeyHex string
+	var derivedWalletAddress common.Address
+	var removeWalletAddress common.Address
+
+	if action == "add" {
 		if len(os.Args) < 3 {
-			log.Fatalf("Missing wallet address for action '%s'", action)
+			log.Fatalf("Thiếu private key. Cách dùng: go run main.go add <private_key>")
 		}
-		walletAddrStr := os.Args[2]
-		if !common.IsHexAddress(walletAddrStr) {
-			log.Fatalf("Invalid wallet address: %s", walletAddrStr)
+		rawPK := strings.TrimSpace(os.Args[2])
+		cleanPK := strings.TrimPrefix(strings.TrimPrefix(rawPK, "0x"), "0X")
+		privKey, err := crypto.HexToECDSA(cleanPK)
+		if err != nil {
+			log.Fatalf("Invalid private key: %v (phải là ECDSA hex 64 ký tự)", err)
 		}
-		walletAddress = common.HexToAddress(walletAddrStr)
+		derivedWalletAddress = crypto.PubkeyToAddress(privKey.PublicKey)
+		privateKeyHex = cleanPK
+		fmt.Printf("🔑 Nhận diện private key hợp lệ! Địa chỉ ví tương ứng: %s\n", derivedWalletAddress.Hex())
+	} else if action == "remove" {
+		if len(os.Args) < 3 {
+			log.Fatalf("Thiếu địa chỉ ví hoặc private key cần xóa. Cách dùng: go run main.go remove <address|pk>")
+		}
+		rawInput := strings.TrimSpace(os.Args[2])
+		cleanInput := strings.TrimPrefix(strings.TrimPrefix(rawInput, "0x"), "0X")
+		if len(cleanInput) == 64 {
+			privKey, err := crypto.HexToECDSA(cleanInput)
+			if err != nil {
+				log.Fatalf("Invalid private key: %v", err)
+			}
+			removeWalletAddress = crypto.PubkeyToAddress(privKey.PublicKey)
+			fmt.Printf("🔑 Nhận diện private key! Địa chỉ ví cần xóa: %s\n", removeWalletAddress.Hex())
+		} else if common.IsHexAddress(rawInput) {
+			removeWalletAddress = common.HexToAddress(rawInput)
+		} else {
+			log.Fatalf("Input không hợp lệ: phải là địa chỉ ví (40/42 ký tự) hoặc private key (64 ký tự)")
+		}
 	}
 
 	// Đọc config.json
@@ -147,18 +175,19 @@ func main() {
 		return
 	}
 
-	var methodName string
+	var setData []byte
 	if action == "add" {
-		methodName = "addHelpPayWallet"
+		fmt.Printf(">> Calling addHelpPayWallet with private key (ví: %s)...\n", derivedWalletAddress.Hex())
+		setData, err = parsedABI.Pack("addHelpPayWallet", privateKeyHex)
+		if err != nil {
+			log.Fatalf("Failed to pack addHelpPayWallet: %v", err)
+		}
 	} else {
-		methodName = "removeHelpPayWallet"
-	}
-
-	fmt.Printf(">> Calling %s for wallet %s...\n", methodName, walletAddress.Hex())
-	
-	setData, err := parsedABI.Pack(methodName, walletAddress)
-	if err != nil {
-		log.Fatalf("Failed to pack %s: %v", methodName, err)
+		fmt.Printf(">> Calling removeHelpPayWallet for wallet %s...\n", removeWalletAddress.Hex())
+		setData, err = parsedABI.Pack("removeHelpPayWallet", removeWalletAddress)
+		if err != nil {
+			log.Fatalf("Failed to pack removeHelpPayWallet: %v", err)
+		}
 	}
 
 	// Tạo tx
@@ -176,5 +205,10 @@ func main() {
 		log.Fatalf("❌ Transaction failed: %v", err)
 	} else {
 		fmt.Printf("✅ Transaction succeeded! Result (Tx Hash): %v\n", result)
+		if action == "add" {
+			fmt.Printf("🎉 Ví trả hộ %s đã được thêm thành công vào RPC Node với Private Key riêng!\n", derivedWalletAddress.Hex())
+		} else if action == "remove" {
+			fmt.Printf("🗑️ Ví trả hộ %s đã được xóa khỏi hệ thống!\n", removeWalletAddress.Hex())
+		}
 	}
 }
