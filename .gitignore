@@ -76,5 +76,7 @@ test-simple/test-rpc/test-chain/.evm_recovery_contract.json
 test-simple/test-rpc/test-chain/.xapian_recovery_contract.json
 test-simple/test-rpc/test-rpc
 register_account/register_account
+test_tcp_rpc/test_tcp_rpc
 file-storage/deployContract_file_registry/deployContract_file_registry
 private-chain/manage_help_pay/manage_help_pay
+test-simple/test-tcp/caller-tcp/main

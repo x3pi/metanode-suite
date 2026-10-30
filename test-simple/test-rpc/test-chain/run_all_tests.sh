@@ -34,12 +34,15 @@ TESTS=(
     "26.1-eip7702-setcode-tcp"
     "27-eip4844-edge-cases"
     "28-eip7702-delegated-execution-and-revocation"
+    "28.1-eip7702-factory-create-nonce"
     "29-blockhash-opcode-verifier"
     "30-eip7702-parallel-contention"
     "31-mixed-all-types-block"
     "32-xapian-parallel-stress"
     "33-state-history"
     "34-ws-contract-call"
+    "35-account-gate-registration"
+    "36-eip2930-access-list"
 )
 
 # Xử lý tham số truyền vào: --chain=<tên_chain> hoặc --gotest

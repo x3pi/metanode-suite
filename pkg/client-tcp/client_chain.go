@@ -14,6 +14,7 @@ import (
 	"tool-test/pkg/logger"
 	p_network "tool-test/pkg/network"
 	pb "tool-test/pkg/proto"
+	"tool-test/pkg/receipt"
 	"tool-test/pkg/state"
 	mt_transaction "tool-test/pkg/transaction"
 	"tool-test/pkg/types"
@@ -387,7 +388,7 @@ func (client *Client) ChainRegisterAccountWait(addr common.Address, sig []byte, 
 					if ackRes.Status == "FAILED" || ackRes.Status == "REJECTED" {
 						return nil, fmt.Errorf("node registration error: %s (%s)", ackRes.Status, ackRes.Reason)
 					}
-					if ackRes.Status == "CONFIRMED" {
+					if ackRes.Status == "CONFIRMED" || ackRes.Status == "PROVISIONAL" {
 						return &ackRes, nil
 					}
 				} else {
@@ -395,14 +396,14 @@ func (client *Client) ChainRegisterAccountWait(addr common.Address, sig []byte, 
 					if strings.HasPrefix(ackStr, "ERROR") {
 						return nil, fmt.Errorf("node rejected registration: %s", ackStr)
 					}
-					if ackStr == "CONFIRMED" {
+					if ackStr == "CONFIRMED" || ackStr == "PROVISIONAL" {
 						return &pb.RegistrationResult{
-							Status:  "CONFIRMED",
+							Status:  ackStr,
 							Address: addr.Hex(),
 						}, nil
 					}
 				}
-				// "PENDING": continue waiting for push notification (RegistrationResult)
+				// "PENDING": continue waiting for a committed PROVISIONAL/CONFIRMED or terminal result.
 			case command.RegistrationResult:
 				var info pb.RegistrationResult
 				if err := proto.Unmarshal(resp.Body(), &info); err != nil {
@@ -414,4 +415,135 @@ func (client *Client) ChainRegisterAccountWait(addr common.Address, sig []byte, 
 			}
 		}
 	}
+}
+
+func buildCallTransactionProto(to common.Address, data []byte, from *common.Address, value *big.Int, chainId uint64) (*mt_transaction.Transaction, []byte, error) {
+	var bData []byte
+	if len(data) > 0 {
+		callData := mt_transaction.NewCallData(data)
+		var err error
+		bData, err = callData.Marshal()
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal calldata: %w", err)
+		}
+	}
+
+	var fromAddr common.Address
+	if from != nil {
+		fromAddr = *from
+	}
+
+	amount := big.NewInt(0)
+	if value != nil && value.Sign() > 0 {
+		amount = value
+	}
+
+	if chainId == 0 {
+		chainId = 991
+	}
+
+	tx := mt_transaction.NewTransactionWithoutNonce(
+		fromAddr,
+		to,
+		amount,
+		50000000,
+		0,
+		0,
+		bData,
+		nil,
+		common.Hash{},
+		common.Hash{},
+		chainId,
+	).(*mt_transaction.Transaction)
+
+	body, err := tx.Marshal()
+	return tx, body, err
+}
+
+func parseReceiptResponse(respMsg t_network.Message, opName string) (*receipt.Receipt, error) {
+	if respMsg.Command() == command.TransactionError {
+		txErr := &mt_transaction.TransactionHashWithError{}
+		if err := txErr.Unmarshal(respMsg.Body()); err == nil && txErr.Proto() != nil {
+			return nil, fmt.Errorf("%s rejected: %s", opName, txErr.Proto().Description)
+		}
+		return nil, fmt.Errorf("%s rejected: %s", opName, string(respMsg.Body()))
+	}
+
+	rcp := &receipt.Receipt{}
+	if err := rcp.Unmarshal(respMsg.Body()); err != nil {
+		return nil, fmt.Errorf("unmarshal receipt: %w", err)
+	}
+	return rcp, nil
+}
+
+// ChainCall executes an Ethereum contract call (eth_call) directly over TCP using binary Protobuf.
+// It is a read-only off-chain simulation, does NOT require a private key or signature, does NOT cost gas, and does NOT consume nonces.
+func (client *Client) ChainCall(to common.Address, data []byte, from *common.Address) (types.Receipt, error) {
+	chainId := uint64(991)
+	if client != nil && client.clientContext != nil && client.clientContext.Config != nil && client.clientContext.Config.ChainId != 0 {
+		chainId = client.clientContext.Config.ChainId
+	}
+
+	tx, body, err := buildCallTransactionProto(to, data, from, nil, chainId)
+	if err != nil {
+		return nil, fmt.Errorf("build call proto: %w", err)
+	}
+
+	sentTxHash := tx.Hash()
+	logger.Info("[ChainCall] 📤 TX GỬI LÊN Node: TxHash=%s (From=%s, To=%s, ChainID=%d)",
+		sentTxHash.Hex(), tx.FromAddress().Hex(), tx.ToAddress().Hex(), tx.GetChainID())
+
+	respMsg, err := client.sendChainRequest(command.ReadTransaction, body, 30*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("chain call failed: %w", err)
+	}
+
+	rcp, err := parseReceiptResponse(respMsg, "chain call")
+	if err != nil {
+		return nil, err
+	}
+
+	recvTxHash := rcp.TransactionHash()
+	isMatch := sentTxHash == recvTxHash
+	logger.Info("[ChainCall] 📥 RECEIPT TRẢ VỀ: TxHash=%s | Khớp với Tx gửi lên: %v",
+		recvTxHash.Hex(), isMatch)
+
+	return rcp, nil
+}
+
+// ChainEstimateGas estimates the gas required for a transaction (eth_estimateGas) directly over TCP using binary Protobuf.
+// It simulates execution off-chain and does NOT require a private key or signature.
+func (client *Client) ChainEstimateGas(to common.Address, data []byte, from *common.Address, value *big.Int) (uint64, error) {
+	chainId := uint64(991)
+	if client != nil && client.clientContext != nil && client.clientContext.Config != nil && client.clientContext.Config.ChainId != 0 {
+		chainId = client.clientContext.Config.ChainId
+	}
+
+	tx, body, err := buildCallTransactionProto(to, data, from, value, chainId)
+	if err != nil {
+		return 0, fmt.Errorf("build estimate proto: %w", err)
+	}
+
+	sentTxHash := tx.Hash()
+	logger.Info("[ChainEstimateGas] 📤 TX GỬI LÊN Node: TxHash=%s (From=%s, To=%s, ChainID=%d)",
+		sentTxHash.Hex(), tx.FromAddress().Hex(), tx.ToAddress().Hex(), tx.GetChainID())
+
+	respMsg, err := client.sendChainRequest(command.EstimateGas, body, 30*time.Second)
+	if err != nil {
+		return 0, fmt.Errorf("estimate gas failed: %w", err)
+	}
+
+	rcp, err := parseReceiptResponse(respMsg, "estimate gas")
+	if err != nil {
+		return 0, err
+	}
+
+	if rcp.Status() != pb.RECEIPT_STATUS_RETURNED && rcp.Status() != pb.RECEIPT_STATUS_HALTED {
+		errMsg := string(rcp.Return())
+		if errMsg == "" {
+			errMsg = rcp.Status().String()
+		}
+		return 0, fmt.Errorf("execution reverted: %s", errMsg)
+	}
+	return rcp.GasUsed(), nil
 }

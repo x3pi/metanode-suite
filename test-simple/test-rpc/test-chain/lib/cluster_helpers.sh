@@ -40,6 +40,8 @@ try:
     online = []
     for k, url in nodes_map.items():
         node_id = k.replace('m', '').replace('node', '')
+        if not node_id.isdigit():
+            continue  # only the cluster's own validators/sync nodes (m0..mN); skip parent/replica endpoints that share the config
         try:
             req = urllib.request.Request(url, data=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}', headers={'Content-Type': 'application/json'})
             with urllib.request.urlopen(req, timeout=2) as resp:

@@ -18,6 +18,7 @@ import (
 	"tool-test/pkg/types"
 
 	"github.com/ethereum/go-ethereum/common"
+	e_types "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -273,21 +274,6 @@ func SendSecpTransaction(
 	maxGas := ChooseOrDefault(normalized.MaxGas, com_pkg.DefaultMaxGas)
 	maxGasPrice := ChooseOrDefault(normalized.MaxGasPrice, com_pkg.DefaultMaxGasPrice)
 
-	var payload []byte
-	var err error
-	if action == "deploy" || contract == (common.Address{}) {
-		deployData := mt_transaction.NewDeployData(input, common.Address{})
-		payload, err = deployData.Marshal()
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal deploydata for %s: %w", action, err)
-		}
-	} else if len(input) > 0 {
-		callData := mt_transaction.NewCallData(input)
-		payload, err = callData.Marshal()
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal calldata for %s: %w", action, err)
-		}
-	}
 
 	var cachedNonce uint64
 	if val, ok := nonceCache.Load(from); ok {
@@ -305,23 +291,50 @@ func SendSecpTransaction(
 		usedNonce = cachedNonce
 	}
 
-	receipt, tx, err := cli.SendSecpProtoTransactionWithNonce(
-		privKey,
-		contract,
-		amount,
-		maxGas,
-		maxGasPrice,
-		payload,
-		usedNonce,
-	)
+	chainID := new(big.Int).SetUint64(cfg.ChainId)
+	if chainID.Sign() == 0 {
+		chainID = big.NewInt(991)
+	}
+
+	var toAddr *common.Address
+	if contract != (common.Address{}) {
+		toAddr = &contract
+	}
+
+	unsigned := e_types.NewTx(&e_types.LegacyTx{
+		Nonce:    usedNonce,
+		GasPrice: new(big.Int).SetUint64(maxGasPrice),
+		Gas:      maxGas,
+		To:       toAddr,
+		Value:    amount,
+		Data:     append([]byte(nil), input...),
+	})
+	signed, err := e_types.SignTx(unsigned, e_types.LatestSignerForChainID(chainID), privKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send %s secp transaction: %w", action, err)
+		return nil, fmt.Errorf("sign Ethereum transaction: %w", err)
+	}
+	rawTx, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("marshal EIP-2718 transaction: %w", err)
+	}
+
+	acceptedHash, err := cli.SendRawEthTransaction(rawTx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send %s raw Ethereum transaction: %w", action, err)
+	}
+	if acceptedHash != signed.Hash() {
+		return nil, fmt.Errorf("node acknowledged unexpected transaction hash: got %s want %s", acceptedHash.Hex(), signed.Hash().Hex())
 	}
 
 	nonceCache.Store(from, usedNonce+1)
 
+	receipt, err := cli.FindReceiptByHash(acceptedHash)
+	if err != nil {
+		return nil, fmt.Errorf("wait for %s transaction receipt %s: %w", action, acceptedHash.Hex(), err)
+	}
+
 	if receipt == nil {
-		return nil, fmt.Errorf("%s transaction returned empty receipt (txHash: %s)", action, tx.Hash().Hex())
+		return nil, fmt.Errorf("%s transaction returned empty receipt (txHash: %s)", action, acceptedHash.Hex())
 	}
 	status := receipt.Status()
 	if status != pb.RECEIPT_STATUS_RETURNED && status != pb.RECEIPT_STATUS_HALTED {

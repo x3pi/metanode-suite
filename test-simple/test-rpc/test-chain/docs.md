@@ -102,5 +102,26 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
   2. **P0.2 On-Chain Governance:** Kiểm tra cơ chế quản trị 1-Chain-1-Vote, ngưỡng Quorum $\ge 2/3$ active chains, khóa thời gian Timelock bắt buộc 72 giờ và tính Idempotent của lệnh thực thi.
   3. **P0.3 BLS12-381 PopVerify & Rogue-Key Guard:** Kiểm tra tạo và xác thực chữ ký Proof-of-Possession (`PopVerify`) khi đăng ký uỷ ban validator, ngăn chặn 100% các cuộc tấn công giả mạo public key (Rogue-Key Attacks).
 - **Cách hoạt động:** Đọc `config.json`, tự động lấy danh sách ví và kết nối RPC node, thực thi tuần tự 11 test scenarios chuyên sâu.
-- **Kết quả kỳ vọng:** Đạt 11/11 PASSED (100%), bảo toàn tuyệt đối bất biến tổng cung và logic quản trị/mật mã.
+### 34. `34-ws-contract-call/main.go` (Kiểm tra Tương tác Smart Contract qua WebSocket RPC)
+- **Mục đích:** Kiểm tra kết nối, truy vấn dữ liệu và tương tác Smart Contract trực tiếp qua WebSocket endpoint (`ws://<host>:<port>/ws`).
+- **Cách hoạt động:** Kết nối WebSocket, subscribe sự kiện thời gian thực, deploy contract và thực thi lệnh read/write call qua WS.
+- **Kết quả kỳ vọng:** eth_call và eth_subscribe hoạt động ổn định trên kênh WebSocket.
+
+### 35. `35-account-gate-registration/main.go` (Kiểm tra Account Registration Gate & Onboarding Ví Mới)
+- **Mục đích:** Kiểm tra trọn vẹn cơ chế Account Gate trên Chain con (Execution Cluster) và quy trình onboarding ví mới:
+  1. **Gate Enforcement:** Ví chưa đăng ký cố gắng nhận Native Token sẽ bị node từ chối ngay với lỗi `recipient not registered on this cluster`.
+  2. **Registration Protocol:** Lấy thông điệp đăng ký (`mtn_getRegistrationMessage`), ký ECDSA secp256k1 bằng private key ví mới và gửi đăng ký (`mtn_registerAccount`).
+  3. **Cluster Confirmation:** Node chuyển tiếp lên Parent Chain và tự động chuyển trạng thái sang `CONFIRMED` (hoặc `PROVISIONAL`).
+  4. **Post-Registration Transfer:** Gửi Native Token vào ví vừa đăng ký thành công, Account Gate tự động cho phép nhận tiền.
+  5. **Outbound Execution:** Ví mới dùng số dư vừa nhận để tự ký và gửi giao dịch đầu tiên thành công trên chuỗi.
+- **Kết quả kỳ vọng:** 100% các bước chặn ví lậu, đăng ký hợp lệ, nhận tiền và gửi tiền đều thành công mỹ mãn.
+
+### 36. `36-eip2930-access-list/main.go` (Kiểm tra Toàn diện EIP-2930 Access List Transaction & Block-STM)
+- **Mục đích:** Kiểm tra và làm rõ vai trò cốt lõi của giao dịch Access List (Type 0x01 EIP-2930 và Type 0x02 EIP-1559 với Access List):
+  1. **Khái niệm & Bản chất:** Giải quyết bài toán EIP-2929 tăng phí Cold SLOAD từ 800 lên 2.100 gas khiến các hợp đồng có gas limit hạn hẹp bị lỗi Out-Of-Gas. Bằng việc trả trước 1.900 gas/slot trong Intrinsic Gas, slot được làm ấm (Warm SLOAD) chỉ tốn 100 gas khi đọc (tiết kiệm 100 gas và chống đứt gas).
+  2. **So khớp Gas:** Xác thực GasUsed giữa giao dịch thường (Cold Access) và giao dịch có AccessList (Warm Access).
+  3. **Tương thích Transaction Types:** Xác thực Receipt Type = 0x01 cho EIP-2930 và Receipt Type = 0x02 cho EIP-1559 có AccessList.
+  4. **Khả năng song song dưới Block-STM:** Gửi đồng thời nhiều giao dịch Type 0x01 song song, kiểm chứng Block-STM commit 100% deterministic, không có state drift.
+- **Cách hoạt động:** Deploy TestCounter contract; gửi giao dịch Cold SLOAD; gửi giao dịch Warm SLOAD với Storage Slot 0; gửi giao dịch EIP-1559 với AccessList; gửi 4 giao dịch AccessList song song từ nhiều ví; kiểm tra giá trị count cuối cùng qua eth_call.
+- **Kết quả kỳ vọng:** 100% giao dịch commit thành công (Status = 1), Type khớp chuẩn EVM, count tăng đúng số lần gọi.
 

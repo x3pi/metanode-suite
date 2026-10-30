@@ -304,6 +304,40 @@ func RunTest(configPath string) error {
 	fmt.Printf("Giá trị kỳ vọng    : %s (+%d)\n", expectedSlot0.String(), successCount)
 
 	if valSlot0.Cmp(expectedSlot0) == 0 && successCount == numCallers {
+		// -------------------------------------------------------------------------
+		// BƯỚC 5: Thu hồi ủy quyền EIP-7702 (Revocation) để trả EOA B về trạng thái EOA ban đầu
+		// -------------------------------------------------------------------------
+		fmt.Printf("\n🔹 BƯỚC 5: Thu hồi ủy quyền EIP-7702 cho EOA B...\n")
+		authNonce, err = client.PendingNonceAt(context.Background(), addrEOAB)
+		if err == nil {
+			revokeTuple, err := types.SignSetCode(pkEOAB, types.SetCodeAuthorization{
+				ChainID: *uint256.MustFromBig(chainID),
+				Address: common.Address{}, // address 0 = revoke
+				Nonce:   authNonce,
+			})
+			if err == nil {
+				nonceCaller, _ = client.PendingNonceAt(context.Background(), addrCaller)
+				revokeTx := types.NewTx(&types.SetCodeTx{
+					ChainID:   uint256.MustFromBig(chainID),
+					Nonce:     nonceCaller,
+					GasTipCap: uint256.NewInt(1000000000),
+					GasFeeCap: uint256.MustFromBig(gasPrice),
+					Gas:       200000,
+					To:        addrEOAB,
+					Value:     uint256.NewInt(0),
+					Data:      nil,
+					AuthList:  []types.SetCodeAuthorization{revokeTuple},
+				})
+				if signedRevoke, err := types.SignTx(revokeTx, signer, pkCaller); err == nil {
+					if err := client.SendTransaction(context.Background(), signedRevoke); err == nil {
+						if rcptRevoke, err := waitForReceipt(client, signedRevoke.Hash()); err == nil && rcptRevoke.Status == 1 {
+							fmt.Printf("   ✅ Đã thu hồi EIP-7702 thành công, EOA B đã trở lại EOA thuần túy!\n")
+						}
+					}
+				}
+			}
+		}
+
 		fmt.Println("\n🎉 TEST PASSED: Block-STM xử lý hoàn hảo xung đột Read/Write trên EIP-7702 Delegated Storage!")
 		return nil
 	}

@@ -11,9 +11,9 @@ Tập lệnh sẽ chạy qua toàn bộ **33 bài test**, mỗi bài lặp lại
 ```bash
 cd /home/abc/nhat/consensus-chain/metanode-suite/test-simple/test-rpc/test-blockstm
 
+TARGET_CHAIN=chain_a go run main.go
 # 🌐 Chạy trên Public Chain (Mặc định):
 ./run_all_tests.sh
-
 # 🔒 Chạy trên Private Chain (Theo Chain ID):
 ./run_all_tests.sh --chain=101     # Chain A
 ./run_all_tests.sh --chain=102     # Chain B

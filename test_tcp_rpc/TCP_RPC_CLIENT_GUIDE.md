@@ -1,15 +1,46 @@
 # TCP-RPC Client — Hướng dẫn sử dụng
-## Run rpc
-``` cd rpc-
-## Run test tcp-rpc
+## 1. Khởi động RPC Proxy (Port 9545)
+
+```bash
+cd /home/abc/nhat/MetaCoSign/cmd/rpc-client
+./rpc-client
+```
+
+## 2. Chạy Test TCP-RPC (Port 9545)
 
 ### Chỉ test demo các hàm
 
-```go run main.go -test=demo```
+```bash
+go run main.go -test=demo
+```
 
-### Chỉ test đăng ký BLS
+### Test đăng ký Account Gate (Mới: secp256k1 + Parent Chain Gate)
 
-```go run main.go -test=bls```
+```bash
+# 1. Tự sinh ngẫu nhiên 1 ví mới và tự đăng ký (Push Mode):
+go run main.go -register -random
+# Hoặc:
+go run main.go -register -wallet-pk=random
+
+# 2. Đăng ký ví có sẵn trong config (eth_private_key):
+go run main.go -register
+
+# 3. Đăng ký 1 ví cụ thể qua Private Key hex:
+go run main.go -register -wallet-pk=0x<private_key>
+
+# 4. Kiểm tra trạng thái Gate của ví:
+go run main.go -check-register
+
+# 5. Có thể ghi đè endpoint TCP (nếu không dùng endpoint trong config):
+go run main.go -register -random -tcp=127.0.0.1:9545
+```
+
+> [!TIP]
+> Nếu muốn đăng ký **hàng loạt N ví** và lưu kết quả ra file JSON, dùng tool `35-account-gate-registration`:
+> ```bash
+> cd ../test-simple/test-rpc/test-chain/35-account-gate-registration
+> go run main.go -tcp=127.0.0.1:9545 -count=5
+> ```
 
 ---
 

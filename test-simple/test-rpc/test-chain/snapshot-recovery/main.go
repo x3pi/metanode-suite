@@ -261,7 +261,7 @@ func main() {
 	}
 
 	sendBatch := func(count int) int {
-		receiverAddr := common.HexToAddress("0x0000000000000000000000000000000000000088")
+		receiverAddr := accounts[0].Address
 		chainID := big.NewInt(cfg.ChainID)
 
 		type TxRecord struct {

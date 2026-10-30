@@ -109,14 +109,12 @@ func RunTest(configPath string) error {
 		BuildFn  func(nonce uint64, fromPK *ecdsa.PrivateKey, to common.Address) *types.Transaction
 	}
 
-	pk1, _ := crypto.HexToECDSA(testKeys[1])
+	pk1, _ := crypto.HexToECDSA(testKeys[8])
 	addr1 := crypto.PubkeyToAddress(pk1.PublicKey)
 	pk3, _ := crypto.HexToECDSA(testKeys[3])
 	addr3 := crypto.PubkeyToAddress(pk3.PublicKey)
 	pk5, _ := crypto.HexToECDSA(testKeys[5])
 	addr5 := crypto.PubkeyToAddress(pk5.PublicKey)
-	pk7, _ := crypto.HexToECDSA(testKeys[7])
-	addr7 := crypto.PubkeyToAddress(pk7.PublicKey)
 
 	// Chuẩn bị KZG Blob cho Type 0x03
 	var blob kzg4844.Blob
@@ -131,13 +129,19 @@ func RunTest(configPath string) error {
 	}
 	versionedHash := common.Hash(kzg4844.CalcBlobHashV1(sha256.New(), &commitment))
 
-	// Chuẩn bị SetCode Authorization cho Type 0x04
-	authNonce, err := client.PendingNonceAt(context.Background(), addr7)
+	// Chuẩn bị SetCode Authorization cho Type 0x04 (dùng ví mới để không ảnh hưởng các test khác)
+	pkAuth, err := crypto.GenerateKey()
+	if err != nil {
+		return fmt.Errorf("❌ Lỗi sinh key authority: %v", err)
+	}
+	addrAuth := crypto.PubkeyToAddress(pkAuth.PublicKey)
+
+	authNonce, err := client.PendingNonceAt(context.Background(), addrAuth)
 	if err != nil {
 		return fmt.Errorf("❌ Lấy authNonce thất bại: %v", err)
 	}
 	delegateContract := common.HexToAddress("0x0000000000000000000000000000000000007702")
-	authTuple, err := types.SignSetCode(pk7, types.SetCodeAuthorization{
+	authTuple, err := types.SignSetCode(pkAuth, types.SetCodeAuthorization{
 		ChainID: *uint256.MustFromBig(chainID),
 		Address: delegateContract,
 		Nonce:   authNonce,
@@ -214,7 +218,7 @@ func RunTest(configPath string) error {
 			Name:    "EIP-7702 SetCode Tx (Type 0x04)",
 			TypeID:  0x04,
 			FromKey: testKeys[6],
-			ToAddr:  addr7,
+			ToAddr:  addrAuth,
 			BuildFn: func(nonce uint64, fromPK *ecdsa.PrivateKey, to common.Address) *types.Transaction {
 				setCodeTxData := &types.SetCodeTx{
 					ChainID:   uint256.MustFromBig(chainID),

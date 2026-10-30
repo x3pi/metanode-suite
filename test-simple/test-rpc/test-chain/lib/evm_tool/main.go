@@ -204,7 +204,7 @@ func deployContract(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int6
 	if err != nil {
 		gasPrice = big.NewInt(100000)
 	}
-	gasLimit := uint64(4000000)
+	gasLimit := uint64(8000000) // a ~24 KB contract needs ~6M gas: 200 gas/byte code deposit + calldata (go-ethereum pricing)
 
 	tx := types.NewContractCreation(nonce, big.NewInt(0), gasLimit, gasPrice, bytecode)
 	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), pk)
@@ -376,6 +376,12 @@ func main() {
 	cfg, err := config.LoadConfig(*configFlag)
 	if err != nil {
 		log.Fatalf("❌ Lỗi load config: %v", err)
+	}
+	// only the cluster's own nodes (m0..mN): the shared config may also list parent/replica endpoints of other clusters
+	for k := range cfg.RPCNodes {
+		if id := strings.ReplaceAll(strings.ReplaceAll(k, "m", ""), "node", ""); id == "" || strings.Trim(id, "0123456789") != "" {
+			delete(cfg.RPCNodes, k)
+		}
 	}
 
 	contractABI, err := abi.JSON(strings.NewReader(abiJSON))

@@ -228,7 +228,7 @@ func deployAndLog(client *ethclient.Client, pk *ecdsa.PrivateKey, chainID int64,
 		gasPrice = big.NewInt(100000)
 	}
 
-	gasLimit := uint64(3000000)
+	gasLimit := uint64(8000000) // a ~24 KB contract needs ~6M gas: 200 gas/byte code deposit + calldata (go-ethereum pricing)
 
 	fmt.Printf("   📝 CHI TIẾT TX DEPLOY:\n")
 	fmt.Printf("      - From: %s\n", from.Hex())
