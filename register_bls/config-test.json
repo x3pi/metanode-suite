@@ -1,8 +1,8 @@
 {
   "private_key": "2b3aa0f620d2d73c046cd93eb64f2eb687a95b22e278500aa251c8c9dda1203b",
   "version": "0.0.1.0",
-  "parent_connection_address": "0.0.0.0:9545",
-  "http_rpc": "192.168.1.234:8650",
+  "parent_connection_address": "0.0.0.0:8747",
+  "http_rpc": "192.168.1.223:8747",
   "chain_id": 991,
   "nation_id": 1,
   "parent_connection_type": "client",
