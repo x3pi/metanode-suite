@@ -78,5 +78,6 @@ test-simple/test-rpc/test-rpc
 register_account/register_account
 test_tcp_rpc/test_tcp_rpc
 file-storage/deployContract_file_registry/deployContract_file_registry
+private-chain/manage_help_pay/manage_help_pay
 test-simple/test-tcp/caller-tcp/main
 test-simple/test-rpc/test-chain/35-account-gate-registration/registered_wallets.json

@@ -448,32 +448,14 @@ func (client *Client) RpcEthCallReceipt(to common.Address, data []byte) (*pb.Rec
 	return rcpt, nil
 }
 
-// RpcGetPendingNonce lấy pending nonce cho address qua TCP
+// RpcGetPendingNonce lấy pending nonce cho address qua TCP (dùng lệnh GetNonce)
 func (client *Client) RpcGetPendingNonce(address common.Address) (uint64, error) {
-	// Ưu tiên ChainGetNonce qua lệnh GetNonce (tương thích port 9545)
-	if nonce, err := client.ChainGetNonce(address); err == nil {
-		logger.Info("✅ RpcGetPendingNonce for %s: %d", address.Hex(), nonce)
-		return nonce, nil
-	}
-	// Fallback qua eth_getTransactionCount
-	tcpReq := &pb.TcpAddressParam{Address: address.Bytes()}
-	body, err := proto.Marshal(tcpReq)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal TcpGetNonceRequest: %w", err)
-	}
-	resp, err := client.sendRpcRequest("eth_getTransactionCount", body, defaultRpcTimeout)
+	nonce, err := client.ChainGetNonce(address)
 	if err != nil {
 		return 0, err
 	}
-	if resp.Error != nil {
-		return 0, fmt.Errorf("RPC error: code=%d, message=%s", resp.Error.Code, resp.Error.Message)
-	}
-	nonceResp := &pb.TcpGetNonceResponse{}
-	if err := proto.Unmarshal(resp.Result, nonceResp); err != nil {
-		return 0, fmt.Errorf("failed to parse TcpGetNonceResponse: %w", err)
-	}
-	logger.Info("✅ RpcGetPendingNonce for %s: %d", address.Hex(), nonceResp.Nonce)
-	return nonceResp.Nonce, nil
+	logger.Info("✅ RpcGetPendingNonce for %s: %d", address.Hex(), nonce)
+	return nonce, nil
 }
 
 // RpcGetTransactionReceipt lấy receipt của transaction qua TCP

@@ -77,7 +77,7 @@ go run main.go add 0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b
 
 ### Xóa ví chuyển hộ (Tự động đồng bộ Raft)
 ```bash
-go run main.go remove <địa_chỉ_ví>
+go run main.go remove <địa_chỉ_ví_hoặc_private_key>
 ```
 *Ví dụ:*
 ```bash
