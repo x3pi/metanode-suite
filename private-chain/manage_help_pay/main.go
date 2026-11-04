@@ -78,6 +78,16 @@ func loadConfig() (*Config, *rpc.Client) {
 		log.Fatalf("❌ Failed to connect to RPC node at %s: %v", httpRpcUrl, err)
 	}
 
+	// Tự động truy vấn chainId từ node nếu không được chỉ định trong config.json
+	if _, ok := raw["chain_id"]; !ok {
+		var hexChainID string
+		if err := client.Call(&hexChainID, "eth_chainId"); err == nil && hexChainID != "" {
+			if parsed, ok := new(big.Int).SetString(strings.TrimPrefix(hexChainID, "0x"), 16); ok && parsed.Sign() > 0 {
+				chainID = parsed
+			}
+		}
+	}
+
 	adminPrivKey := ""
 	if pk, ok := raw["admin_private_key"].(string); ok {
 		adminPrivKey = strings.TrimSpace(pk)
@@ -89,6 +99,13 @@ func loadConfig() (*Config, *rpc.Client) {
 		AdminPrivateKey: adminPrivKey,
 		ChainID:         chainID,
 	}, client
+}
+
+func (cfg *Config) ChainIDStr() string {
+	if cfg.ChainID != nil && cfg.ChainID.Sign() > 0 {
+		return cfg.ChainID.String()
+	}
+	return "0"
 }
 
 func printUsage() {
@@ -221,7 +238,7 @@ func handleList(ctx context.Context, client *rpc.Client, cfg *Config) {
 	var wallets []WalletStatus
 	if cfg.AdminPrivateKey != "" {
 		ts := time.Now().Unix()
-		msg := fmt.Sprintf("helppay:get_wallets:%d", ts)
+		msg := fmt.Sprintf("helppay:%s:get_wallets:%d", cfg.ChainIDStr(), ts)
 		adminAddr, sigHex, sErr := signAdminMessage(cfg.AdminPrivateKey, msg)
 		if sErr == nil {
 			err = client.CallContext(ctx, &wallets, "helppay_getWallets", adminAddr.Hex(), sigHex, ts)
@@ -292,7 +309,7 @@ func handleAdd(ctx context.Context, client *rpc.Client, cfg *Config, keyInput st
 
 	if cfg.AdminPrivateKey != "" {
 		ts := time.Now().Unix()
-		msg := fmt.Sprintf("helppay:add_wallet:%s:%d", derivedAddr.Hex(), ts)
+		msg := fmt.Sprintf("helppay:%s:add_wallet:%s:%d", cfg.ChainIDStr(), derivedAddr.Hex(), ts)
 		adminAddr, sigHex, sErr := signAdminMessage(cfg.AdminPrivateKey, msg)
 		if sErr == nil {
 			errAdd = client.CallContext(ctx, &result, "helppay_addWallet", adminAddr.Hex(), sigHex, ts, cleanKey)
@@ -327,7 +344,7 @@ func handleRemove(ctx context.Context, client *rpc.Client, cfg *Config, addrInpu
 
 	if cfg.AdminPrivateKey != "" {
 		ts := time.Now().Unix()
-		msg := fmt.Sprintf("helppay:remove_wallet:%s:%d", targetAddr.Hex(), ts)
+		msg := fmt.Sprintf("helppay:%s:remove_wallet:%s:%d", cfg.ChainIDStr(), targetAddr.Hex(), ts)
 		adminAddr, sigHex, sErr := signAdminMessage(cfg.AdminPrivateKey, msg)
 		if sErr == nil {
 			errRemove = client.CallContext(ctx, &result, "helppay_removeWallet", adminAddr.Hex(), sigHex, ts, targetAddr.Hex())
@@ -388,7 +405,7 @@ func handleToggle(ctx context.Context, client *rpc.Client, cfg *Config, enabled 
 		}
 		adminAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 		ts := time.Now().Unix()
-		msg := fmt.Sprintf("helppay:toggle:%t:%d", enabled, ts)
+		msg := fmt.Sprintf("helppay:%s:toggle:%t:%d", cfg.ChainIDStr(), enabled, ts)
 		textHash := accounts.TextHash([]byte(msg))
 		sig, sErr := crypto.Sign(textHash, privKey)
 		if sErr != nil {
@@ -444,14 +461,14 @@ func handleSetConfig(ctx context.Context, client *rpc.Client, cfg *Config, enabl
 		if privKey, kErr := crypto.HexToECDSA(cleanKey); kErr == nil {
 			adminAddr := crypto.PubkeyToAddress(privKey.PublicKey)
 			ts := time.Now().Unix()
-			msg := fmt.Sprintf("helppay:set_config:%t:%s:%s:%d", enabled, minBal, extraAmt, ts)
+			msg := fmt.Sprintf("helppay:%s:set_config:%t:%s:%s:%d", cfg.ChainIDStr(), enabled, minBal, extraAmt, ts)
 			textHash := accounts.TextHash([]byte(msg))
 			if sig, sErr := crypto.Sign(textHash, privKey); sErr == nil {
 				if sig[64] < 27 {
 					sig[64] += 27
 				}
 				sigHex := hexutil.Encode(sig)
-				err = client.CallContext(ctx, &result, "helppay_setConfigWithAdmin", adminAddr.Hex(), sigHex, ts, enabled, minBal, extraAmt)
+				err = client.CallContext(ctx, &result, "helppay_setConfig", adminAddr.Hex(), sigHex, ts, enabled, minBal, extraAmt)
 			}
 		}
 	}
