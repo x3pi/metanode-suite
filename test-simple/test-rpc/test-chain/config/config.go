@@ -20,9 +20,11 @@ type PrivateChainConfig struct {
 	ChainID           int64             `json:"chain_id"`
 	RPCUrl            string            `json:"rpc_url"`
 	WSUrl             string            `json:"ws_url,omitempty"`
+	HTTPSUrl          string            `json:"https_url,omitempty"`
 	PrivateKeys       []string          `json:"private_keys"`
 	RPCNodes          map[string]string `json:"rpc_nodes"`
 	WSNodes           map[string]string `json:"ws_nodes,omitempty"`
+	HTTPSNodes        map[string]string `json:"https_nodes,omitempty"`
 	TCPNodes          map[string]string `json:"tcp_nodes,omitempty"`
 	StateHistoryNodes map[string]string `json:"state_history_nodes,omitempty"`
 	SyncNodes         map[string]string `json:"sync_nodes,omitempty"`
@@ -35,8 +37,10 @@ type PrivateChainConfig struct {
 type Config struct {
 	RPCUrl                  string                        `json:"rpc_url"`
 	WSUrl                   string                        `json:"ws_url,omitempty"`
+	HTTPSUrl                string                        `json:"https_url,omitempty"`
 	RPCNodes                map[string]string             `json:"rpc_nodes"`
 	WSNodes                 map[string]string             `json:"ws_nodes,omitempty"`
+	HTTPSNodes              map[string]string             `json:"https_nodes,omitempty"`
 	StateHistoryNodes       map[string]string             `json:"state_history_nodes,omitempty"`
 	TCPNode                 string                        `json:"tcp_node,omitempty"`
 	TCPNodes                map[string]string             `json:"tcp_nodes,omitempty"`
@@ -185,6 +189,21 @@ func DeriveWSUrl(httpURL string) string {
 	return ws
 }
 
+// DeriveHTTPSUrl converts an HTTP/RPC URL to an HTTPS URL.
+func DeriveHTTPSUrl(httpURL string) string {
+	httpURL = strings.TrimSpace(httpURL)
+	if httpURL == "" {
+		return ""
+	}
+	if strings.HasPrefix(httpURL, "https://") {
+		return httpURL
+	}
+	if strings.HasPrefix(httpURL, "http://") {
+		return strings.Replace(httpURL, "http://", "https://", 1)
+	}
+	return "https://" + httpURL
+}
+
 func applyPrivateChain(cfg *Config, name string, pChain PrivateChainConfig) {
 	if pChain.RPCUrl != "" {
 		cfg.RPCUrl = pChain.RPCUrl
@@ -193,6 +212,9 @@ func applyPrivateChain(cfg *Config, name string, pChain PrivateChainConfig) {
 		cfg.WSUrl = pChain.WSUrl
 	} else if pChain.RPCUrl != "" {
 		cfg.WSUrl = DeriveWSUrl(pChain.RPCUrl)
+	}
+	if pChain.HTTPSUrl != "" {
+		cfg.HTTPSUrl = pChain.HTTPSUrl
 	}
 	if pChain.ChainID != 0 {
 		cfg.ChainID = pChain.ChainID

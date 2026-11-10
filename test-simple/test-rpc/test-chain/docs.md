@@ -125,3 +125,15 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
 - **Cách hoạt động:** Deploy TestCounter contract; gửi giao dịch Cold SLOAD; gửi giao dịch Warm SLOAD với Storage Slot 0; gửi giao dịch EIP-1559 với AccessList; gửi 4 giao dịch AccessList song song từ nhiều ví; kiểm tra giá trị count cuối cùng qua eth_call.
 - **Kết quả kỳ vọng:** 100% giao dịch commit thành công (Status = 1), Type khớp chuẩn EVM, count tăng đúng số lần gọi.
 
+### 37. `37-https-contract-call/main.go` (Kiểm tra Toàn diện Smart Contract qua Kênh HTTPS TLS RPC)
+- **Mục đích:** Kiểm tra toàn diện kết nối bảo mật HTTPS RPC (TLS/SSL termination qua Nginx reverse proxy tại cổng 443) và khả năng tương tác Smart Contract trên chuỗi.
+- **Cách hoạt động:**
+  1. Kết nối qua `rpc.DialHTTPWithClient` với cấu hình TLS, thực hiện TLS handshake và đọc các thông số cơ bản (`eth_blockNumber`, `eth_chainId`, `web3_clientVersion`).
+  2. Đọc số dư và Nonce ví qua HTTPS (`BalanceAt`, `PendingNonceAt`).
+  3. Triển khai Smart Contract (`TestCounter`) qua HTTPS (`eth_sendRawTransaction`).
+  4. Đọc trạng thái khởi tạo qua HTTPS (`eth_call getCount == 0`).
+  5. Thực thi ghi thay đổi trạng thái qua HTTPS (`eth_sendRawTransaction increment()`) và đợi receipt confirmation.
+  6. Đọc lại trạng thái qua HTTPS để xác nhận `getCount == 1`.
+  7. Bắn đồng thời 10 truy vấn song song qua HTTPS để kiểm tra khả năng HTTP/2 multiplexing và tái sử dụng connection pool qua proxy Nginx.
+- **Kết quả kỳ vọng:** 100% các bước từ bắt tay TLS, deploy, read/write contract và xử lý truy vấn đồng thời đều thành công tuyệt đối qua HTTPS.
+

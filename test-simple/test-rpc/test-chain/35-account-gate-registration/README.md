@@ -19,7 +19,7 @@ Trên phiên bản chain mới:
 ### 1. Đăng ký tự động 1 ví mới sinh ngẫu nhiên:
 ```bash
 cd /home/abc/nhat/con-chain-v2/metanode-suite/register_account
-go run main.go -rpc=http://127.0.0.1:8646
+go run main.go -rpc=http://127.0.0.1:8747
 ```
 *(Nếu node của bạn đang chạy ở port khác, ví dụ port `8747` hoặc IP khác thì truyền vào cờ `-rpc=http://192.168.1.234:8747`)*
 
