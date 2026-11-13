@@ -44,6 +44,7 @@ TESTS=(
     "35-account-gate-registration"
     "36-eip2930-access-list"
     "37-https-contract-call"
+    "38-xapian-multinode-sync"
 )
 
 # Xử lý tham số truyền vào: --chain=<tên_chain> hoặc --gotest
