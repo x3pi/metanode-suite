@@ -90,11 +90,17 @@ func main() {
 
 	// 2. Kết nối tới Chain qua TCP
 	fmt.Printf("Connecting to TCP: %s\n", cfg.ConnectionAddress())
+	tConnectStart := time.Now()
 	tcpClient, err := client_tcp.NewClient(cfg)
 	if err != nil {
 		log.Fatalf("❌ Lỗi kết nối TCP %s: %v", cfg.ConnectionAddress(), err)
 	}
+	connectDur := time.Since(tConnectStart)
+	fmt.Printf("⏱️  [DEBUG TIME] Kết nối TCP Client (Dial + InitConnection): %v\n", connectDur)
+
+	tSleepStart := time.Now()
 	time.Sleep(1 * time.Second)
+	fmt.Printf("⏱️  [DEBUG TIME] Sleep chờ khởi tạo socket (hardcoded): %v\n", time.Since(tSleepStart))
 
 	keyHex := cfg.EthPrivateKey
 	if keyHex == "" {
@@ -117,17 +123,33 @@ func main() {
 	fmt.Printf("🔑 Sender Address (từ Private Key chuẩn ETH Secp256k1): %s\n", fromAddress.Hex())
 
 	// Query sender state ban đầu
+	tInitialStateStart := time.Now()
 	if senderState, err := tcpClient.AccountState(fromAddress); err == nil && senderState != nil {
+		fmt.Printf("⏱️  [DEBUG TIME] Query sender initial AccountState (nonce/balance): %v\n", time.Since(tInitialStateStart))
 		fmt.Printf("   📊 Sender initial on-chain nonce:   %d\n", senderState.Nonce())
 		fmt.Printf("   💰 Sender initial on-chain balance: %s wei\n", senderState.Balance().String())
 	}
 
 	var lastDeployedAddress *common.Address
 
+	type TaskDurationStat struct {
+		Index    int
+		Action   string
+		Method   string
+		Duration time.Duration
+	}
+
+	round := 0
+
 	// Lặp qua từng task cấu hình
 	for {
+		round++
+		roundStart := time.Now()
+		var roundStats []TaskDurationStat
+
 		for idx, d := range dataList {
-			fmt.Printf("\n--- THỰC THI TASK %d: %s ---\n", idx+1, d.Method)
+			taskStart := time.Now()
+			fmt.Printf("\n--- THỰC THI TASK %d (Round %d): %s (Action: %s) ---\n", idx+1, round, d.Method, d.Action)
 
 			var contractAddress common.Address
 			action := strings.ToLower(d.Action)
@@ -231,13 +253,36 @@ func main() {
 			} else {
 				log.Fatalf("❌ Action không hợp lệ: %s", d.Action)
 			}
+
+			taskDur := time.Since(taskStart)
+			fmt.Printf("   ⏱️  [DEBUG TIME] 🏁 Hoàn thành Task %d (%s - %s) trong: %v\n", idx+1, d.Action, d.Method, taskDur)
+			roundStats = append(roundStats, TaskDurationStat{
+				Index:    idx + 1,
+				Action:   d.Action,
+				Method:   d.Method,
+				Duration: taskDur,
+			})
 		}
+
+		roundDur := time.Since(roundStart)
+		fmt.Println("\n==================================================")
+		fmt.Printf("📊 BẢNG TỔNG HỢP THỜI GIAN REQUEST (ROUND %d):\n", round)
+		fmt.Println("--------------------------------------------------")
+		for _, s := range roundStats {
+			methodName := s.Method
+			if methodName == "" {
+				methodName = "-"
+			}
+			fmt.Printf("  • Task %d [%-12s | Method: %-12s]: %v\n", s.Index, s.Action, methodName, s.Duration)
+		}
+		fmt.Println("--------------------------------------------------")
+		fmt.Printf("⏱️  TỔNG THỜI GIAN THỰC THI ROUND %d: %v\n", round, roundDur)
+		fmt.Println("==================================================")
 
 		if !*loopFlag {
 			break
 		}
 		fmt.Println("\n🔄 Chế độ Loop bật: Đang lặp lại danh sách giao dịch...")
-		time.Sleep(1 * time.Second)
 	}
 
 	fmt.Println("==================================================")
@@ -260,7 +305,11 @@ func loadData(path string) []DataPayload {
 // ----------------------------------------------------
 func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, senderPrivKey *ecdsa.PrivateKey, fromAddress common.Address, bytecode []byte, lastDeployed **common.Address) {
 	fmt.Println("▶️  Chạy TCP Deploy Contract (raw Ethereum EIP-2718)...")
+	tDeployStart := time.Now()
+
+	tStateStart := time.Now()
 	if as, err := cli.AccountState(fromAddress); err == nil && as != nil {
+		fmt.Printf("   ⏱️  [DEBUG TIME] Query AccountState xem thông tin deploy: %v\n", time.Since(tStateStart))
 		fmt.Printf("   📝 CHI TIẾT TX DEPLOY:\n")
 		fmt.Printf("      - From:            %s\n", fromAddress.Hex())
 		fmt.Printf("      - Nonce:           %d\n", as.Nonce())
@@ -296,6 +345,7 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, send
 		}
 		log.Fatalf("❌ DEPLOY THẤT BẠI (Status: %s)!", status.String())
 	}
+	fmt.Printf("   ⏱️  [DEBUG TIME] 📊 Tổng thời gian executeDeployTCP: %v\n", time.Since(tDeployStart))
 }
 
 // ----------------------------------------------------
@@ -306,8 +356,13 @@ func executeDeployTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, send
 // ----------------------------------------------------
 func executeCallTCP(cli *client_tcp.Client, contractAddress common.Address, fromAddress common.Address, parsedABI abi.ABI, methodName string, payloadData []byte, expectedVerify []interface{}) {
 	fmt.Printf("▶️  Chạy thử TCP Call (READ - Không cần ký) cho hàm %s...\n", methodName)
+	tCallStart := time.Now()
 
+	tChainCallStart := time.Now()
 	receipt, err := cli.ChainCall(contractAddress, payloadData, &fromAddress)
+	tChainCallDur := time.Since(tChainCallStart)
+	fmt.Printf("   ⏱️  [DEBUG TIME] cli.ChainCall (Mô phỏng EVM off-chain qua node): %v\n", tChainCallDur)
+
 	if err != nil {
 		log.Fatalf("❌ Lỗi gọi TCP Call %s: %v", methodName, err)
 	}
@@ -324,7 +379,10 @@ func executeCallTCP(cli *client_tcp.Client, contractAddress common.Address, from
 
 	result := receipt.Return()
 	if methodName != "" && len(result) > 0 {
+		tUnpackStart := time.Now()
 		outputs, err := parsedABI.Unpack(methodName, result)
+		tUnpackDur := time.Since(tUnpackStart)
+		fmt.Printf("   ⏱️  [DEBUG TIME] Unpack ABI kết quả: %v\n", tUnpackDur)
 		if err != nil {
 			log.Printf("⚠️ Không thể unpack kết quả hàm %s: %v", methodName, err)
 			fmt.Printf("   ✅ Kết quả RAW: %x\n", result)
@@ -363,6 +421,7 @@ func executeCallTCP(cli *client_tcp.Client, contractAddress common.Address, from
 	} else {
 		fmt.Printf("   ✅ Kết quả RAW: %x\n", result)
 	}
+	fmt.Printf("   ⏱️  [DEBUG TIME] 📊 Tổng thời gian executeCallTCP: %v\n", time.Since(tCallStart))
 }
 
 // ----------------------------------------------------
@@ -373,6 +432,7 @@ func executeCallTCP(cli *client_tcp.Client, contractAddress common.Address, from
 // ----------------------------------------------------
 func executeEstimateGasTCP(cli *client_tcp.Client, contractAddress common.Address, fromAddress common.Address, methodName string, payloadData []byte, amount *big.Int) {
 	fmt.Printf("▶️  Chạy thử TCP EstimateGas (Mô phỏng - Không cần ký) cho hàm %s...\n", methodName)
+	tEstStart := time.Now()
 
 	gasUsed, err := cli.ChainEstimateGas(
 		contractAddress,
@@ -380,11 +440,15 @@ func executeEstimateGasTCP(cli *client_tcp.Client, contractAddress common.Addres
 		&fromAddress,
 		amount,
 	)
+	tEstDur := time.Since(tEstStart)
+	fmt.Printf("   ⏱️  [DEBUG TIME] cli.ChainEstimateGas (Mô phỏng dry-run tính gas): %v\n", tEstDur)
+
 	if err != nil {
 		log.Fatalf("❌ Lỗi gọi TCP EstimateGas %s: %v", methodName, err)
 	}
 
 	fmt.Printf("   ⛽ ESTIMATE GAS THÀNH CÔNG: %d gas (hàm %s)\n", gasUsed, methodName)
+	fmt.Printf("   ⏱️  [DEBUG TIME] 📊 Tổng thời gian executeEstimateGasTCP: %v\n", time.Since(tEstStart))
 }
 
 // ----------------------------------------------------
@@ -392,7 +456,11 @@ func executeEstimateGasTCP(cli *client_tcp.Client, contractAddress common.Addres
 // ----------------------------------------------------
 func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, senderPrivKey *ecdsa.PrivateKey, contractAddress common.Address, fromAddress common.Address, payloadData []byte, amount *big.Int, methodName string) {
 	fmt.Printf("▶️  Chạy TCP SendRawTransaction (WRITE - Ethereum EIP-2718) cho hàm/hành động %s...\n", methodName)
+	tSendTaskStart := time.Now()
+
+	tStateStart := time.Now()
 	if as, err := cli.AccountState(fromAddress); err == nil && as != nil {
+		fmt.Printf("   ⏱️  [DEBUG TIME] Query AccountState xem thông tin tx: %v\n", time.Since(tStateStart))
 		fmt.Printf("   📝 CHI TIẾT TX GỬI ĐI (%s):\n", methodName)
 		fmt.Printf("      - From:    %s\n", fromAddress.Hex())
 		fmt.Printf("      - To:      %s\n", contractAddress.Hex())
@@ -432,6 +500,7 @@ func executeSendTCP(cli *client_tcp.Client, cfg *tcp_config.ClientConfig, sender
 	} else {
 		fmt.Printf("   ⚠️ Tx gửi thành công nhưng không có Receipt\n")
 	}
+	fmt.Printf("   ⏱️  [DEBUG TIME] 📊 Tổng thời gian executeSendTCP: %v\n", time.Since(tSendTaskStart))
 }
 
 // sendRawEthereumTransaction signs a canonical Ethereum legacy (EIP-155)
@@ -454,12 +523,18 @@ func sendRawEthereumTransaction(
 		value = big.NewInt(0)
 	}
 
+	txOpStart := time.Now()
+
 	from := crypto.PubkeyToAddress(privateKey.PublicKey)
+	tStateStart := time.Now()
 	account, err := cli.AccountState(from)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get sender nonce: %w", err)
 	}
+	tStateDur := time.Since(tStateStart)
+	fmt.Printf("   ⏱️  [DEBUG TIME] 1. Query sender AccountState (Nonce: %d): %v\n", account.Nonce(), tStateDur)
 
+	tSignStart := time.Now()
 	chainID := new(big.Int).SetUint64(cfg.ChainId)
 	unsigned := e_types.NewTx(&e_types.LegacyTx{
 		Nonce:    account.Nonce(),
@@ -477,20 +552,31 @@ func sendRawEthereumTransaction(
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal EIP-2718 transaction: %w", err)
 	}
+	tSignDur := time.Since(tSignStart)
+	fmt.Printf("   ⏱️  [DEBUG TIME] 2. Ký & Encode EIP-2718 (Sign & Marshal): %v\n", tSignDur)
 
+	tSendStart := time.Now()
 	acceptedHash, err := cli.SendRawEthTransaction(rawTx)
 	if err != nil {
 		return nil, nil, err
 	}
+	tSendDur := time.Since(tSendStart)
 	if acceptedHash != signed.Hash() {
 		return nil, nil, fmt.Errorf("node acknowledged unexpected transaction hash: got %s want %s", acceptedHash.Hex(), signed.Hash().Hex())
 	}
+	fmt.Printf("   ⏱️  [DEBUG TIME] 3. Gửi SendRawEthTransaction (Mempool Ingress Acknowledged): %v\n", tSendDur)
 	fmt.Printf("   ✅ Node accepted Ethereum transaction: %s\n", acceptedHash.Hex())
 
+	tReceiptStart := time.Now()
 	receipt, err := cli.FindReceiptByHash(acceptedHash)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wait for transaction receipt %s: %w", acceptedHash.Hex(), err)
 	}
+	tReceiptDur := time.Since(tReceiptStart)
+	fmt.Printf("   ⏱️  [DEBUG TIME] 4. Chờ Receipt (Raft consensus + EVM execution + Commit): %v\n", tReceiptDur)
+	fmt.Printf("   ⏱️  [DEBUG TIME] 📊 Tổng luồng Write Tx: %v (QueryNonce: %v | Sign: %v | Ingress: %v | Consensus/Exec: %v)\n",
+		time.Since(txOpStart), tStateDur, tSignDur, tSendDur, tReceiptDur)
+
 	return receipt, signed, nil
 }
 
