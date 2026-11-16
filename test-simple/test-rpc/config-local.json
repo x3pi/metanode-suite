@@ -1,5 +1,5 @@
 {
-  "rpc_url": "http://192.168.1.234:8747",
-  "private_key": "5bea4fb7f4ae34136e5b4a9b8538501334152282502ea425af647c2fb0331d4a",
+  "rpc_url": "http://61.28.238.209:8750",
+  "private_key": "467a81a17c92cfd0f33a33b437aea81344e397600f5ef8153d672f065555439c",
   "chain_id": 991
 }

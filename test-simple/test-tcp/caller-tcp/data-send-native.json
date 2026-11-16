@@ -1,9 +1,58 @@
 [
-    {
-        "action": "send",
-        "contract": "0xA77c800d6703081D103d795627E342a8A1302993",
-        "method": "",
-        "input_data": "",
-        "amount": "1000000000000000000000"
-    }
+  {
+    "action": "send",
+    "contract": "0xBa7753CE4d103A8e5E86921642EE745441DF84Fd",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  },
+  {
+    "action": "send",
+    "contract": "0xAaf13F2B99eBE4189B01705d9d44819C388b435d",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  },
+  {
+    "action": "send",
+    "contract": "0x8b875A86fF47F7D768168e79Bf842dd5CdcA17De",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  },
+  {
+    "action": "send",
+    "contract": "0xb23341864eCdE008104FD33ac1903c6bB2076f7B",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  },
+  {
+    "action": "send",
+    "contract": "0x17cDc9447a8Bce904D4d52D5e13a6151Acb2f001",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  },
+  {
+    "action": "send",
+    "contract": "0x8d6A3e934Fc758fc5Ed402551677432EEec9469b",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  },
+  {
+    "action": "send",
+    "contract": "0xD1ba8232cbFddA6D326c735876b909a7CDd1A835",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  },
+  {
+    "action": "send",
+    "contract": "0xCb6179A2180c9Aa0116e3B31226cEbe0c8437a0f",
+    "method": "",
+    "input_data": "",
+    "amount": "1000000000000000000000000"
+  }
 ]
