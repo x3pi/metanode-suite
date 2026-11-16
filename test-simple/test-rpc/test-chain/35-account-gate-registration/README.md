@@ -25,19 +25,32 @@ go run main.go -rpc=http://127.0.0.1:8747
 
 ### 2. Sinh và đăng ký hàng loạt 5 ví mới:
 ```bash
-go run main.go -rpc=http://127.0.0.1:8646 -count=5 -out=my_wallets.json
+go run main.go -rpc=http://127.0.0.1:8747 -count=5 -out=my_wallets.json
 ```
 Kết quả danh sách ví (địa chỉ, private key, trạng thái `CONFIRMED`) sẽ tự động được lưu vào file `my_wallets.json`.
 
 ### 3. Đăng ký cho 1 ví ĐÃ CÓ SẴN (thông qua Private Key):
 ```bash
-go run main.go -rpc=http://127.0.0.1:8646 -wallet-pk=0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d
+go run main.go -rpc=http://127.0.0.1:8747 -wallet-pk=0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d
 ```
 
 ### 4. Kiểm tra trạng thái Gate của một ví bất kỳ (không thực hiện đăng ký):
 ```bash
-go run main.go -rpc=http://127.0.0.1:8646 -check=0x90F79bf6EB2c4f870365E785982E1f101E93b906
+# Sử dụng cờ -check hoặc -status (alias):
+# Sử dụng cờ -check hoặc -status (alias):
+go run main.go -rpc=http://127.0.0.1:8747 -check=0x90F79bf6EB2c4f870365E785982E1f101E93b906
+# Hoặc:
+go run main.go -rpc=http://127.0.0.1:8747 -status=0x90F79bf6EB2c4f870365E785982E1f101E93b906
+# Hoặc:
+go run main.go -rpc=http://127.0.0.1:8646 -status=0x90F79bf6EB2c4f870365E785982E1f101E93b906
 ```
+Kết quả hiển thị đầy đủ:
+- Trạng thái Gate: `CONFIRMED` / `PROVISIONAL` / `PENDING` / `NONE` / `REJECTED` / `FAILED`
+- Đánh giá quyền giao dịch trên cụm
+- Hash to sign (nếu cần ký)
+- Home Cluster (nếu thuộc cụm khác)
+- Lý do (Reason nếu có lỗi/từ chối)
+- Số dư tài khoản (Balance)
 
 ---
 
@@ -68,6 +81,8 @@ go run main.go -tcp-config=../test-simple/test-tcp/caller-tcp/config-local.json
 ### 5. Kiểm tra trạng thái ví qua TCP:
 ```bash
 go run main.go -tcp=127.0.0.1:8080 -check=0x90F79bf6EB2c4f870365E785982E1f101E93b906
+# Hoặc:
+go run main.go -tcp=127.0.0.1:8080 -status=0x90F79bf6EB2c4f870365E785982E1f101E93b906
 ```
 
 ---
