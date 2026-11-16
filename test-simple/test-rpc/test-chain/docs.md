@@ -137,3 +137,15 @@ Dưới đây là mô tả chi tiết về chức năng và mục đích của 6
   7. Bắn đồng thời 10 truy vấn song song qua HTTPS để kiểm tra khả năng HTTP/2 multiplexing và tái sử dụng connection pool qua proxy Nginx.
 - **Kết quả kỳ vọng:** 100% các bước từ bắt tay TLS, deploy, read/write contract và xử lý truy vấn đồng thời đều thành công tuyệt đối qua HTTPS.
 
+### 38. `38-xapian-multinode-sync/main.go` (Kiểm tra Đồng bộ Dữ liệu Xapian Đa Node Raft & SyncNode)
+- **Mục đích:** Kiểm chứng E2E tính nhất quán dữ liệu tuyệt đối của cơ sở dữ liệu toàn văn Xapian (`FullDatabaseV1` tại `0x107`) giữa các Node trong cụm đồng thuận Raft (`m0`, `m1`, `m2` trong `rpc_nodes`) và các `sync_nodes` (nếu có).
+- **Cách hoạt động:**
+  1. Deploy hợp đồng `XapianMultiNodeSync` độc lập cho mỗi lượt chạy và khởi tạo 3 tài liệu gốc (`baseline[0..2]`) cùng 1 bộ đếm chia sẻ (`counterDocId`).
+  2. Gửi giao dịch qua Follower Node ghi tài liệu có định danh số nhỏ (`docId = 2`) để xác nhận không ghi đè nhầm vào physical docid 2 trên cả Leader lẫn Follower.
+  3. Bắn đồng thời N giao dịch từ nhiều ví rải đều qua tất cả RPC node (`m0`, `m1`, `m2`), cùng tạo tài liệu có điểm liên quan BM25 bằng nhau (`"metanode equalrank consensus"`) để kiểm chứng thứ tự cấp phát physical docid tất định giữa Block-STM song song trên Leader và luồng replay `FullDbLogs` trên Follower/SyncNode.
+  4. Bắn đồng thời N giao dịch gọi `incrementSharedCounter()` gây xung đột đọc-ghi trên cùng 1 tài liệu Xapian và biến EVM.
+  5. Cập nhật `baseline[0]`, xóa `baseline[2]`, và gọi xóa ID ngắn không tồn tại (`docId = 1`).
+  6. Đợi tất cả các node đồng bộ tới block cuối cùng và gọi `eth_call` trực tiếp vào từng node để so khớp từng byte dữ liệu, bộ đếm, thứ tự BM25 tie-break và sắp xếp theo Value Slot 0.
+- **Kết quả kỳ vọng:** Toàn bộ `rpc_nodes` và `sync_nodes` trả về kết quả khớp nhau 100% byte-for-byte ở mọi truy vấn đọc và tìm kiếm Xapian.
+
+

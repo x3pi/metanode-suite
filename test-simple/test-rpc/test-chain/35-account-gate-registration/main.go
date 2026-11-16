@@ -10,10 +10,10 @@
  *    - Ví mới tự gửi giao dịch chuyển tiền đầu tiên thành công.
  *    - Nếu có cấu hình TCP, kiểm tra push notification qua TCP socket.
  *
- * 2. STANDALONE CLI TOOL (Khi truyền cờ -count, -wallet-pk, -check, -tcp):
+ * 2. STANDALONE CLI TOOL (Khi truyền cờ -count, -wallet-pk, -check/-status, -tcp):
  *    - go run main.go -count=5 -out=my_wallets.json
  *    - go run main.go -wallet-pk=0x...
- *    - go run main.go -check=0x...
+ *    - go run main.go -check=0x... (hoặc -status=0x...)
  *    - go run main.go -tcp=127.0.0.1:4200 -count=3
  */
 package main
@@ -471,6 +471,18 @@ func registerOneWallet(client RegistrationClient, privKey *ecdsa.PrivateKey, ind
 	}
 	fmt.Printf("      • Trạng thái phản hồi: %s (Reason: %s)\n", submitInfo.Status, submitInfo.Reason)
 
+	// Nếu trả về CONFIRMED hoặc PROVISIONAL ngay lập tức thì coi là thành công luôn
+	if submitInfo != nil && (submitInfo.Status == "CONFIRMED" || submitInfo.Status == "PROVISIONAL") {
+		fmt.Printf("   🎉 CHÚC MỪNG! Đăng ký thành công ngay lập tức! Trạng thái: %s\n", submitInfo.Status)
+		return &RegisteredAccountRecord{
+			Index:        index,
+			Address:      userAddr.Hex(),
+			PrivateKey:   privKeyHex,
+			Status:       submitInfo.Status,
+			RegisterTime: time.Now().Format(time.RFC3339),
+		}, nil
+	}
+
 	fmt.Printf("   4️⃣ Đang chờ Node & Parent Chain xác nhận (Polling status)...\n")
 	timeout := time.After(45 * time.Second)
 	ticker := time.NewTicker(1500 * time.Millisecond)
@@ -479,7 +491,7 @@ func registerOneWallet(client RegistrationClient, privKey *ecdsa.PrivateKey, ind
 	for {
 		select {
 		case <-timeout:
-			return nil, fmt.Errorf("timeout sau 45s: ví chưa được chuyển sang trạng thái CONFIRMED")
+			return nil, fmt.Errorf("timeout sau 45s: ví chưa được chuyển sang trạng thái CONFIRMED hoặc PROVISIONAL")
 		case <-ticker.C:
 			currentStatus, err := client.GetRegistrationStatus(userAddr)
 			if err != nil {
@@ -500,7 +512,7 @@ func registerOneWallet(client RegistrationClient, privKey *ecdsa.PrivateKey, ind
 				}, nil
 
 			case "PROVISIONAL":
-				fmt.Printf("   ✅ Ví %s đã được kích hoạt tạm trên cụm khi Parent Chain offline.\n", userAddr.Hex())
+				fmt.Printf("   🎉 ĐĂNG KÝ THÀNH CÔNG (TẠM THỜI)! Ví %s đã được kích hoạt tạm (PROVISIONAL) trên cụm khi Parent Chain offline.\n", userAddr.Hex())
 				return &RegisteredAccountRecord{
 					Index:        index,
 					Address:      userAddr.Hex(),
@@ -577,7 +589,7 @@ func registerOneWalletTCP(client *client_tcp.Client, privKey *ecdsa.PrivateKey, 
 		}, nil
 
 	case "PROVISIONAL":
-		fmt.Printf("   ✅ Node PUSH kết quả PROVISIONAL; ví được phép giao dịch nội bộ.\n")
+		fmt.Printf("   🎉 ĐĂNG KÝ THÀNH CÔNG (TẠM THỜI)! Node PUSH kết quả PROVISIONAL (kích hoạt tạm trên cụm khi Parent Chain offline).\n")
 		return &RegisteredAccountRecord{
 			Index:        index,
 			Address:      userAddr.Hex(),
@@ -714,11 +726,16 @@ func RunTest(configPath string) error {
 
 	// 5. Chờ xác nhận CONFIRMED hoặc PROVISIONAL
 	fmt.Println("⏳ [Bước 5] Chờ Parent Chain và Node xác nhận đăng ký...")
+	confirmed := false
+	if submitInfo.Status == "CONFIRMED" || submitInfo.Status == "PROVISIONAL" {
+		fmt.Printf("   🎉 ĐĂNG KÝ THÀNH CÔNG! Trạng thái: %s\n", submitInfo.Status)
+		confirmed = true
+	}
+
 	timeout := time.After(45 * time.Second)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	confirmed := false
 	for !confirmed {
 		select {
 		case <-timeout:
@@ -817,10 +834,16 @@ func main() {
 	walletPkFlag := flag.String("wallet-pk", "", "Private key hex của ví có sẵn cần đăng ký (CLI mode)")
 	outFileFlag := flag.String("out", "", "Đường dẫn file JSON để xuất danh sách ví đã đăng ký")
 	checkOnlyFlag := flag.String("check", "", "Địa chỉ ví cần kiểm tra trạng thái đăng ký (chỉ kiểm tra, không đăng ký)")
+	statusFlag := flag.String("status", "", "Alias của -check: Địa chỉ ví cần kiểm tra trạng thái đăng ký")
 	cliModeFlag := flag.Bool("cli", false, "Bắt buộc chạy ở chế độ CLI Onboarding Tool thay vì Test Suite")
 	flag.Parse()
 
-	isCLIMode := *cliModeFlag || *countFlag > 0 || *walletPkFlag != "" || *checkOnlyFlag != "" || *outFileFlag != "" || *tcpFlag != "" || *tcpConfigFlag != ""
+	checkTarget := strings.TrimSpace(*checkOnlyFlag)
+	if checkTarget == "" {
+		checkTarget = strings.TrimSpace(*statusFlag)
+	}
+
+	isCLIMode := *cliModeFlag || *countFlag > 0 || *walletPkFlag != "" || checkTarget != "" || *outFileFlag != "" || *tcpFlag != "" || *tcpConfigFlag != ""
 
 	// ════════════════════════════════════════════════════════════════════
 	// CHẾ ĐỘ 1: AUTOMATED TEST SUITE (Mặc định khi chạy CI hoặc go test)
@@ -841,7 +864,7 @@ func main() {
 	// ════════════════════════════════════════════════════════════════════
 
 	// Tự động load config nếu rpc / tcp chưa được cung cấp qua cờ
-	if *outFileFlag == "" && *checkOnlyFlag == "" {
+	if *outFileFlag == "" && checkTarget == "" {
 		*outFileFlag = "registered_wallets.json"
 	}
 	defaultRPC := "http://127.0.0.1:8747"
@@ -896,8 +919,8 @@ func main() {
 			}
 			defer rawClient.Close()
 
-			if *checkOnlyFlag != "" {
-				checkAddr := common.HexToAddress(*checkOnlyFlag)
+			if checkTarget != "" {
+				checkAddr := common.HexToAddress(checkTarget)
 				fmt.Printf("🔍 (TCP Raw) Đang kiểm tra trạng thái ví: %s\n", checkAddr.Hex())
 				regMsg, err := rawClient.GetRegistrationMessage(checkAddr)
 				if err != nil {
@@ -911,8 +934,23 @@ func main() {
 					return
 				}
 				fmt.Printf("   • Trạng thái Gate: %s\n", status.Status)
+				switch status.Status {
+				case "CONFIRMED", "PROVISIONAL":
+					fmt.Printf("   • Đánh giá:        ✅ Đã đăng ký thành công (%s - hoạt động trên cụm)\n", status.Status)
+				case "PENDING":
+					fmt.Printf("   • Đánh giá:        ⏳ Đang chờ xác nhận (PENDING - đang đồng bộ lên Parent Chain)\n")
+				case "NONE":
+					fmt.Printf("   • Đánh giá:        ⚠️ Chưa đăng ký (NONE - ví chưa thể gửi/nhận tiền)\n")
+				case "REJECTED":
+					fmt.Printf("   • Đánh giá:        🚫 Bị từ chối / Khóa (REJECTED - ví thuộc cụm khác)\n")
+				case "FAILED":
+					fmt.Printf("   • Đánh giá:        ❌ Đăng ký thất bại (FAILED - có thể gửi đăng ký lại)\n")
+				}
 				if status.HomeCluster != "" {
 					fmt.Printf("   • Home Cluster:    %s\n", status.HomeCluster)
+				}
+				if status.Reason != "" {
+					fmt.Printf("   • Lý do:           %s\n", status.Reason)
 				}
 				return
 			}
@@ -966,8 +1004,8 @@ func main() {
 		}
 		time.Sleep(500 * time.Millisecond)
 
-		if *checkOnlyFlag != "" {
-			checkAddr := common.HexToAddress(*checkOnlyFlag)
+		if checkTarget != "" {
+			checkAddr := common.HexToAddress(checkTarget)
 			fmt.Printf("🔍 (TCP) Đang kiểm tra trạng thái ví: %s\n", checkAddr.Hex())
 			hashToSign, err := tcpClient.ChainGetRegistrationMessage(checkAddr)
 			if err != nil {
@@ -981,8 +1019,23 @@ func main() {
 				return
 			}
 			fmt.Printf("   • Trạng thái Gate: %s\n", status.Status)
+			switch status.Status {
+			case "CONFIRMED", "PROVISIONAL":
+				fmt.Printf("   • Đánh giá:        ✅ Đã đăng ký thành công (%s - hoạt động trên cụm)\n", status.Status)
+			case "PENDING":
+				fmt.Printf("   • Đánh giá:        ⏳ Đang chờ xác nhận (PENDING - đang đồng bộ lên Parent Chain)\n")
+			case "NONE":
+				fmt.Printf("   • Đánh giá:        ⚠️ Chưa đăng ký (NONE - ví chưa thể gửi/nhận tiền)\n")
+			case "REJECTED":
+				fmt.Printf("   • Đánh giá:        🚫 Bị từ chối / Khóa (REJECTED - ví thuộc cụm khác)\n")
+			case "FAILED":
+				fmt.Printf("   • Đánh giá:        ❌ Đăng ký thất bại (FAILED - có thể gửi đăng ký lại)\n")
+			}
 			if status.HomeCluster != "" {
 				fmt.Printf("   • Home Cluster:    %s\n", status.HomeCluster)
+			}
+			if status.Reason != "" {
+				fmt.Printf("   • Lý do:           %s\n", status.Reason)
 			}
 			if as, err := tcpClient.AccountState(checkAddr); err == nil && as != nil {
 				fmt.Printf("   • Số dư:           %s wei\n", as.Balance().String())
@@ -1063,8 +1116,8 @@ func main() {
 	}
 
 	// Nếu chỉ kiểm tra 1 địa chỉ qua RPC
-	if *checkOnlyFlag != "" {
-		checkAddr := common.HexToAddress(*checkOnlyFlag)
+	if checkTarget != "" {
+		checkAddr := common.HexToAddress(checkTarget)
 		fmt.Printf("🔍 (RPC) Đang kiểm tra ví: %s\n", checkAddr.Hex())
 
 		regMsg, err := client.GetRegistrationMessage(checkAddr)
@@ -1080,8 +1133,23 @@ func main() {
 			return
 		}
 		fmt.Printf("   • Trạng thái Gate: %s\n", status.Status)
+		switch status.Status {
+		case "CONFIRMED", "PROVISIONAL":
+			fmt.Printf("   • Đánh giá:        ✅ Đã đăng ký thành công (%s - hoạt động trên cụm)\n", status.Status)
+		case "PENDING":
+			fmt.Printf("   • Đánh giá:        ⏳ Đang chờ xác nhận (PENDING - đang đồng bộ lên Parent Chain)\n")
+		case "NONE":
+			fmt.Printf("   • Đánh giá:        ⚠️ Chưa đăng ký (NONE - ví chưa thể gửi/nhận tiền)\n")
+		case "REJECTED":
+			fmt.Printf("   • Đánh giá:        🚫 Bị từ chối / Khóa (REJECTED - ví thuộc cụm khác)\n")
+		case "FAILED":
+			fmt.Printf("   • Đánh giá:        ❌ Đăng ký thất bại (FAILED - có thể gửi đăng ký lại)\n")
+		}
 		if status.HomeCluster != "" {
 			fmt.Printf("   • Home Cluster:    %s\n", status.HomeCluster)
+		}
+		if status.Reason != "" {
+			fmt.Printf("   • Lý do:           %s\n", status.Reason)
 		}
 		balance, _ := client.GetBalance(checkAddr)
 		fmt.Printf("   • Số dư:           %s wei\n", balance.String())
