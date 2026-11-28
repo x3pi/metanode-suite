@@ -461,9 +461,9 @@ for cid_k, c_val in p_clusters.items():
         c_tcp_map = c_val.get('tcp_nodes', {'m0': '127.0.0.1:4200'})
 
     aliases = []
-    if str(cid_k) == '1':
+    if str(cid_k) in ['1', 'chain_a', 'exec1'] or str(c_val.get('cluster_id', '')) == '1':
         aliases = ['chain_a', 'exec1']
-    elif str(cid_k) == '2':
+    elif str(cid_k) in ['2', 'chain_b', 'exec2'] or str(c_val.get('cluster_id', '')) == '2':
         aliases = ['chain_b', 'exec2']
     else:
         aliases = [c_val.get('cluster_name', f'exec{cid_k}')]
